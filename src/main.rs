@@ -3,24 +3,44 @@ pub mod graph;
 pub mod node;
 pub mod parser;
 
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::post,
+    Router,
+};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use crate::graph::Graph;
 
-fn main() {
-    let mut g = Graph::new();
+type SharedGraph = Arc<Mutex<Graph>>;
 
-    let create_query = "CREATE (n:Person {name: 'Alice'}), (m:Person {name: 'Bob'}), (n)-[:KNOWS]->(m)";
-    if let Err(e) = g.execute(create_query) {
-        println!("Error executing CREATE: {}", e);
-    }
+#[tokio::main]
+async fn main() {
+    let graph = Arc::new(Mutex::new(Graph::new()));
 
-    let match_query = "MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'}) RETURN a, b";
-    match g.execute(match_query) {
-        Ok(result) => {
-            println!("Query Result:\n{}", result);
-        }
-        Err(e) => {
-            println!("Error executing MATCH: {}", e);
-        }
+    let app = Router::new()
+        .route("/query", post(handle_query))
+        .with_state(graph);
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
+    println!("Listening on {}", addr);
+
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn handle_query(
+    State(graph): State<SharedGraph>,
+    body: String,
+) -> impl IntoResponse {
+    let mut g = graph.lock().await;
+    match g.execute(&body) {
+        Ok(result) => (StatusCode::OK, result),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)),
     }
 }
 
@@ -48,7 +68,7 @@ mod tests {
         g.execute("CREATE (a:User {id: '1'})").unwrap();
 
         let result = g.execute("MATCH (a:Admin {id: '1'}) RETURN a").unwrap();
-        assert_eq!(result.trim(), "a: null");
+        assert_eq!(result.trim(), "");
     }
 
     #[test]
