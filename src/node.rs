@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-pub(crate) struct Node {
-    labels: Vec<usize>,
-    edges: Vec<usize>,
-    properties: HashMap<String, String>,
+#[derive(Debug)]
+pub struct Node {
+    pub labels: Vec<usize>,
+    pub edges: Vec<usize>,
+    pub properties: HashMap<String, String>,
 }
 
 impl Node {
