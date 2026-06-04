@@ -1,7 +1,7 @@
-pub mod edge;
-pub mod graph;
-pub mod node;
-pub mod parser;
+
+
+
+
 
 use axum::{
     extract::State,
@@ -12,7 +12,7 @@ use axum::{
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::graph::Graph;
+use yagdb::graph::Graph;
 
 type SharedGraph = Arc<Mutex<Graph>>;
 
