@@ -21,6 +21,7 @@ pub struct RelPattern {
     pub variable: Option<String>,
     pub label: Option<String>,
     pub properties: HashMap<String, String>,
+    pub length: Option<(usize, Option<usize>)>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -108,11 +109,36 @@ fn node_pattern(input: &str) -> IResult<&str, NodePattern> {
     ))
 }
 
+fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
+    let (input, _) = ws(char('*'))(input)?;
+    let (input, min) = opt(ws(nom::character::complete::digit1))(input)?;
+    let (input, dots) = opt(ws(tag("..")))(input)?;
+
+    let (input, max) = if dots.is_some() {
+        opt(ws(nom::character::complete::digit1))(input)?
+    } else {
+        (input, None)
+    };
+
+    let min_val = min.map(|s| s.parse::<usize>().unwrap()).unwrap_or(1);
+
+    let max_val = if dots.is_some() {
+        max.map(|s| s.parse::<usize>().unwrap())
+    } else if min.is_some() {
+        Some(min_val)
+    } else {
+        None
+    };
+
+    Ok((input, (min_val, max_val)))
+}
+
 fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
     let (input, _) = ws(tag("-["))(input)?;
     let (input, variable) = opt(ws(identifier))(input)?;
     let (input, label) = opt(preceded(ws(char(':')), ws(identifier)))(input)?;
     let (input, props) = opt(ws(properties))(input)?;
+    let (input, length) = opt(ws(var_length))(input)?;
     let (input, _) = ws(tag("]->"))(input)?;
 
     Ok((
@@ -121,6 +147,7 @@ fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
             variable: variable.map(|s| s.to_string()),
             label: label.map(|s| s.to_string()),
             properties: props.unwrap_or_default(),
+            length,
         },
     ))
 }
