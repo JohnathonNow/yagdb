@@ -16,6 +16,7 @@ pub enum WalEntry {
 pub enum GraphElement {
     Node(usize),
     Edge(usize),
+    EdgeArray(Vec<usize>),
 }
 
 pub type Environment = HashMap<String, GraphElement>;
@@ -208,6 +209,10 @@ impl Graph {
                                         let edge = &self.edges[*edge_id];
                                         output.push_str(&format!("{}: {:?}\n", var, edge));
                                     }
+                                    GraphElement::EdgeArray(edge_ids) => {
+                                        let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
+                                        output.push_str(&format!("{}: {:?}\n", var, edges));
+                                    }
                                 }
                             } else {
                                 output.push_str(&format!("{}: null\n", var));
@@ -308,6 +313,23 @@ impl Graph {
 
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 
+        if let Some((min_len, max_len)) = rel_pattern.length {
+            if min_len != 1 || max_len != Some(1) {
+                self.match_var_length_edges(
+                    edges,
+                    edge_idx,
+                    current_node_id,
+                    current_env,
+                    results,
+                    min_len,
+                    max_len,
+                    0,
+                    Vec::new(),
+                );
+                return;
+            }
+        }
+
         let matches = self.find_edges_and_nodes(current_node_id, rel_pattern, target_node_pattern, &current_env);
 
         for (next_node_id, edge_id) in matches {
@@ -319,6 +341,90 @@ impl Graph {
                 new_env.insert(var.clone(), GraphElement::Node(next_node_id));
             }
             self.match_edges_recursive(edges, edge_idx + 1, next_node_id, new_env, results);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn match_var_length_edges(
+        &self,
+        edges: &[(RelPattern, NodePattern)],
+        edge_idx: usize,
+        current_node_id: usize,
+        current_env: Environment,
+        results: &mut Vec<Environment>,
+        min_len: usize,
+        max_len: Option<usize>,
+        current_depth: usize,
+        path_edges: Vec<usize>,
+    ) {
+        let (rel_pattern, target_node_pattern) = &edges[edge_idx];
+
+        if current_depth >= min_len {
+            let target_bound_id = if let Some(var) = &target_node_pattern.variable {
+                if let Some(GraphElement::Node(id)) = current_env.get(var) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let matches_target = if let Some(bound_id) = target_bound_id {
+                current_node_id == bound_id
+            } else {
+                true
+            } && self.node_matches(current_node_id, target_node_pattern);
+
+            if matches_target {
+                let mut new_env = current_env.clone();
+                if let Some(var) = &rel_pattern.variable {
+                    new_env.insert(var.clone(), GraphElement::EdgeArray(path_edges.clone()));
+                }
+                if let Some(var) = &target_node_pattern.variable {
+                    new_env.insert(var.clone(), GraphElement::Node(current_node_id));
+                }
+                self.match_edges_recursive(edges, edge_idx + 1, current_node_id, new_env, results);
+            }
+        }
+
+        if let Some(max) = max_len {
+            if current_depth >= max {
+                return;
+            }
+        }
+
+        let start_node = &self.nodes[current_node_id];
+
+        for &edge_id in &start_node.edges {
+            let edge = &self.edges[edge_id];
+
+            if edge.start == current_node_id {
+                if path_edges.contains(&edge_id) {
+                    continue;
+                }
+
+                if !self.edge_matches(edge_id, rel_pattern) {
+                    continue;
+                }
+
+                let end_node_id = edge.end;
+
+                let mut new_path_edges = path_edges.clone();
+                new_path_edges.push(edge_id);
+
+                self.match_var_length_edges(
+                    edges,
+                    edge_idx,
+                    end_node_id,
+                    current_env.clone(),
+                    results,
+                    min_len,
+                    max_len,
+                    current_depth + 1,
+                    new_path_edges,
+                );
+            }
         }
     }
 
