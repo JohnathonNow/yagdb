@@ -40,16 +40,8 @@ pub struct Path {
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>),
-
-
-
-
-
-
     CreateIndex { label: String, property: String },
-
     Return(Vec<String>, Option<usize>),
-
 }
 
 #[derive(Debug, PartialEq, Clone)]

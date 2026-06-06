@@ -1,13 +1,5 @@
 
 use yagdb::parser::*;
-
-#[test]
-fn test_parser_create_index() {
-    let input = "CREATE INDEX ON :Person(name)";
-    let (rest, _ast) = parse_query(input).unwrap();
-    assert_eq!(rest, "");
-}
-
 use nom::IResult;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
@@ -54,5 +46,12 @@ fn test_var_length() {
     assert_eq!(var_length("*..5").unwrap().1, (1, Some(5)));
     assert_eq!(var_length("*3..").unwrap().1, (3, None));
     assert_eq!(var_length("*4").unwrap().1, (4, Some(4)));
-
 }
+
+#[test]
+fn test_parser_create_index() {
+    let input = "CREATE INDEX ON :Person(name)";
+    let (rest, _ast) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+}
+
