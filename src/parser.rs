@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
-    character::complete::{alpha1, alphanumeric1, char, multispace0},
+    character::complete::{alpha1, alphanumeric1, char, multispace0, digit1},
     combinator::{all_consuming, opt, recognize},
     multi::{many0, separated_list0},
     sequence::{delimited, pair, preceded},
@@ -39,7 +39,7 @@ pub struct Path {
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>),
-    Return(Vec<String>),
+    Return(Vec<String>, Option<usize>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -146,7 +146,12 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), ws(identifier))(input)?;
-    Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect())))
+    let (input, limit) = opt(preceded(
+        ws(alt((tag("LIMIT"), tag("limit")))),
+        ws(digit1),
+    ))(input)?;
+    let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
+    Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect(), limit_val)))
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {

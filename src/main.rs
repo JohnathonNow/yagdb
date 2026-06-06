@@ -77,4 +77,24 @@ mod tests {
         let res = g.execute("CREATE (n) BAD SYNTAX");
         assert!(res.is_err());
     }
+
+    #[test]
+    fn test_limit_clause() {
+        let mut g = Graph::new();
+        g.execute("CREATE (a:User {id: '1'})").unwrap();
+        g.execute("CREATE (a:User {id: '2'})").unwrap();
+        g.execute("CREATE (a:User {id: '3'})").unwrap();
+
+        let result_all = g.execute("MATCH (u:User) RETURN u").unwrap();
+        let rows_all = result_all.split("---\n").filter(|s| !s.trim().is_empty()).count();
+        assert_eq!(rows_all, 3);
+
+        let result_limit = g.execute("MATCH (u:User) RETURN u LIMIT 2").unwrap();
+        let rows_limit = result_limit.split("---\n").filter(|s| !s.trim().is_empty()).count();
+        assert_eq!(rows_limit, 2);
+
+        let result_limit_large = g.execute("MATCH (u:User) RETURN u LIMIT 10").unwrap();
+        let rows_limit_large = result_limit_large.split("---\n").filter(|s| !s.trim().is_empty()).count();
+        assert_eq!(rows_limit_large, 3);
+    }
 }

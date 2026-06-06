@@ -195,8 +195,12 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Return(vars) => {
-                    for env in &envs {
+                Clause::Return(vars, limit) => {
+                    let iter = match limit {
+                        Some(l) => envs.iter().take(l),
+                        None => envs.iter().take(envs.len()),
+                    };
+                    for env in iter {
                         for var in &vars {
                             if let Some(element) = env.get(var) {
                                 match element {
