@@ -18,7 +18,7 @@ type SharedGraph = Arc<Mutex<Graph>>;
 
 #[tokio::main]
 async fn main() {
-    let graph = Arc::new(Mutex::new(Graph::new()));
+    let graph = Arc::new(Mutex::new(Graph::load_or_create("graph.bin", "wal.bin")));
 
     let app = Router::new()
         .route("/query", post(handle_query))

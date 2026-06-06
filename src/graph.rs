@@ -1,6 +1,16 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
+use serde::{Serialize, Deserialize};
 
 use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern}};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum WalEntry {
+    AddLabel { label: String },
+    AddNode { label: usize, properties: HashMap<String, String> },
+    AddEdge { start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String> },
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphElement {
@@ -10,18 +20,120 @@ pub enum GraphElement {
 
 pub type Environment = HashMap<String, GraphElement>;
 
+#[derive(Serialize, Deserialize)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub labels: HashMap<String, usize>,
+    #[serde(skip)]
+    pub wal_file: Option<File>,
 }
 
+use std::io::Read;
+
 impl Graph {
+    pub fn load_or_create(snapshot_path: &str, wal_path: &str) -> Self {
+        let mut graph = if let Ok(mut snapshot_file) = File::open(snapshot_path) {
+            let mut buffer = Vec::new();
+            snapshot_file.read_to_end(&mut buffer).unwrap();
+            let mut g: Graph = bincode::deserialize(&buffer).unwrap();
+            g.wal_file = None;
+            g
+        } else {
+            Self::new()
+        };
+
+        let mut needs_snapshot = false;
+
+        if let Ok(mut wal_file) = File::open(wal_path) {
+            if wal_file.metadata().map(|m| m.len()).unwrap_or(0) > 0 {
+                needs_snapshot = true;
+            }
+            loop {
+                let mut len_buf = [0u8; 4];
+                if wal_file.read_exact(&mut len_buf).is_err() {
+                    break;
+                }
+                let len = u32::from_le_bytes(len_buf) as usize;
+                let mut entry_buf = vec![0u8; len];
+                if wal_file.read_exact(&mut entry_buf).is_err() {
+                    break;
+                }
+
+                let entry: WalEntry = bincode::deserialize(&entry_buf).unwrap();
+                match entry {
+                    WalEntry::AddLabel { label } => {
+                        let id = graph.labels.len();
+                        graph.labels.insert(label, id);
+                    }
+                    WalEntry::AddNode { label, properties } => {
+                        let node = Node::new(vec![label], vec![], properties);
+                        graph.nodes.push(node);
+                    }
+                    WalEntry::AddEdge { start, end, labels, properties } => {
+                        let edge = Edge::new(labels, start, end, properties);
+                        graph.edges.push(edge);
+                        let edge_idx = graph.edges.len() - 1;
+                        graph.nodes[start].edges.push(edge_idx);
+                        graph.nodes[end].edges.push(edge_idx);
+                    }
+                }
+                needs_snapshot = true;
+            }
+        } else {
+            needs_snapshot = true; // No wal implies we probably don't have a snapshot, create it
+        }
+
+        if needs_snapshot {
+            let encoded = bincode::serialize(&graph).unwrap();
+            let tmp_path = format!("{}.tmp", snapshot_path);
+            let mut snapshot_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)
+                .unwrap();
+            snapshot_file.write_all(&encoded).unwrap();
+            snapshot_file.sync_data().unwrap();
+            std::fs::rename(&tmp_path, snapshot_path).unwrap();
+        }
+
+        // If we created a new snapshot, truncate WAL to restart it
+        if needs_snapshot {
+            let wal_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(wal_path)
+                .unwrap();
+            wal_file.sync_data().unwrap();
+        }
+
+        graph.wal_file = Some(std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(wal_path)
+            .unwrap());
+
+        graph
+    }
+
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
             edges: Vec::new(),
             labels: HashMap::new(),
+            wal_file: None,
+        }
+    }
+
+    fn log_wal(&mut self, entry: &WalEntry) {
+        if let Some(file) = &mut self.wal_file {
+            let encoded = bincode::serialize(entry).unwrap();
+            let len = encoded.len() as u32;
+            file.write_all(&len.to_le_bytes()).unwrap();
+            file.write_all(&encoded).unwrap();
+            file.sync_data().unwrap();
         }
     }
 
@@ -31,22 +143,25 @@ impl Graph {
         } else {
             let id = self.labels.len();
             self.labels.insert(label.to_string(), id);
+            self.log_wal(&WalEntry::AddLabel { label: label.to_string() });
             id
         }
     }
 
     pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
-        let node = Node::new(vec![label], vec![], properties);
+        let node = Node::new(vec![label], vec![], properties.clone());
         self.nodes.push(node);
+        self.log_wal(&WalEntry::AddNode { label, properties });
         self.nodes.len() - 1
     }
 
     pub fn add_edge(&mut self, start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String>) -> usize {
-        let edge = Edge::new(labels, start, end, properties);
+        let edge = Edge::new(labels.clone(), start, end, properties.clone());
         self.edges.push(edge);
         let edge_idx = self.edges.len() - 1;
         self.nodes[start].edges.push(edge_idx);
         self.nodes[end].edges.push(edge_idx);
+        self.log_wal(&WalEntry::AddEdge { start, end, labels, properties });
         edge_idx
     }
 
