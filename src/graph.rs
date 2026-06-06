@@ -10,6 +10,7 @@ pub enum WalEntry {
     AddLabel { label: String },
     AddNode { label: usize, properties: HashMap<String, String> },
     AddEdge { start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String> },
+    CreateIndex { label: usize, property: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +26,7 @@ pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub labels: HashMap<String, usize>,
+    pub indices: HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
     #[serde(skip)]
     pub wal_file: Option<File>,
 }
@@ -67,8 +69,18 @@ impl Graph {
                         graph.labels.insert(label, id);
                     }
                     WalEntry::AddNode { label, properties } => {
-                        let node = Node::new(vec![label], vec![], properties);
+                        let node = Node::new(vec![label], vec![], properties.clone());
                         graph.nodes.push(node);
+                        let node_id = graph.nodes.len() - 1;
+
+                        // Update indices if any apply
+                        if let Some(label_indices) = graph.indices.get_mut(&label) {
+                            for (prop_key, prop_index) in label_indices.iter_mut() {
+                                if let Some(prop_val) = properties.get(prop_key) {
+                                    prop_index.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                }
+                            }
+                        }
                     }
                     WalEntry::AddEdge { start, end, labels, properties } => {
                         let edge = Edge::new(labels, start, end, properties);
@@ -76,6 +88,9 @@ impl Graph {
                         let edge_idx = graph.edges.len() - 1;
                         graph.nodes[start].edges.push(edge_idx);
                         graph.nodes[end].edges.push(edge_idx);
+                    }
+                    WalEntry::CreateIndex { label, property } => {
+                        graph.create_index_internal(label, property);
                     }
                 }
                 needs_snapshot = true;
@@ -123,6 +138,7 @@ impl Graph {
             nodes: Vec::new(),
             edges: Vec::new(),
             labels: HashMap::new(),
+            indices: HashMap::new(),
             wal_file: None,
         }
     }
@@ -151,8 +167,44 @@ impl Graph {
     pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
         let node = Node::new(vec![label], vec![], properties.clone());
         self.nodes.push(node);
+        let node_id = self.nodes.len() - 1;
+
+        // Update indices if any apply
+        if let Some(label_indices) = self.indices.get_mut(&label) {
+            for (prop_key, prop_index) in label_indices.iter_mut() {
+                if let Some(prop_val) = properties.get(prop_key) {
+                    prop_index.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                }
+            }
+        }
+
         self.log_wal(&WalEntry::AddNode { label, properties });
-        self.nodes.len() - 1
+        node_id
+    }
+
+    pub fn create_index(&mut self, label: usize, property: String) {
+        self.create_index_internal(label, property.clone());
+        self.log_wal(&WalEntry::CreateIndex { label, property });
+    }
+
+    fn create_index_internal(&mut self, label: usize, property: String) {
+        if !self.indices.contains_key(&label) {
+            self.indices.insert(label, HashMap::new());
+        }
+        let label_indices = self.indices.get_mut(&label).unwrap();
+        if !label_indices.contains_key(&property) {
+            label_indices.insert(property.clone(), HashMap::new());
+        }
+        let property_index = label_indices.get_mut(&property).unwrap();
+
+        // Populate index with existing nodes
+        for (node_id, node) in self.nodes.iter().enumerate() {
+            if node.labels.contains(&label) {
+                if let Some(value) = node.properties.get(&property) {
+                    property_index.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                }
+            }
+        }
     }
 
     pub fn add_edge(&mut self, start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String>) -> usize {
@@ -217,6 +269,10 @@ impl Graph {
                     }
                     // Typically RETURN is the last clause, we can clear envs if we want,
                     // but we just let it finish.
+                }
+                Clause::CreateIndex { label, property } => {
+                    let label_id = self.get_or_add_label(&label);
+                    self.create_index(label_id, property);
                 }
             }
         }
@@ -330,6 +386,31 @@ impl Graph {
                     return vec![*id];
                 } else {
                     return vec![];
+                }
+            }
+        }
+
+        // Try to use an index if one is available
+        if let Some(label_name) = &pattern.label {
+            if let Some(label_id) = self.labels.get(label_name) {
+                if let Some(label_indices) = self.indices.get(label_id) {
+                    for (prop_name, prop_value) in &pattern.properties {
+                        if let Some(prop_index) = label_indices.get(prop_name) {
+                            if let Some(node_ids) = prop_index.get(prop_value) {
+                                // We found an index match! Filter the indexed nodes just in case there are other constraints
+                                let mut matched_nodes = Vec::new();
+                                for &id in node_ids {
+                                    if self.node_matches(id, pattern) {
+                                        matched_nodes.push(id);
+                                    }
+                                }
+                                return matched_nodes;
+                            } else {
+                                // The property is indexed, but this specific value isn't in it, so no nodes match
+                                return vec![];
+                            }
+                        }
+                    }
                 }
             }
         }
