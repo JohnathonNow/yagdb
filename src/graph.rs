@@ -3,7 +3,12 @@ use std::fs::File;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
 
-use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern}};
+use crate::{
+    edge::Edge,
+    node::Node,
+    parser::{parse_query, Clause, NodePattern, Path, RelPattern},
+    planner::{PlanNode, QueryPlanner},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WalEntry {
@@ -182,17 +187,12 @@ impl Graph {
                     }
                 }
                 Clause::Match(paths) => {
-                    for path in paths {
-                        let mut new_envs = Vec::new();
-                        for env in envs {
-                            let matches = self.execute_match_path(&path, &env);
-                            new_envs.extend(matches);
-                        }
-                        envs = new_envs;
-                        if envs.is_empty() {
-                            // If MATCH yields no results, we abort further clauses and return empty
-                            break;
-                        }
+                    if let Some(plan) = QueryPlanner::plan_match(&paths, &self.labels) {
+                        envs = self.execute_plan(&plan, &envs);
+                    }
+                    if envs.is_empty() {
+                        // If MATCH yields no results, we abort further clauses and return empty
+                        break;
                     }
                 }
                 Clause::Return(vars) => {
@@ -277,70 +277,160 @@ impl Graph {
         self.add_edge(start, end, vec![label_id], pattern.properties.clone())
     }
 
-    fn execute_match_path(&self, path: &Path, env: &Environment) -> Vec<Environment> {
-        let mut result_envs = Vec::new();
+    pub fn execute_plan(&self, plan: &PlanNode, input_envs: &[Environment]) -> Vec<Environment> {
+        match plan {
+            PlanNode::FullNodeScan { pattern } => {
+                let mut results = Vec::new();
+                for env in input_envs {
+                    // Check if the node is already bound in the current environment
+                    if let Some(var) = &pattern.variable {
+                        if let Some(GraphElement::Node(id)) = env.get(var) {
+                            if self.node_matches(*id, pattern) {
+                                results.push(env.clone());
+                            }
+                            continue;
+                        }
+                    }
 
-        let start_nodes = self.find_nodes(&path.start, env);
-        for start_id in start_nodes {
-            let mut current_env = env.clone();
-            if let Some(var) = &path.start.variable {
-                current_env.insert(var.clone(), GraphElement::Node(start_id));
+                    // Otherwise, perform a full scan
+                    for id in 0..self.nodes.len() {
+                        if self.node_matches(id, pattern) {
+                            let mut new_env = env.clone();
+                            if let Some(var) = &pattern.variable {
+                                new_env.insert(var.clone(), GraphElement::Node(id));
+                            }
+                            results.push(new_env);
+                        }
+                    }
+                }
+                results
             }
+            PlanNode::NodeLookupByLabel { label_id, pattern } => {
+                let mut results = Vec::new();
+                for env in input_envs {
+                    // Check if the node is already bound in the current environment
+                    if let Some(var) = &pattern.variable {
+                        if let Some(GraphElement::Node(id)) = env.get(var) {
+                            if self.node_matches(*id, pattern) && self.nodes[*id].labels.contains(label_id) {
+                                results.push(env.clone());
+                            }
+                            continue;
+                        }
+                    }
 
-            self.match_edges_recursive(&path.edges, 0, start_id, current_env, &mut result_envs);
+                    for id in 0..self.nodes.len() {
+                        let node = &self.nodes[id];
+                        if node.labels.contains(label_id) && self.node_matches(id, pattern) {
+                            let mut new_env = env.clone();
+                            if let Some(var) = &pattern.variable {
+                                new_env.insert(var.clone(), GraphElement::Node(id));
+                            }
+                            results.push(new_env);
+                        }
+                    }
+                }
+                results
+            }
+            PlanNode::Expand { source, source_node_var, rel_pattern, target_pattern } => {
+                let next_envs = self.execute_plan(source, input_envs);
+                let mut results = Vec::new();
+
+                for env in next_envs {
+                    // Find the source node by variable name
+                    if let Some(GraphElement::Node(node_id)) = env.get(source_node_var) {
+                        let matches = self.find_edges_and_nodes_for_expand(*node_id, rel_pattern, target_pattern, &env);
+                        for (next_node_id, edge_id) in matches {
+                            let mut new_env = env.clone();
+                            if let Some(var) = &rel_pattern.variable {
+                                new_env.insert(var.clone(), GraphElement::Edge(edge_id));
+                            }
+                            if let Some(var) = &target_pattern.variable {
+                                new_env.insert(var.clone(), GraphElement::Node(next_node_id));
+                            }
+                            results.push(new_env);
+                        }
+                    }
+                }
+
+                results
+            }
+            PlanNode::Intersect { left, right } => {
+                // The right side shouldn't necessarily start from `input_envs` if it depends on `left_envs`.
+                // However, the `Intersect` plan node combines two separate sub-plans (paths in the same MATCH clause).
+                // It should evaluate `right` on the same `input_envs`, and then join `left_envs` and `right_envs`.
+                // But this causes a Cartesian product of non-related environments.
+                // It is better to pipe `left_envs` into `right` so that `right` can use bindings found by `left`.
+                // Wait, if `right` is `plan_path` for the second path in `MATCH p1, p2`, it will start with a Scan.
+                // If we pipe `left_envs` into `right`, the Scan node in `right` will check if its start variable
+                // is already bound in `left_envs`! If so, it just filters. This is perfect and equivalent to a nested loop join.
+                // So we just execute right with `left_envs` as input!
+                // Let's refine: A `MATCH p1, p2` is logically just finding p1, then for each p1 find p2.
+                // So `Intersect` could just be `self.execute_plan(right, &self.execute_plan(left, input_envs))`
+                // BUT, wait. If they don't share variables, it naturally becomes a Cartesian product because the Scan in `right`
+                // will duplicate each environment from `left_envs`.
+                // Let's verify: Yes, if `right` starts with a Scan, and the start var is NOT in `left_envs`,
+                // the Scan will append the new node to each env in `left_envs`. This handles both Join and Cross-Product!
+                // Wait, if Intersect is evaluated this way, we don't even need an explicit Intersect operation that joins two lists.
+                // We just pipe them.
+                // However, since we defined `Intersect` with two children, and our planner makes `Intersect(Intersect(p1, p2), p3)`.
+                // Let's just pipe it:
+                let out_left_envs = self.execute_plan(left, input_envs);
+                self.execute_plan(right, &out_left_envs)
+            }
         }
-
-        result_envs
     }
 
-    fn match_edges_recursive(
+    fn find_edges_and_nodes_for_expand(
         &self,
-        edges: &[(RelPattern, NodePattern)],
-        edge_idx: usize,
-        current_node_id: usize,
-        current_env: Environment,
-        results: &mut Vec<Environment>,
-    ) {
-        if edge_idx >= edges.len() {
-            results.push(current_env);
-            return;
-        }
+        start_id: usize,
+        rel_pattern: &RelPattern,
+        target_node_pattern: &NodePattern,
+        env: &Environment,
+    ) -> Vec<(usize, usize)> {
+        let mut matches = Vec::new();
+        let start_node = &self.nodes[start_id];
 
-        let (rel_pattern, target_node_pattern) = &edges[edge_idx];
-
-        let matches = self.find_edges_and_nodes(current_node_id, rel_pattern, target_node_pattern, &current_env);
-
-        for (next_node_id, edge_id) in matches {
-            let mut new_env = current_env.clone();
-            if let Some(var) = &rel_pattern.variable {
-                new_env.insert(var.clone(), GraphElement::Edge(edge_id));
-            }
-            if let Some(var) = &target_node_pattern.variable {
-                new_env.insert(var.clone(), GraphElement::Node(next_node_id));
-            }
-            self.match_edges_recursive(edges, edge_idx + 1, next_node_id, new_env, results);
-        }
-    }
-
-    fn find_nodes(&self, pattern: &NodePattern, env: &Environment) -> Vec<usize> {
-        // If node is already bound in env, return just that node if it matches the pattern
-        if let Some(var) = &pattern.variable {
+        let target_bound_id = if let Some(var) = &target_node_pattern.variable {
             if let Some(GraphElement::Node(id)) = env.get(var) {
-                if self.node_matches(*id, pattern) {
-                    return vec![*id];
-                } else {
-                    return vec![];
+                Some(*id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        for &edge_id in &start_node.edges {
+            let edge = &self.edges[edge_id];
+
+            if edge.start == start_id {
+                if let Some(var) = &rel_pattern.variable {
+                    if let Some(GraphElement::Edge(eid)) = env.get(var) {
+                        if *eid != edge_id {
+                            continue;
+                        }
+                    }
+                }
+
+                if !self.edge_matches(edge_id, rel_pattern) {
+                    continue;
+                }
+
+                let end_node_id = edge.end;
+
+                if let Some(bound_target) = target_bound_id {
+                    if end_node_id != bound_target {
+                        continue;
+                    }
+                }
+
+                if self.node_matches(end_node_id, target_node_pattern) {
+                    matches.push((end_node_id, edge_id));
                 }
             }
         }
 
-        let mut matched_nodes = Vec::new();
-        for id in 0..self.nodes.len() {
-            if self.node_matches(id, pattern) {
-                matched_nodes.push(id);
-            }
-        }
-        matched_nodes
+        matches
     }
 
     fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
@@ -369,62 +459,6 @@ impl Graph {
         }
 
         true
-    }
-
-    fn find_edges_and_nodes(
-        &self,
-        start_id: usize,
-        rel_pattern: &RelPattern,
-        target_node_pattern: &NodePattern,
-        env: &Environment,
-    ) -> Vec<(usize, usize)> {
-        let mut matches = Vec::new();
-        let start_node = &self.nodes[start_id];
-
-        // Pre-check if target is bound
-        let target_bound_id = if let Some(var) = &target_node_pattern.variable {
-            if let Some(GraphElement::Node(id)) = env.get(var) {
-                Some(*id)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        for &edge_id in &start_node.edges {
-            let edge = &self.edges[edge_id];
-
-            // Only consider outgoing edges from start_id
-            if edge.start == start_id {
-                // If edge variable is bound, ensure it's the same edge
-                if let Some(var) = &rel_pattern.variable {
-                    if let Some(GraphElement::Edge(eid)) = env.get(var) {
-                        if *eid != edge_id {
-                            continue;
-                        }
-                    }
-                }
-
-                if !self.edge_matches(edge_id, rel_pattern) {
-                    continue;
-                }
-
-                let end_node_id = edge.end;
-
-                if let Some(bound_target) = target_bound_id {
-                    if end_node_id != bound_target {
-                        continue;
-                    }
-                }
-
-                if self.node_matches(end_node_id, target_node_pattern) {
-                    matches.push((end_node_id, edge_id));
-                }
-            }
-        }
-
-        matches
     }
 
     fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
