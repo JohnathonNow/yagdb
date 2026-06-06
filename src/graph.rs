@@ -4,6 +4,7 @@ use std::io::Write;
 use serde::{Serialize, Deserialize};
 
 use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern}};
+use crate::planner::{PlanNode, QueryPlanner};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WalEntry {
@@ -342,20 +343,107 @@ impl Graph {
         self.add_edge(start, end, vec![label_id], pattern.properties.clone())
     }
 
-    fn execute_match_path(&self, path: &Path, env: &Environment) -> Vec<Environment> {
-        let mut result_envs = Vec::new();
-
-        let start_nodes = self.find_nodes(&path.start, env);
-        for start_id in start_nodes {
-            let mut current_env = env.clone();
-            if let Some(var) = &path.start.variable {
-                current_env.insert(var.clone(), GraphElement::Node(start_id));
+    pub fn execute_plan(&self, plan: &PlanNode, env: &Environment) -> Vec<Environment> {
+        match plan {
+            PlanNode::FullNodeScan { pattern } => {
+                let nodes = self.find_nodes(pattern, env);
+                let mut results = Vec::new();
+                for node_id in nodes {
+                    let mut new_env = env.clone();
+                    if let Some(var) = &pattern.variable {
+                        new_env.insert(var.clone(), GraphElement::Node(node_id));
+                    }
+                    results.push(new_env);
+                }
+                results
             }
+            PlanNode::NodeLabelLookup { label, pattern } => {
+                let mut matched_nodes = Vec::new();
+                if let Some(label_id) = self.labels.get(label) {
+                    for id in 0..self.nodes.len() {
+                        if self.nodes[id].labels.contains(label_id) && self.node_matches(id, pattern) {
+                            matched_nodes.push(id);
+                        }
+                    }
+                }
 
-            self.match_edges_recursive(&path.edges, 0, start_id, current_env, &mut result_envs);
+                let mut results = Vec::new();
+                for node_id in matched_nodes {
+                    let mut new_env = env.clone();
+                    if let Some(var) = &pattern.variable {
+                        new_env.insert(var.clone(), GraphElement::Node(node_id));
+                    }
+                    results.push(new_env);
+                }
+                results
+            }
+            PlanNode::NodeIndexLookup { label, property, value, pattern } => {
+                let mut matched_nodes = Vec::new();
+                if let Some(label_id) = self.labels.get(label) {
+                    if let Some(label_indices) = self.indices.get(label_id) {
+                        if let Some(prop_index) = label_indices.get(property) {
+                            if let Some(node_ids) = prop_index.get(value) {
+                                for &id in node_ids {
+                                    if self.node_matches(id, pattern) {
+                                        matched_nodes.push(id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut results = Vec::new();
+                for node_id in matched_nodes {
+                    let mut new_env = env.clone();
+                    if let Some(var) = &pattern.variable {
+                        new_env.insert(var.clone(), GraphElement::Node(node_id));
+                    }
+                    results.push(new_env);
+                }
+                results
+            }
+            PlanNode::PathExpand { source, source_node_pattern, rel_pattern, target_node_pattern } => {
+                let source_envs = self.execute_plan(source, env);
+                let mut results = Vec::new();
+
+                for source_env in source_envs {
+                    let mut source_node_ids = Vec::new();
+
+                    if let Some(var) = &source_node_pattern.variable {
+                        if let Some(GraphElement::Node(id)) = source_env.get(var) {
+                            source_node_ids.push(*id);
+                        }
+                    }
+
+                    if source_node_ids.is_empty() {
+                        source_node_ids = self.find_nodes(source_node_pattern, &source_env);
+                    }
+
+                    for source_node_id in source_node_ids {
+                        let edges = vec![(rel_pattern.clone(), target_node_pattern.clone())];
+                        self.match_edges_recursive(&edges, 0, source_node_id, source_env.clone(), &mut results);
+                    }
+                }
+
+                results
+            }
+            PlanNode::Intersect { left, right } => {
+                let left_res = self.execute_plan(left, env);
+                let right_res = self.execute_plan(right, env);
+                left_res.into_iter().filter(|l| right_res.contains(l)).collect()
+            }
+            PlanNode::Union { left, right } => {
+                let mut res = self.execute_plan(left, env);
+                res.extend(self.execute_plan(right, env));
+                res
+            }
         }
+    }
 
-        result_envs
+    fn execute_match_path(&self, path: &Path, env: &Environment) -> Vec<Environment> {
+        let plan = QueryPlanner::plan_match_path(path, &self.labels, &self.indices);
+        self.execute_plan(&plan, env)
     }
 
     fn match_edges_recursive(
