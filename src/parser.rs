@@ -41,6 +41,7 @@ pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>),
     Return(Vec<String>, Option<usize>),
+    CreateIndex(String, String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -181,8 +182,18 @@ fn return_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect(), limit_val)))
 }
 
+fn create_index_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("CREATE INDEX ON"), tag("create index on"))))(input)?;
+    let (input, _) = ws(char(':'))(input)?;
+    let (input, label) = ws(identifier)(input)?;
+    let (input, _) = ws(char('('))(input)?;
+    let (input, prop) = ws(identifier)(input)?;
+    let (input, _) = ws(char(')'))(input)?;
+    Ok((input, Clause::CreateIndex(label.to_string(), prop.to_string())))
+}
+
 fn clause(input: &str) -> IResult<&str, Clause> {
-    alt((create_clause, match_clause, return_clause))(input)
+    alt((create_index_clause, create_clause, match_clause, return_clause))(input)
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {

@@ -10,6 +10,7 @@ pub enum WalEntry {
     AddLabel { label: String },
     AddNode { label: usize, properties: HashMap<String, String> },
     AddEdge { start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String> },
+    CreateIndex { label: String, property: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +29,9 @@ pub struct Graph {
     pub labels: HashMap<String, usize>,
     #[serde(skip)]
     pub wal_file: Option<File>,
+    // Label ID -> Property Name -> Property Value -> Node IDs
+    #[serde(skip)]
+    pub indexes: HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
 }
 
 use std::io::Read;
@@ -78,6 +82,10 @@ impl Graph {
                         graph.nodes[start].edges.push(edge_idx);
                         graph.nodes[end].edges.push(edge_idx);
                     }
+                    WalEntry::CreateIndex { label, property } => {
+                        let label_id = graph.get_or_add_label(&label);
+                        graph.create_index_internal(label_id, property);
+                    }
                 }
                 needs_snapshot = true;
             }
@@ -125,6 +133,7 @@ impl Graph {
             edges: Vec::new(),
             labels: HashMap::new(),
             wal_file: None,
+            indexes: HashMap::new(),
         }
     }
 
@@ -151,9 +160,20 @@ impl Graph {
 
     pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
         let node = Node::new(vec![label], vec![], properties.clone());
+        let node_id = self.nodes.len();
         self.nodes.push(node);
-        self.log_wal(&WalEntry::AddNode { label, properties });
-        self.nodes.len() - 1
+        self.log_wal(&WalEntry::AddNode { label, properties: properties.clone() });
+
+        // Update index if exists
+        if let Some(label_indexes) = self.indexes.get_mut(&label) {
+            for (prop_name, prop_val) in properties {
+                if let Some(val_index) = label_indexes.get_mut(&prop_name) {
+                    val_index.entry(prop_val).or_default().push(node_id);
+                }
+            }
+        }
+
+        node_id
     }
 
     pub fn add_edge(&mut self, start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String>) -> usize {
@@ -164,6 +184,26 @@ impl Graph {
         self.nodes[end].edges.push(edge_idx);
         self.log_wal(&WalEntry::AddEdge { start, end, labels, properties });
         edge_idx
+    }
+
+    fn create_index_internal(&mut self, label_id: usize, property: String) {
+        let label_indexes = self.indexes.entry(label_id).or_default();
+        if label_indexes.contains_key(&property) {
+            return; // Already exists
+        }
+
+        let mut val_index: HashMap<String, Vec<usize>> = HashMap::new();
+
+        // Populate existing nodes
+        for (i, node) in self.nodes.iter().enumerate() {
+            if node.labels.contains(&label_id) {
+                if let Some(val) = node.properties.get(&property) {
+                    val_index.entry(val.clone()).or_default().push(i);
+                }
+            }
+        }
+
+        label_indexes.insert(property, val_index);
     }
 
     pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
@@ -195,6 +235,12 @@ impl Graph {
                             break;
                         }
                     }
+                }
+                Clause::CreateIndex(label, property) => {
+                    let label_id = self.get_or_add_label(&label);
+                    self.create_index_internal(label_id, property.clone());
+                    self.log_wal(&WalEntry::CreateIndex { label, property });
+                    output.push_str("Index created\n");
                 }
                 Clause::Return(vars, limit) => {
                     let iter = match limit {
@@ -287,19 +333,115 @@ impl Graph {
     }
 
     fn execute_match_path(&self, path: &Path, env: &Environment) -> Vec<Environment> {
-        let mut result_envs = Vec::new();
+        let plan = crate::planner::Planner::plan_match(self, path);
 
-        let start_nodes = self.find_nodes(&path.start, env);
-        for start_id in start_nodes {
-            let mut current_env = env.clone();
-            if let Some(var) = &path.start.variable {
-                current_env.insert(var.clone(), GraphElement::Node(start_id));
+        // Execute the plan
+        let mut envs = vec![env.clone()];
+
+        for node in plan {
+            let mut next_envs = Vec::new();
+
+            match node {
+                crate::planner::PlanNode::NodeScan(pattern) => {
+                    for current_env in envs {
+                        let nodes = self.find_nodes(&pattern, &current_env);
+                        for n in nodes {
+                            let mut e = current_env.clone();
+                            if let Some(var) = &pattern.variable {
+                                e.insert(var.clone(), GraphElement::Node(n));
+                            }
+                            next_envs.push(e);
+                        }
+                    }
+                }
+                crate::planner::PlanNode::IndexLookup { label_id, property_name, property_value, pattern } => {
+                    for current_env in envs {
+                        if let Some(var) = &pattern.variable {
+                            if let Some(GraphElement::Node(id)) = current_env.get(var) {
+                                if self.node_matches(*id, &pattern) {
+                                    next_envs.push(current_env.clone());
+                                }
+                                continue;
+                            }
+                        }
+
+                        if let Some(label_indexes) = self.indexes.get(&label_id) {
+                            if let Some(val_index) = label_indexes.get(&property_name) {
+                                if let Some(node_ids) = val_index.get(&property_value) {
+                                    for &n in node_ids {
+                                        if self.node_matches(n, &pattern) {
+                                            let mut e = current_env.clone();
+                                            if let Some(var) = &pattern.variable {
+                                                e.insert(var.clone(), GraphElement::Node(n));
+                                            }
+                                            next_envs.push(e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                crate::planner::PlanNode::LabelScan { label_id, pattern } => {
+                    for current_env in envs {
+                        if let Some(var) = &pattern.variable {
+                            if let Some(GraphElement::Node(id)) = current_env.get(var) {
+                                if self.node_matches(*id, &pattern) {
+                                    next_envs.push(current_env.clone());
+                                }
+                                continue;
+                            }
+                        }
+
+                        for id in 0..self.nodes.len() {
+                            if self.nodes[id].labels.contains(&label_id) && self.node_matches(id, &pattern) {
+                                let mut e = current_env.clone();
+                                if let Some(var) = &pattern.variable {
+                                    e.insert(var.clone(), GraphElement::Node(id));
+                                }
+                                next_envs.push(e);
+                            }
+                        }
+                    }
+                }
+                crate::planner::PlanNode::ExpandAllEdges { edges, start_pattern } => {
+                    for current_env in envs {
+                        // Find the start node ID from the current environment using start_pattern
+                        // It should be bound now. If there's no variable, we might need a dummy one, or
+                        // we can iterate over the nodes that match.
+
+                        // In the old `execute_match_path`, we iterated `start_nodes`. Here, the start node
+                        // must be extracted. Since `NodeScan`/`LabelScan`/`IndexLookup` bound it if it had a variable,
+                        // but if it didn't have a variable?
+                        // To avoid this issue, `start_nodes` in old code also bound it if it had a variable.
+                        // Wait, if it has no variable, how do we know which node to start from?
+                        // We must bind it temporarily or infer it.
+                        // Let's just re-evaluate `find_nodes` for the start pattern if no variable is provided.
+                        let start_nodes = if let Some(var) = &start_pattern.variable {
+                            if let Some(GraphElement::Node(id)) = current_env.get(var) {
+                                vec![*id]
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            // Find which node matches.
+                            // But wait, the environment currently doesn't store the start node ID if it had no variable!
+                            // That's a flaw in translating.
+                            // To fix this quickly without breaking existing logic, if it has no variable,
+                            // we just scan all matching nodes in this env. (Actually `current_env` has nothing for start).
+                            self.find_nodes(&start_pattern, &current_env)
+                        };
+
+                        for start_id in start_nodes {
+                            self.match_edges_recursive(&edges, 0, start_id, current_env.clone(), &mut next_envs);
+                        }
+                    }
+                }
             }
-
-            self.match_edges_recursive(&path.edges, 0, start_id, current_env, &mut result_envs);
+            envs = next_envs;
         }
 
-        result_envs
+        envs
     }
 
     fn match_edges_recursive(
