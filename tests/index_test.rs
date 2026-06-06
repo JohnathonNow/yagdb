@@ -40,6 +40,18 @@ fn test_index_usage() {
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
 
+
+        // Create an index on the username property
+        g.execute("CREATE INDEX ON :User(username)").unwrap();
+
+        // Add another node after index creation to ensure it gets added to index
+        g.execute("CREATE (c:User {username: 'charlie'})").unwrap();
+    }
+
+    // Reload graph to test recovery
+    {
+        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+
         let result = g.execute("MATCH (u:User {username: 'bob'}) RETURN u").unwrap();
         assert!(result.contains("u: Node"));
         assert!(result.contains(r#""username": "bob""#));
@@ -50,6 +62,7 @@ fn test_index_usage() {
         assert!(result2.contains("u: Node"));
         assert!(result2.contains(r#""username": "charlie""#));
     }
+
 
     let _ = fs::remove_file(snapshot_path);
     let _ = fs::remove_file(wal_path);
