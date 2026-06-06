@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
-    character::complete::{alpha1, alphanumeric1, char, multispace0},
+    character::complete::{alpha1, alphanumeric1, char, multispace0, digit1},
     combinator::{all_consuming, opt, recognize},
     multi::{many0, separated_list0},
     sequence::{delimited, pair, preceded},
@@ -21,6 +21,7 @@ pub struct RelPattern {
     pub variable: Option<String>,
     pub label: Option<String>,
     pub properties: HashMap<String, String>,
+    pub length: Option<(usize, Option<usize>)>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -39,8 +40,12 @@ pub struct Path {
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>),
-    Return(Vec<String>),
+
+
     CreateIndex { label: String, property: String },
+
+    Return(Vec<String>, Option<usize>),
+
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -109,11 +114,36 @@ fn node_pattern(input: &str) -> IResult<&str, NodePattern> {
     ))
 }
 
+fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
+    let (input, _) = ws(char('*'))(input)?;
+    let (input, min) = opt(ws(nom::character::complete::digit1))(input)?;
+    let (input, dots) = opt(ws(tag("..")))(input)?;
+
+    let (input, max) = if dots.is_some() {
+        opt(ws(nom::character::complete::digit1))(input)?
+    } else {
+        (input, None)
+    };
+
+    let min_val = min.map(|s| s.parse::<usize>().unwrap()).unwrap_or(1);
+
+    let max_val = if dots.is_some() {
+        max.map(|s| s.parse::<usize>().unwrap())
+    } else if min.is_some() {
+        Some(min_val)
+    } else {
+        None
+    };
+
+    Ok((input, (min_val, max_val)))
+}
+
 fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
     let (input, _) = ws(tag("-["))(input)?;
     let (input, variable) = opt(ws(identifier))(input)?;
     let (input, label) = opt(preceded(ws(char(':')), ws(identifier)))(input)?;
     let (input, props) = opt(ws(properties))(input)?;
+    let (input, length) = opt(ws(var_length))(input)?;
     let (input, _) = ws(tag("]->"))(input)?;
 
     Ok((
@@ -122,6 +152,7 @@ fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
             variable: variable.map(|s| s.to_string()),
             label: label.map(|s| s.to_string()),
             properties: props.unwrap_or_default(),
+            length,
         },
     ))
 }
@@ -147,7 +178,12 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), ws(identifier))(input)?;
-    Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect())))
+    let (input, limit) = opt(preceded(
+        ws(alt((tag("LIMIT"), tag("limit")))),
+        ws(digit1),
+    ))(input)?;
+    let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
+    Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect(), limit_val)))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {
