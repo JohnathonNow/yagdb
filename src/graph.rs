@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use serde::{Serialize, Deserialize};
 
@@ -30,12 +32,15 @@ pub struct Graph {
     pub labels: HashMap<String, usize>,
     pub indices: HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
     #[serde(skip)]
+    #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
 
 impl Graph {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_or_create(snapshot_path: &str, wal_path: &str) -> Self {
         let mut graph = if let Ok(mut snapshot_file) = File::open(snapshot_path) {
             let mut buffer = Vec::new();
@@ -141,10 +146,12 @@ impl Graph {
             edges: Vec::new(),
             labels: HashMap::new(),
             indices: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn log_wal(&mut self, entry: &WalEntry) {
         if let Some(file) = &mut self.wal_file {
             let encoded = bincode::serialize(entry).unwrap();
@@ -154,6 +161,9 @@ impl Graph {
             file.sync_data().unwrap();
         }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    fn log_wal(&mut self, _entry: &WalEntry) {}
 
     pub fn get_or_add_label(&mut self, label: &str) -> usize {
         if let Some(&id) = self.labels.get(label) {
