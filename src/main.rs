@@ -3,6 +3,7 @@
 
 
 
+#[cfg(not(target_arch = "wasm32"))]
 use axum::{
     extract::State,
     http::StatusCode,
@@ -10,12 +11,18 @@ use axum::{
     routing::post,
     Router,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::Mutex;
+
+#[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
 
+#[cfg(not(target_arch = "wasm32"))]
 type SharedGraph = Arc<Mutex<Graph>>;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
     let graph = Arc::new(Mutex::new(Graph::load_or_create("graph.bin", "wal.bin")));
@@ -33,6 +40,7 @@ async fn main() {
         .unwrap();
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn handle_query(
     State(graph): State<SharedGraph>,
     body: String,
@@ -44,7 +52,11 @@ async fn handle_query(
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
 #[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
 
