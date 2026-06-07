@@ -46,6 +46,7 @@ pub enum Clause {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Query {
+    pub profile: bool,
     pub clauses: Vec<Clause>,
 }
 
@@ -200,6 +201,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
+    let (input, profile_opt) = opt(ws(alt((tag("PROFILE"), tag("profile")))))(input)?;
     let (input, clauses) = all_consuming(many0(ws(clause)))(input)?;
-    Ok((input, Query { clauses }))
+    Ok((input, Query { profile: profile_opt.is_some(), clauses }))
 }
