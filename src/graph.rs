@@ -223,6 +223,8 @@ impl Graph {
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut output = String::new();
+        let mut profile_out = if query.profile { Some(String::new()) } else { None };
+
         // A single environment initially, representing the "root" row.
         let mut envs: Vec<Environment> = vec![HashMap::new()];
 
@@ -239,7 +241,7 @@ impl Graph {
                     for path in paths {
                         let mut new_envs = Vec::new();
                         for env in envs {
-                            let matches = self.execute_match_path(&path, &env);
+                            let matches = self.execute_match_path(&path, &env, &mut profile_out);
                             new_envs.extend(matches);
                         }
                         envs = new_envs;
@@ -288,10 +290,19 @@ impl Graph {
         }
 
         // Clean up output formatting if it ends with "---"
-        let mut final_output = output;
-        if final_output.ends_with("---\n") {
-            final_output.truncate(final_output.len() - 4);
+        let mut final_output = String::new();
+        if let Some(prof) = profile_out {
+            final_output.push_str("Profile:\n");
+            final_output.push_str(&prof);
+            final_output.push_str("\n");
         }
+
+        let mut data_output = output;
+        if data_output.ends_with("---\n") {
+            data_output.truncate(data_output.len() - 4);
+        }
+
+        final_output.push_str(&data_output);
 
         Ok(final_output)
     }
@@ -343,9 +354,13 @@ impl Graph {
         self.add_edge(start, end, vec![label_id], pattern.properties.clone())
     }
 
-    pub fn execute_plan(&self, plan: &PlanNode, env: &Environment) -> Vec<Environment> {
-        match plan {
+    pub fn execute_plan(&self, plan: &PlanNode, env: &Environment, profile: &mut Option<String>, depth: usize) -> Vec<Environment> {
+        let indent = "  ".repeat(depth);
+        let op_name;
+
+        let results = match plan {
             PlanNode::FullNodeScan { pattern } => {
+                op_name = "FullNodeScan".to_string();
                 let nodes = self.find_nodes(pattern, env);
                 let mut results = Vec::new();
                 for node_id in nodes {
@@ -358,6 +373,7 @@ impl Graph {
                 results
             }
             PlanNode::NodeLabelLookup { label, pattern } => {
+                op_name = format!("NodeLabelLookup({})", label);
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     for id in 0..self.nodes.len() {
@@ -378,6 +394,7 @@ impl Graph {
                 results
             }
             PlanNode::NodeIndexLookup { label, property, value, pattern } => {
+                op_name = format!("NodeIndexLookup({}.{}='{}')", label, property, value);
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     if let Some(label_indices) = self.indices.get(label_id) {
@@ -404,7 +421,8 @@ impl Graph {
                 results
             }
             PlanNode::PathExpand { source, source_node_pattern, rel_pattern, target_node_pattern } => {
-                let source_envs = self.execute_plan(source, env);
+                op_name = "PathExpand".to_string();
+                let source_envs = self.execute_plan(source, env, profile, depth + 1);
                 let mut results = Vec::new();
 
                 for source_env in source_envs {
@@ -429,21 +447,29 @@ impl Graph {
                 results
             }
             PlanNode::Intersect { left, right } => {
-                let left_res = self.execute_plan(left, env);
-                let right_res = self.execute_plan(right, env);
+                op_name = "Intersect".to_string();
+                let left_res = self.execute_plan(left, env, profile, depth + 1);
+                let right_res = self.execute_plan(right, env, profile, depth + 1);
                 left_res.into_iter().filter(|l| right_res.contains(l)).collect()
             }
             PlanNode::Union { left, right } => {
-                let mut res = self.execute_plan(left, env);
-                res.extend(self.execute_plan(right, env));
+                op_name = "Union".to_string();
+                let mut res = self.execute_plan(left, env, profile, depth + 1);
+                res.extend(self.execute_plan(right, env, profile, depth + 1));
                 res
             }
+        };
+
+        if let Some(prof) = profile {
+            prof.push_str(&format!("{}{} ({} rows)\n", indent, op_name, results.len()));
         }
+
+        results
     }
 
-    fn execute_match_path(&self, path: &Path, env: &Environment) -> Vec<Environment> {
+    fn execute_match_path(&self, path: &Path, env: &Environment, profile: &mut Option<String>) -> Vec<Environment> {
         let plan = QueryPlanner::plan_match_path(path, &self.labels, &self.indices);
-        self.execute_plan(&plan, env)
+        self.execute_plan(&plan, env, profile, 0)
     }
 
     fn match_edges_recursive(
