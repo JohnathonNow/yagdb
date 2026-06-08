@@ -28,7 +28,12 @@ impl App {
         let config = Arc::new(config.validate().unwrap());
 
         let memstore = MemStore::new_async().await;
-        let (log_store, state_machine) = openraft::storage::Adaptor::new(memstore);
+        let graph_store = crate::raft::store::GraphStore {
+            graph: graph.clone(),
+            inner: memstore,
+        };
+
+        let (log_store, state_machine) = openraft::storage::Adaptor::new(graph_store);
 
         let network = Network::new();
 

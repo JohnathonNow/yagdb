@@ -20,7 +20,6 @@ impl Network {
 
 pub struct NetworkConnection {
     client: Client,
-    target: (),
     target_id: u64,
 }
 
@@ -28,13 +27,11 @@ impl RaftNetworkFactory<TypeConfig> for Network {
     type Network = NetworkConnection;
 
     #[allow(clippy::type_complexity)]
-    fn new_client(&mut self, target_id: u64, node: &()) -> impl Future<Output = Self::Network> + Send {
+    fn new_client(&mut self, target_id: u64, _node: &()) -> impl Future<Output = Self::Network> + Send {
         let client = self.client.clone();
-        let target = node.clone();
         async move {
             NetworkConnection {
                 client,
-                target,
                 target_id,
             }
         }
