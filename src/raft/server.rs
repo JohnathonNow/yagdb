@@ -46,12 +46,12 @@ async fn handle_query(
     };
 
     if is_write {
-        // Just trigger the consensus with a dummy request
-        let req = ClientRequest { client: "app".to_string(), serial: 1, status: "ok".to_string() };
+        // Trigger the consensus with the query embedded in status
+        let req = ClientRequest { client: "app".to_string(), serial: 1, status: body.clone() };
         match app.raft.client_write(req).await {
-            Ok(_) => {
-                let mut g = app.graph.lock().await;
-                let res = g.execute(&body);
+            Ok(resp) => {
+                let result_str = resp.data.0.unwrap_or_else(|| "null".to_string());
+                let res: Result<String, String> = serde_json::from_str(&result_str).unwrap_or(Err("Failed to parse inner response".into()));
                 Ok(Json(QueryRes { result: res }))
             }
             Err(e) => {
@@ -74,6 +74,7 @@ async fn handle_query(
             }
         }
     } else {
+        // Read query, can be handled locally by any node because state is updated via Raft
         let mut g = app.graph.lock().await;
         let res = g.execute(&body);
         Ok(Json(QueryRes { result: res }))
