@@ -22,6 +22,7 @@ pub enum GraphElement {
     Node(usize),
     Edge(usize),
     EdgeArray(Vec<usize>),
+    Path(Vec<GraphElement>),
 }
 
 pub type Environment = HashMap<String, GraphElement>;
@@ -340,7 +341,18 @@ impl Graph {
                         None => envs.iter().take(envs.len()),
                     };
                     for env in iter {
-                        for var in &vars {
+                        let vars_to_return = if vars.len() == 1 && vars[0] == "*" {
+                            let mut keys: Vec<String> = env.keys()
+                                .filter(|k| !k.starts_with("_anon_"))
+                                .cloned()
+                                .collect();
+                            keys.sort();
+                            keys
+                        } else {
+                            vars.clone()
+                        };
+
+                        for var in &vars_to_return {
                             if let Some(element) = env.get(var) {
                                 match element {
                                     GraphElement::Node(node_id) => {
@@ -354,6 +366,21 @@ impl Graph {
                                     GraphElement::EdgeArray(edge_ids) => {
                                         let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
                                         output.push_str(&format!("{}: {:?}\n", var, edges));
+                                    }
+                                    GraphElement::Path(elements) => {
+                                        let mut path_out = Vec::new();
+                                        for el in elements {
+                                            match el {
+                                                GraphElement::Node(n) => path_out.push(format!("{:?}", self.nodes[*n])),
+                                                GraphElement::Edge(e) => path_out.push(format!("{:?}", self.edges[*e])),
+                                                GraphElement::EdgeArray(es) => {
+                                                    let arr: Vec<_> = es.iter().map(|&id| format!("{:?}", self.edges[id])).collect();
+                                                    path_out.push(format!("{:?}", arr));
+                                                }
+                                                GraphElement::Path(_) => {}
+                                            }
+                                        }
+                                        output.push_str(&format!("{}: [{}]\n", var, path_out.join(", ")));
                                     }
                                 }
                             } else {
@@ -391,16 +418,25 @@ impl Graph {
     }
 
     fn execute_create_path(&mut self, path: Path, env: &mut Environment) {
+        let mut path_elements = Vec::new();
         let start_id = self.create_node(&path.start, env);
+        path_elements.push(GraphElement::Node(start_id));
         let mut current_id = start_id;
 
+        let bound_var = path.bound_variable.clone();
         for (rel, target_node) in path.edges {
             let next_id = self.create_node(&target_node, env);
             let rel_id = self.create_rel(&rel, current_id, next_id);
+            path_elements.push(GraphElement::Edge(rel_id));
+            path_elements.push(GraphElement::Node(next_id));
             if let Some(var) = &rel.variable {
                 env.insert(var.clone(), GraphElement::Edge(rel_id));
             }
             current_id = next_id;
+        }
+
+        if let Some(bv) = bound_var {
+            env.insert(bv, GraphElement::Path(path_elements));
         }
     }
 
@@ -552,7 +588,33 @@ impl Graph {
 
     fn execute_match_path(&self, path: &Path, env: &Environment, profile: &mut Option<String>) -> Vec<Environment> {
         let plan = QueryPlanner::plan_match_path(path, &self.labels, &self.indices);
-        self.execute_plan(&plan, env, profile, 0)
+        let mut envs = self.execute_plan(&plan, env, profile, 0);
+
+        if let Some(bound_var) = &path.bound_variable {
+            for e in envs.iter_mut() {
+                let mut path_elements = Vec::new();
+                let start_var = path.start.variable.clone().unwrap_or_else(|| "_anon_start".to_string());
+                if let Some(el) = e.get(&start_var) {
+                    path_elements.push(el.clone());
+                }
+
+                for (idx, (rel, target)) in path.edges.iter().enumerate() {
+                    let rel_var = rel.variable.clone().unwrap_or_else(|| format!("_anon_rel_{}", idx));
+                    let target_var = target.variable.clone().unwrap_or_else(|| format!("_anon_node_{}", idx));
+
+                    if let Some(el) = e.get(&rel_var) {
+                        path_elements.push(el.clone());
+                    }
+                    if let Some(el) = e.get(&target_var) {
+                        path_elements.push(el.clone());
+                    }
+                }
+
+                e.insert(bound_var.clone(), GraphElement::Path(path_elements));
+            }
+        }
+
+        envs
     }
 
     fn match_edges_recursive(

@@ -1,0 +1,68 @@
+#!/bin/bash
+cat << 'PATCH' > graph.patch
+--- src/graph.rs
++++ src/graph.rs
+@@ -419,16 +419,25 @@
+     }
+
+     fn execute_create_path(&mut self, path: Path, env: &mut Environment) {
++        let mut path_elements = Vec::new();
+         let start_id = self.create_node(&path.start, env);
++        path_elements.push(GraphElement::Node(start_id));
+         let mut current_id = start_id;
+
+-        for (rel, target_node) in path.edges {
++        let bound_var = path.bound_variable.clone();
++        for (rel, target_node) in path.edges.iter() {
+             let next_id = self.create_node(&target_node, env);
+             let rel_id = self.create_rel(&rel, current_id, next_id);
++            path_elements.push(GraphElement::Edge(rel_id));
++            path_elements.push(GraphElement::Node(next_id));
+             if let Some(var) = &rel.variable {
+                 env.insert(var.clone(), GraphElement::Edge(rel_id));
+             }
+             current_id = next_id;
+         }
++        if let Some(bv) = bound_var {
++            env.insert(bv, GraphElement::Path(path_elements));
++        }
+     }
+
+     fn create_node(&mut self, pattern: &NodePattern, env: &mut Environment) -> usize {
+@@ -580,7 +589,33 @@
+
+     fn execute_match_path(&self, path: &Path, env: &Environment, profile: &mut Option<String>) -> Vec<Environment> {
+         let plan = QueryPlanner::plan_match_path(path, &self.labels, &self.indices);
+-        self.execute_plan(&plan, env, profile, 0)
++        let mut envs = self.execute_plan(&plan, env, profile, 0);
++
++        if let Some(bound_var) = &path.bound_variable {
++            for e in envs.iter_mut() {
++                let mut path_elements = Vec::new();
++                let start_var = path.start.variable.clone().unwrap_or_else(|| "_anon_start".to_string());
++                if let Some(el) = e.get(&start_var) {
++                    path_elements.push(el.clone());
++                }
++
++                for (idx, (rel, target)) in path.edges.iter().enumerate() {
++                    let rel_var = rel.variable.clone().unwrap_or_else(|| format!("_anon_rel_{}", idx));
++                    let target_var = target.variable.clone().unwrap_or_else(|| format!("_anon_node_{}", idx));
++
++                    if let Some(el) = e.get(&rel_var) {
++                        path_elements.push(el.clone());
++                    }
++                    if let Some(el) = e.get(&target_var) {
++                        path_elements.push(el.clone());
++                    }
++                }
++
++                e.insert(bound_var.clone(), GraphElement::Path(path_elements));
++            }
++        }
++
++        envs
+     }
+
+     fn match_edges_recursive(
+PATCH
+patch -p0 < graph.patch
