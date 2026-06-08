@@ -116,7 +116,7 @@ fn test_return_star() {
     match &query.clauses[0] {
         Clause::Return(vars, _) => {
             assert_eq!(vars.len(), 1);
-            assert_eq!(vars[0], "*");
+            assert_eq!(vars[0], yagdb::parser::ProjectionItem::Star);
         }
         _ => panic!("Expected Return clause"),
     }
@@ -157,4 +157,30 @@ fn test_execute_bound_path() {
     assert!(res.contains("p: [Node { labels: [0], edges: [0], properties: {\"name\": \"Alice\"} }"));
     assert!(res.contains("Edge { labels: [1], start: 0, end: 1, properties: {} }"));
     assert!(res.contains("Node { labels: [0], edges: [0], properties: {\"name\": \"Bob\"} }]"));
+}
+
+#[test]
+fn test_with_and_aggregates_parse() {
+    let query_str = "MATCH (a) WITH COUNT(a) AS c, COLLECT(a) AS lst RETURN c, lst";
+    let (rest, query) = parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 3);
+
+    match &query.clauses[1] {
+        Clause::With(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], yagdb::parser::ProjectionItem::Aggregate { func: "COUNT".to_string(), var: "a".to_string(), alias: Some("c".to_string()) });
+            assert_eq!(items[1], yagdb::parser::ProjectionItem::Aggregate { func: "COLLECT".to_string(), var: "a".to_string(), alias: Some("lst".to_string()) });
+        }
+        _ => panic!("Expected With clause"),
+    }
+
+    match &query.clauses[2] {
+        Clause::Return(items, _) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], yagdb::parser::ProjectionItem::Variable("c".to_string()));
+            assert_eq!(items[1], yagdb::parser::ProjectionItem::Variable("lst".to_string()));
+        }
+        _ => panic!("Expected Return clause"),
+    }
 }
