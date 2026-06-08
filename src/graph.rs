@@ -14,6 +14,7 @@ pub enum WalEntry {
     AddNode { label: usize, properties: HashMap<String, String> },
     AddEdge { start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String> },
     CreateIndex { label: usize, property: String },
+    SetNodeProperty { node_id: usize, key: String, value: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +99,26 @@ impl Graph {
                     }
                     WalEntry::CreateIndex { label, property } => {
                         graph.create_index_internal(label, property);
+                    }
+                    WalEntry::SetNodeProperty { node_id, key, value } => {
+                        let old_value = graph.nodes[node_id].properties.insert(key.clone(), value.clone());
+                        for (label_id, label_indices) in graph.indices.iter_mut() {
+                            if graph.nodes[node_id].labels.contains(label_id) {
+                                if let Some(prop_index) = label_indices.get_mut(&key) {
+                                    // Remove from old index
+                                    if let Some(old_val) = &old_value {
+                                        if let Some(vec) = prop_index.get_mut(old_val) {
+                                            vec.retain(|&id| id != node_id);
+                                        }
+                                    }
+                                    // Add to new index if not already present
+                                    let entry_vec = prop_index.entry(value.clone()).or_insert_with(Vec::new);
+                                    if !entry_vec.contains(&node_id) {
+                                        entry_vec.push(node_id);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 needs_snapshot = true;
@@ -258,6 +279,58 @@ impl Graph {
                         if envs.is_empty() {
                             // If MATCH yields no results, we abort further clauses and return empty
                             break;
+                        }
+                    }
+                }
+                Clause::Merge(paths) => {
+                    for path in paths {
+                        let mut new_envs = Vec::new();
+                        for env in envs {
+                            let matches = self.execute_match_path(&path, &env, &mut profile_out);
+                            if !matches.is_empty() {
+                                new_envs.extend(matches);
+                            } else {
+                                let mut create_env = env.clone();
+                                self.execute_create_path(path.clone(), &mut create_env);
+                                new_envs.push(create_env);
+                            }
+                        }
+                        envs = new_envs;
+                    }
+                }
+                Clause::Set(var, key, value) => {
+                    let mut updated_nodes = std::collections::HashSet::new();
+                    for env in &envs {
+                        if let Some(GraphElement::Node(node_id)) = env.get(&var) {
+                            let node_id = *node_id;
+                            if updated_nodes.insert(node_id) {
+                                let old_value = self.nodes[node_id].properties.insert(key.clone(), value.clone());
+
+                                // Update indices if necessary
+                                for (label_id, label_indices) in self.indices.iter_mut() {
+                                    if self.nodes[node_id].labels.contains(label_id) {
+                                        if let Some(prop_index) = label_indices.get_mut(&key) {
+                                            // Remove from old index
+                                            if let Some(old_val) = &old_value {
+                                                if let Some(vec) = prop_index.get_mut(old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            // Add to new index
+                                            let entry_vec = prop_index.entry(value.clone()).or_insert_with(Vec::new);
+                                            if !entry_vec.contains(&node_id) {
+                                                entry_vec.push(node_id);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                self.log_wal(&WalEntry::SetNodeProperty {
+                                    node_id,
+                                    key: key.clone(),
+                                    value: value.clone(),
+                                });
+                            }
                         }
                     }
                 }
