@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
 
-use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern, Condition, Expression, CompareOp}};
+use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern, Condition, Expression, CompareOp, ProjectionItem}};
 use crate::planner::{PlanNode, QueryPlanner};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -23,6 +23,8 @@ pub enum GraphElement {
     Edge(usize),
     EdgeArray(Vec<usize>),
     Path(Vec<GraphElement>),
+    List(Vec<GraphElement>),
+    Number(f64),
 }
 
 pub type Environment = HashMap<String, GraphElement>;
@@ -160,6 +162,32 @@ impl Graph {
             .unwrap());
 
         graph
+    }
+
+    pub fn format_element(&self, element: &GraphElement) -> String {
+        match element {
+            GraphElement::Node(node_id) => format!("{:?}", self.nodes[*node_id]),
+            GraphElement::Edge(edge_id) => format!("{:?}", self.edges[*edge_id]),
+            GraphElement::EdgeArray(edge_ids) => {
+                let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
+                format!("{:?}", edges)
+            }
+            GraphElement::Path(elements) => {
+                let mut path_out = Vec::new();
+                for el in elements {
+                    path_out.push(self.format_element(el));
+                }
+                format!("[{}]", path_out.join(", "))
+            }
+            GraphElement::List(elements) => {
+                let mut list_out = Vec::new();
+                for el in elements {
+                    list_out.push(self.format_element(el));
+                }
+                format!("[{}]", list_out.join(", "))
+            }
+            GraphElement::Number(n) => format!("{}", n),
+        }
     }
 
     pub fn new() -> Self {
@@ -338,62 +366,167 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Return(vars, limit) => {
-                    let iter = match limit {
-                        Some(l) => envs.iter().take(l),
-                        None => envs.iter().take(envs.len()),
-                    };
-                    for env in iter {
-                        let vars_to_return = if vars.len() == 1 && vars[0] == "*" {
-                            let mut keys: Vec<String> = env.keys()
+                Clause::With(ref items) | Clause::Return(ref items, _) => {
+                    let mut is_return = false;
+                    let mut limit = None;
+                    if let Clause::Return(_, l) = &clause {
+                        is_return = true;
+                        limit = *l;
+                    }
+
+                    // Handle Star conversion
+                    let items: Vec<ProjectionItem> = if items.len() == 1 && matches!(items[0], ProjectionItem::Star) {
+                        if let Some(first_env) = envs.first() {
+                            let mut keys: Vec<String> = first_env.keys()
                                 .filter(|k| !k.starts_with("_anon_"))
                                 .cloned()
                                 .collect();
                             keys.sort();
-                            keys
+                            keys.into_iter().map(ProjectionItem::Variable).collect()
                         } else {
-                            vars.clone()
-                        };
+                            Vec::new()
+                        }
+                    } else {
+                        items.clone()
+                    };
 
-                        for var in &vars_to_return {
-                            if let Some(element) = env.get(var) {
-                                match element {
-                                    GraphElement::Node(node_id) => {
-                                        let node = &self.nodes[*node_id];
-                                        output.push_str(&format!("{}: {:?}\n", var, node));
-                                    }
-                                    GraphElement::Edge(edge_id) => {
-                                        let edge = &self.edges[*edge_id];
-                                        output.push_str(&format!("{}: {:?}\n", var, edge));
-                                    }
-                                    GraphElement::EdgeArray(edge_ids) => {
-                                        let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
-                                        output.push_str(&format!("{}: {:?}\n", var, edges));
-                                    }
-                                    GraphElement::Path(elements) => {
-                                        let mut path_out = Vec::new();
-                                        for el in elements {
-                                            match el {
-                                                GraphElement::Node(n) => path_out.push(format!("{:?}", self.nodes[*n])),
-                                                GraphElement::Edge(e) => path_out.push(format!("{:?}", self.edges[*e])),
-                                                GraphElement::EdgeArray(es) => {
-                                                    let arr: Vec<_> = es.iter().map(|&id| format!("{:?}", self.edges[id])).collect();
-                                                    path_out.push(format!("{:?}", arr));
-                                                }
-                                                GraphElement::Path(_) => {}
-                                            }
-                                        }
-                                        output.push_str(&format!("{}: [{}]\n", var, path_out.join(", ")));
-                                    }
+                    let mut has_aggregate = false;
+                    let mut grouping_keys = Vec::new();
+
+                    for item in &items {
+                        match item {
+                            ProjectionItem::Aggregate { .. } => has_aggregate = true,
+                            ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
+                            ProjectionItem::AliasedVariable(var, _) => grouping_keys.push(var.clone()),
+                            ProjectionItem::Star => {} // Already handled above
+                        }
+                    }
+
+                    let mut final_envs: Vec<Environment> = Vec::new();
+
+                    if has_aggregate {
+                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<Environment>)> = Vec::new();
+
+                        for env in &envs {
+                            let key: Vec<Option<GraphElement>> = grouping_keys.iter().map(|k| env.get(k).cloned()).collect();
+                            let mut found = false;
+                            for (group_key, group_envs) in groups.iter_mut() {
+                                if key == *group_key {
+                                    group_envs.push(env.clone());
+                                    found = true;
+                                    break;
                                 }
-                            } else {
-                                output.push_str(&format!("{}: null\n", var));
+                            }
+                            if !found {
+                                groups.push((key, vec![env.clone()]));
                             }
                         }
-                        output.push_str("---\n");
+
+                        // Compute aggregates per group
+                        for (_group_key, group_envs) in groups {
+                            let mut grouped_env = HashMap::new();
+                            for item in &items {
+                                match item {
+                                    ProjectionItem::Variable(var) => {
+                                        if let Some(val) = group_envs.first().and_then(|e| e.get(var)) {
+                                            grouped_env.insert(var.clone(), val.clone());
+                                        }
+                                    }
+                                    ProjectionItem::AliasedVariable(var, alias) => {
+                                        if let Some(val) = group_envs.first().and_then(|e| e.get(var)) {
+                                            grouped_env.insert(alias.clone(), val.clone());
+                                        }
+                                    }
+                                    ProjectionItem::Aggregate { func, var, alias } => {
+                                        let out_key = alias.clone().unwrap_or_else(|| format!("{}({})", func, var));
+
+                                        match func.as_str() {
+                                            "COUNT" => {
+                                                let count = if var == "*" {
+                                                    group_envs.len()
+                                                } else {
+                                                    group_envs.iter().filter(|e| e.contains_key(var)).count()
+                                                };
+                                                grouped_env.insert(out_key, GraphElement::Number(count as f64));
+                                            }
+                                            "COLLECT" => {
+                                                let mut elements = Vec::new();
+                                                for e in &group_envs {
+                                                    if let Some(val) = e.get(var) {
+                                                        elements.push(val.clone());
+                                                    }
+                                                }
+                                                grouped_env.insert(out_key, GraphElement::List(elements));
+                                            }
+                                            "UNIQUE" => {
+                                                let mut elements = Vec::new();
+                                                for e in &group_envs {
+                                                    if let Some(val) = e.get(var) {
+                                                        if !elements.contains(val) {
+                                                            elements.push(val.clone());
+                                                        }
+                                                    }
+                                                }
+                                                grouped_env.insert(out_key, GraphElement::List(elements));
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    ProjectionItem::Star => {}
+                                }
+                            }
+                            final_envs.push(grouped_env);
+                        }
+                    } else {
+                        // Simple projection without aggregation
+                        for env in &envs {
+                            let mut projected_env = HashMap::new();
+                            for item in &items {
+                                match item {
+                                    ProjectionItem::Variable(var) => {
+                                        if let Some(val) = env.get(var) {
+                                            projected_env.insert(var.clone(), val.clone());
+                                        }
+                                    }
+                                    ProjectionItem::AliasedVariable(var, alias) => {
+                                        if let Some(val) = env.get(var) {
+                                            projected_env.insert(alias.clone(), val.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            final_envs.push(projected_env);
+                        }
                     }
-                    // Typically RETURN is the last clause, we can clear envs if we want,
-                    // but we just let it finish.
+
+                    if is_return {
+                        let iter = match limit {
+                            Some(l) => final_envs.iter().take(l),
+                            None => final_envs.iter().take(final_envs.len()),
+                        };
+                        for env in iter {
+                            for item in &items {
+                                let key = match item {
+                                    ProjectionItem::Variable(var) => var.clone(),
+                                    ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
+                                    ProjectionItem::Aggregate { func, var, alias } => {
+                                        alias.clone().unwrap_or_else(|| format!("{}({})", func, var))
+                                    }
+                                    ProjectionItem::Star => continue,
+                                };
+                                if let Some(element) = env.get(&key) {
+                                    output.push_str(&format!("{}: {}\n", key, self.format_element(element)));
+                                } else {
+                                    output.push_str(&format!("{}: null\n", key));
+                                }
+                            }
+                            output.push_str("---\n");
+                        }
+                    } else {
+                        // WITH clause
+                        envs = final_envs;
+                    }
                 }
                 Clause::CreateIndex { label, property } => {
                     let label_id = self.get_or_add_label(&label);

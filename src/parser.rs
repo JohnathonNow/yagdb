@@ -68,13 +68,26 @@ pub enum Condition {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum ProjectionItem {
+    Star,
+    Variable(String),
+    AliasedVariable(String, String),
+    Aggregate {
+        func: String,
+        var: String,
+        alias: Option<String>,
+    },
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>, Option<Condition>),
     Merge(Vec<Path>),
     Set(String, String, String),
     CreateIndex { label: String, property: String },
-    Return(Vec<String>, Option<usize>),
+    Return(Vec<ProjectionItem>, Option<usize>),
+    With(Vec<ProjectionItem>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -275,21 +288,52 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Match(paths, condition)))
 }
 
+fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
+    alt((
+        map(ws(char('*')), |_| ProjectionItem::Star),
+        |i| {
+            let (i, func) = ws(alt((
+                tag("COUNT"), tag("count"),
+                tag("COLLECT"), tag("collect"),
+                tag("UNIQUE"), tag("unique")
+            )))(i)?;
+            let (i, _) = ws(char('('))(i)?;
+            let (i, var) = ws(alt((identifier, tag("*"))))(i)?;
+            let (i, _) = ws(char(')'))(i)?;
+            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
+            Ok((i, ProjectionItem::Aggregate {
+                func: func.to_uppercase(),
+                var: var.to_string(),
+                alias: alias.map(|s| s.to_string())
+            }))
+        },
+        |i| {
+            let (i, var) = ws(identifier)(i)?;
+            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
+            if let Some(a) = alias {
+                Ok((i, ProjectionItem::AliasedVariable(var.to_string(), a.to_string())))
+            } else {
+                Ok((i, ProjectionItem::Variable(var.to_string())))
+            }
+        }
+    ))(input)
+}
+
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
-    let (input, vars) = alt((
-        |i| {
-            let (i, _) = ws(char('*'))(i)?;
-            Ok((i, vec!["*".to_string()]))
-        },
-        |i| separated_list0(ws(char(',')), ws(identifier))(i).map(|(i, v)| (i, v.into_iter().map(|s| s.to_string()).collect::<Vec<String>>()))
-    ))(input)?;
+    let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
     let (input, limit) = opt(preceded(
         ws(alt((tag("LIMIT"), tag("limit")))),
         ws(digit1),
     ))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
     Ok((input, Clause::Return(vars, limit_val)))
+}
+
+fn with_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("WITH"), tag("with"))))(input)?;
+    let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
+    Ok((input, Clause::With(vars)))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {
@@ -323,7 +367,7 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {
-    alt((create_index_clause, create_clause, match_clause, merge_clause, set_clause, return_clause))(input)
+    alt((create_index_clause, create_clause, match_clause, merge_clause, set_clause, with_clause, return_clause))(input)
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
