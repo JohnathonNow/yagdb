@@ -83,25 +83,22 @@ async fn handle_query(
 async fn handle_append(
     State(app): State<AppState>,
     Json(req): Json<AppendEntriesRequest<TypeConfig>>,
-) -> Json<openraft::raft::AppendEntriesResponse<u64>> {
-    let res = app.raft.append_entries(req).await.unwrap();
-    Json(res)
+) -> Json<Result<openraft::raft::AppendEntriesResponse<u64>, openraft::error::RaftError<u64>>> {
+    Json(app.raft.append_entries(req).await)
 }
 
 async fn handle_snapshot(
     State(app): State<AppState>,
     Json(req): Json<InstallSnapshotRequest<TypeConfig>>,
-) -> Json<openraft::raft::InstallSnapshotResponse<u64>> {
-    let res = app.raft.install_snapshot(req).await.unwrap();
-    Json(res)
+) -> Json<Result<openraft::raft::InstallSnapshotResponse<u64>, openraft::error::RaftError<u64, openraft::error::InstallSnapshotError>>> {
+    Json(app.raft.install_snapshot(req).await)
 }
 
 async fn handle_vote(
     State(app): State<AppState>,
     Json(req): Json<VoteRequest<u64>>,
-) -> Json<openraft::raft::VoteResponse<u64>> {
-    let res = app.raft.vote(req).await.unwrap();
-    Json(res)
+) -> Json<Result<openraft::raft::VoteResponse<u64>, openraft::error::RaftError<u64>>> {
+    Json(app.raft.vote(req).await)
 }
 
 use std::collections::BTreeSet;
