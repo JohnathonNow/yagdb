@@ -117,7 +117,7 @@ cargo bench
 To build the project for WASM:
 
 ```bash
-cargo build --target wasm32-unknown-unknown
+wasm-pack build --target web
 ```
 
 In WASM mode, disk persistence (WAL, snapshots) and the HTTP server are conditionally disabled. The library exposes a `wasm_bindgen` function `execute_query(query: &str) -> String` that operates on a globally shared in-memory graph.
