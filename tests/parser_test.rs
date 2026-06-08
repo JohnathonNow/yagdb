@@ -40,6 +40,27 @@ fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
 }
 
 #[test]
+fn test_where_clause() {
+    let input = "MATCH (n) WHERE n.age > 30 AND n.name = 'Alice' OR NOT m.active = 'false' RETURN n";
+    use yagdb::parser::Condition;
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(_, Some(condition)) => {
+            // Verify condition structure roughly
+            match condition {
+                Condition::Or(left, right) => {
+                    assert!(matches!(**left, Condition::And(_, _)));
+                    assert!(matches!(**right, Condition::Not(_)));
+                }
+                _ => panic!("Expected Or at the root"),
+            }
+        }
+        _ => panic!("Expected Match clause with condition"),
+    }
+}
+
+#[test]
 fn test_var_length() {
     assert_eq!(var_length("*").unwrap().1, (1, None));
     assert_eq!(var_length("*1..2").unwrap().1, (1, Some(2)));
@@ -117,8 +138,9 @@ fn test_match_path_assignment() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(paths) => {
+        Clause::Match(paths, condition) => {
             assert_eq!(paths.len(), 1);
+            assert!(condition.is_none());
             assert_eq!(paths[0].bound_variable.as_deref(), Some("p"));
         }
         _ => panic!("Expected Match clause"),

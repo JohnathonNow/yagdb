@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
 
-use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern}};
+use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern, Condition, Expression, CompareOp}};
 use crate::planner::{PlanNode, QueryPlanner};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -269,7 +269,7 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Match(paths) => {
+                Clause::Match(paths, condition_opt) => {
                     for path in paths {
                         let mut new_envs = Vec::new();
                         for env in envs {
@@ -281,6 +281,9 @@ impl Graph {
                             // If MATCH yields no results, we abort further clauses and return empty
                             break;
                         }
+                    }
+                    if let Some(cond) = condition_opt {
+                        envs.retain(|env| self.evaluate_condition(&cond, env));
                     }
                 }
                 Clause::Merge(paths) => {
@@ -903,5 +906,101 @@ impl Graph {
         }
 
         true
+    }
+
+    fn evaluate_condition(&self, condition: &Condition, env: &Environment) -> bool {
+        match condition {
+            Condition::And(left, right) => self.evaluate_condition(left, env) && self.evaluate_condition(right, env),
+            Condition::Or(left, right) => self.evaluate_condition(left, env) || self.evaluate_condition(right, env),
+            Condition::Not(inner) => !self.evaluate_condition(inner, env),
+            Condition::Compare { left, op, right } => {
+                let l_val = self.evaluate_expression(left, env);
+                let r_val = self.evaluate_expression(right, env);
+                l_val.compare(&r_val, op)
+            }
+        }
+    }
+
+    fn evaluate_expression(&self, expr: &Expression, env: &Environment) -> EvalValue {
+        match expr {
+            Expression::StringLiteral(s) => EvalValue::String(s.clone()),
+            Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::Property(var, prop) => {
+                if let Some(element) = env.get(var) {
+                    let prop_str = match element {
+                        GraphElement::Node(id) => self.nodes[*id].properties.get(prop),
+                        GraphElement::Edge(id) => self.edges[*id].properties.get(prop),
+                        _ => None,
+                    };
+                    match prop_str {
+                        Some(s) => {
+                            if let Ok(n) = s.parse::<f64>() {
+                                EvalValue::Number(n)
+                            } else {
+                                EvalValue::String(s.clone())
+                            }
+                        }
+                        None => EvalValue::Null,
+                    }
+                } else {
+                    EvalValue::Null
+                }
+            }
+        }
+    }
+}
+
+enum EvalValue {
+    String(String),
+    Number(f64),
+    Null,
+}
+
+impl EvalValue {
+    fn compare(&self, other: &EvalValue, op: &CompareOp) -> bool {
+        if let (EvalValue::Null, _) | (_, EvalValue::Null) = (self, other) {
+            return false;
+        }
+        match (self, other) {
+            (EvalValue::Number(l), EvalValue::Number(r)) => Self::compare_f64(*l, *r, op),
+            (EvalValue::String(l), EvalValue::String(r)) => Self::compare_str(l, r, op),
+            (EvalValue::Number(l), EvalValue::String(r)) => {
+                if let Ok(r_num) = r.parse::<f64>() {
+                    Self::compare_f64(*l, r_num, op)
+                } else {
+                    false
+                }
+            }
+            (EvalValue::String(l), EvalValue::Number(r)) => {
+                if let Ok(l_num) = l.parse::<f64>() {
+                    Self::compare_f64(l_num, *r, op)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn compare_f64(l: f64, r: f64, op: &CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => l == r,
+            CompareOp::Neq => l != r,
+            CompareOp::Gt => l > r,
+            CompareOp::Gte => l >= r,
+            CompareOp::Lt => l < r,
+            CompareOp::Lte => l <= r,
+        }
+    }
+
+    fn compare_str(l: &str, r: &str, op: &CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => l == r,
+            CompareOp::Neq => l != r,
+            CompareOp::Gt => l > r,
+            CompareOp::Gte => l >= r,
+            CompareOp::Lt => l < r,
+            CompareOp::Lte => l <= r,
+        }
     }
 }
