@@ -55,3 +55,33 @@ fn test_parser_create_index() {
     assert_eq!(rest, "");
 }
 
+
+#[test]
+fn test_parser_merge() {
+    let input = "MERGE (n:Person {name: 'Alice'})";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Merge(paths) => {
+            assert_eq!(paths.len(), 1);
+            assert_eq!(paths[0].start.label.as_deref(), Some("Person"));
+            assert_eq!(paths[0].start.properties.get("name").unwrap(), "Alice");
+        }
+        _ => panic!("Expected Merge clause"),
+    }
+}
+
+#[test]
+fn test_parser_set() {
+    let input = "SET n.age = '30'";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Set(var, prop, val) => {
+            assert_eq!(var, "n");
+            assert_eq!(prop, "age");
+            assert_eq!(val, "30");
+        }
+        _ => panic!("Expected Set clause"),
+    }
+}

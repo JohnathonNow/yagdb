@@ -40,6 +40,8 @@ pub struct Path {
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>),
+    Merge(Vec<Path>),
+    Set(String, String, String),
     CreateIndex { label: String, property: String },
     Return(Vec<String>, Option<usize>),
 }
@@ -196,8 +198,25 @@ fn create_index_clause(input: &str) -> IResult<&str, Clause> {
     ))
 }
 
+
+fn merge_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("MERGE"), tag("merge"))))(input)?;
+    let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
+    Ok((input, Clause::Merge(paths)))
+}
+
+fn set_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("SET"), tag("set"))))(input)?;
+    let (input, var) = ws(identifier)(input)?;
+    let (input, _) = ws(char('.'))(input)?;
+    let (input, prop) = ws(identifier)(input)?;
+    let (input, _) = ws(char('='))(input)?;
+    let (input, val) = ws(alt((string_literal, identifier)))(input)?;
+    Ok((input, Clause::Set(var.to_string(), prop.to_string(), val.to_string())))
+}
+
 fn clause(input: &str) -> IResult<&str, Clause> {
-    alt((create_index_clause, create_clause, match_clause, return_clause))(input)
+    alt((create_index_clause, create_clause, match_clause, merge_clause, set_clause, return_clause))(input)
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
