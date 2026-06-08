@@ -4,6 +4,9 @@ pub mod node;
 pub mod parser;
 pub mod planner;
 
+#[cfg(feature = "cluster")]
+pub mod raft;
+
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {
     use wasm_bindgen::prelude::*;

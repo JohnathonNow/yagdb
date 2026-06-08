@@ -1,9 +1,5 @@
-
-
-
-
-
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 use axum::{
     extract::State,
     http::StatusCode,
@@ -20,9 +16,11 @@ use tokio::sync::Mutex;
 use yagdb::graph::Graph;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 type SharedGraph = Arc<Mutex<Graph>>;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
     let graph = Arc::new(Mutex::new(Graph::load_or_create("graph.bin", "wal.bin")));
@@ -41,6 +39,41 @@ async fn main() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "cluster")]
+#[tokio::main]
+async fn main() {
+    use clap::Parser;
+
+    #[derive(Parser, Debug)]
+    #[command(author, version, about, long_about = None)]
+    struct Args {
+        #[arg(short, long)]
+        id: u64,
+
+        #[arg(short, long)]
+        addr: String,
+    }
+
+    let args = Args::parse();
+    env_logger::init();
+
+    let graph = Arc::new(Mutex::new(Graph::load_or_create(&format!("graph_{}.bin", args.id), &format!("wal_{}.bin", args.id))));
+
+    let app: Arc<yagdb::raft::app::App> = Arc::new(yagdb::raft::app::App::new(args.id, args.addr.clone(), graph).await);
+
+    let router = yagdb::raft::server::create_router().with_state(app.clone());
+
+    println!("Listening on {}", args.addr);
+
+    let addr: std::net::SocketAddr = args.addr.parse().unwrap();
+    axum::Server::bind(&addr)
+        .serve(router.into_make_service())
+        .await
+        .unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 async fn handle_query(
     State(graph): State<SharedGraph>,
     body: String,

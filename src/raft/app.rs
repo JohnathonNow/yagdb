@@ -1,10 +1,10 @@
-use openraft::{BasicNode, Config, Raft};
+use openraft::{Config, Raft};
 use openraft_memstore::MemStore;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::graph::Graph;
-use super::store::{LogStore, StateMachineStoreImpl, TypeConfig};
+use super::store::TypeConfig;
 use super::network::Network;
 
 pub type AppRaft = Raft<TypeConfig>;
@@ -13,8 +13,6 @@ pub struct App {
     pub id: u64,
     pub addr: String,
     pub raft: AppRaft,
-    pub log_store: Arc<LogStore>,
-    pub state_machine: StateMachineStoreImpl,
     pub config: Arc<Config>,
     pub graph: Arc<Mutex<Graph>>,
 }
@@ -29,12 +27,12 @@ impl App {
         };
         let config = Arc::new(config.validate().unwrap());
 
-        let log_store = MemStore::new_async().await;
-        let sm = StateMachineStoreImpl::new(log_store.clone(), graph.clone());
+        let memstore = MemStore::new_async().await;
+        let (log_store, state_machine) = openraft::storage::Adaptor::new(memstore);
 
         let network = Network::new();
 
-        let raft = Raft::new(id, config.clone(), network, log_store.clone(), sm.clone())
+        let raft = Raft::new(id, config.clone(), network, log_store, state_machine)
             .await
             .unwrap();
 
@@ -42,8 +40,6 @@ impl App {
             id,
             addr,
             raft,
-            log_store,
-            state_machine: sm,
             config,
             graph,
         }

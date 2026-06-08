@@ -1,9 +1,8 @@
 use openraft::error::{InstallSnapshotError, NetworkError, RPCError, RaftError, RemoteError};
-use openraft::network::{RaftNetwork, RaftNetworkFactory};
+use openraft::network::{RaftNetwork, RaftNetworkFactory, RPCOption};
 use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, VoteRequest, VoteResponse};
-use openraft::BasicNode;
 use reqwest::Client;
-use async_trait::async_trait;
+use std::future::Future;
 
 use super::store::TypeConfig;
 
@@ -21,53 +20,70 @@ impl Network {
 
 pub struct NetworkConnection {
     client: Client,
-    target: BasicNode,
+    target: (),
+    target_id: u64,
 }
 
-#[async_trait]
 impl RaftNetworkFactory<TypeConfig> for Network {
     type Network = NetworkConnection;
 
-    async fn new_client(&mut self, _target: u64, node: &BasicNode) -> Self::Network {
-        NetworkConnection {
-            client: self.client.clone(),
-            target: node.clone(),
+    #[allow(clippy::type_complexity)]
+    fn new_client(&mut self, target_id: u64, node: &()) -> impl Future<Output = Self::Network> + Send {
+        let client = self.client.clone();
+        let target = node.clone();
+        async move {
+            NetworkConnection {
+                client,
+                target,
+                target_id,
+            }
         }
     }
 }
 
-#[async_trait]
 impl RaftNetwork<TypeConfig> for NetworkConnection {
-    async fn append_entries(
+    fn append_entries(
         &mut self,
         req: AppendEntriesRequest<TypeConfig>,
-        _option: openraft::network::RPCOption,
-    ) -> Result<AppendEntriesResponse<u64>, RPCError<u64, BasicNode, RaftError<u64>>> {
-        let url = format!("http://{}/raft/append", self.target.addr);
-        let resp = self.client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        let res: Result<AppendEntriesResponse<u64>, RaftError<u64>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        res.map_err(|e| RPCError::RemoteError(RemoteError::new(self.target.clone(), e)))
+        _option: RPCOption,
+    ) -> impl Future<Output = Result<AppendEntriesResponse<u64>, RPCError<u64, (), RaftError<u64>>>> + Send {
+        let client = self.client.clone();
+        let target_id = self.target_id;
+        async move {
+            let url = format!("http://127.0.0.1:{}/raft/append", 3000 + target_id);
+            let resp = client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            let res: Result<AppendEntriesResponse<u64>, RaftError<u64>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            res.map_err(|e| RPCError::RemoteError(RemoteError::new(target_id, e)))
+        }
     }
 
-    async fn install_snapshot(
+    fn install_snapshot(
         &mut self,
         req: InstallSnapshotRequest<TypeConfig>,
-        _option: openraft::network::RPCOption,
-    ) -> Result<InstallSnapshotResponse<u64>, RPCError<u64, BasicNode, RaftError<u64, InstallSnapshotError>>> {
-        let url = format!("http://{}/raft/snapshot", self.target.addr);
-        let resp = self.client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        let res: Result<InstallSnapshotResponse<u64>, RaftError<u64, InstallSnapshotError>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        res.map_err(|e| RPCError::RemoteError(RemoteError::new(self.target.clone(), e)))
+        _option: RPCOption,
+    ) -> impl Future<Output = Result<InstallSnapshotResponse<u64>, RPCError<u64, (), RaftError<u64, InstallSnapshotError>>>> + Send {
+        let client = self.client.clone();
+        let target_id = self.target_id;
+        async move {
+            let url = format!("http://127.0.0.1:{}/raft/snapshot", 3000 + target_id);
+            let resp = client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            let res: Result<InstallSnapshotResponse<u64>, RaftError<u64, InstallSnapshotError>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            res.map_err(|e| RPCError::RemoteError(RemoteError::new(target_id, e)))
+        }
     }
 
-    async fn vote(
+    fn vote(
         &mut self,
         req: VoteRequest<u64>,
-        _option: openraft::network::RPCOption,
-    ) -> Result<VoteResponse<u64>, RPCError<u64, BasicNode, RaftError<u64>>> {
-        let url = format!("http://{}/raft/vote", self.target.addr);
-        let resp = self.client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        let res: Result<VoteResponse<u64>, RaftError<u64>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-        res.map_err(|e| RPCError::RemoteError(RemoteError::new(self.target.clone(), e)))
+        _option: RPCOption,
+    ) -> impl Future<Output = Result<VoteResponse<u64>, RPCError<u64, (), RaftError<u64>>>> + Send {
+        let client = self.client.clone();
+        let target_id = self.target_id;
+        async move {
+            let url = format!("http://127.0.0.1:{}/raft/vote", 3000 + target_id);
+            let resp = client.post(&url).json(&req).send().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            let res: Result<VoteResponse<u64>, RaftError<u64>> = resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+            res.map_err(|e| RPCError::RemoteError(RemoteError::new(target_id, e)))
+        }
     }
 }
