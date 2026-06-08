@@ -2,10 +2,11 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{alpha1, alphanumeric1, char, multispace0, digit1},
-    combinator::{all_consuming, opt, recognize},
+    combinator::{all_consuming, opt, recognize, map},
     multi::{many0, separated_list0},
-    sequence::{delimited, pair, preceded},
+    sequence::{delimited, pair, preceded, tuple},
     IResult,
+    error::Error,
 };
 use std::collections::HashMap;
 
@@ -38,9 +39,38 @@ pub struct Path {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum Expression {
+    Property(String, String),
+    StringLiteral(String),
+    NumberLiteral(f64),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum CompareOp {
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Condition {
+    And(Box<Condition>, Box<Condition>),
+    Or(Box<Condition>, Box<Condition>),
+    Not(Box<Condition>),
+    Compare {
+        left: Expression,
+        op: CompareOp,
+        right: Expression,
+    },
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
-    Match(Vec<Path>),
+    Match(Vec<Path>, Option<Condition>),
     Merge(Vec<Path>),
     Set(String, String, String),
     CreateIndex { label: String, property: String },
@@ -171,10 +201,78 @@ fn create_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Create(paths)))
 }
 
+fn number_literal(input: &str) -> IResult<&str, f64> {
+    let (input, num_str) = recognize(tuple((
+        opt(char('-')),
+        digit1,
+        opt(tuple((char('.'), digit1))),
+    )))(input)?;
+    Ok((input, num_str.parse().unwrap()))
+}
+
+fn expression(input: &str) -> IResult<&str, Expression> {
+    alt((
+        map(ws(string_literal), |s| Expression::StringLiteral(s.to_string())),
+        map(ws(number_literal), Expression::NumberLiteral),
+        map(tuple((ws(identifier), char('.'), ws(identifier))), |(var, _, prop)| Expression::Property(var.to_string(), prop.to_string())),
+    ))(input)
+}
+
+fn compare_op(input: &str) -> IResult<&str, CompareOp> {
+    alt((
+        map(tag(">="), |_| CompareOp::Gte),
+        map(tag("<="), |_| CompareOp::Lte),
+        map(tag("!="), |_| CompareOp::Neq),
+        map(tag(">"), |_| CompareOp::Gt),
+        map(tag("<"), |_| CompareOp::Lt),
+        map(tag("="), |_| CompareOp::Eq),
+    ))(input)
+}
+
+fn condition_base(input: &str) -> IResult<&str, Condition> {
+    alt((
+        map(
+            tuple((ws(alt((tag("NOT"), tag("not")))), ws(condition_base))),
+            |(_, cond)| Condition::Not(Box::new(cond))
+        ),
+        delimited(ws(char('(')), ws(condition_or), ws(char(')'))),
+        map(
+            tuple((expression, ws(compare_op), expression)),
+            |(left, op, right)| Condition::Compare { left, op, right }
+        )
+    ))(input)
+}
+
+fn condition_and(input: &str) -> IResult<&str, Condition> {
+    let (mut input, mut cond) = condition_base(input)?;
+    while let Ok((next_input_after, _)) = ws(alt((tag::<&str, &str, Error<&str>>("AND"), tag::<&str, &str, Error<&str>>("and"))))(input) {
+        let (next_input_after, right) = condition_base(next_input_after)?;
+        cond = Condition::And(Box::new(cond), Box::new(right));
+        input = next_input_after;
+    }
+    Ok((input, cond))
+}
+
+fn condition_or(input: &str) -> IResult<&str, Condition> {
+    let (mut input, mut cond) = condition_and(input)?;
+    while let Ok((next_input_after, _)) = ws(alt((tag::<&str, &str, Error<&str>>("OR"), tag::<&str, &str, Error<&str>>("or"))))(input) {
+        let (next_input_after, right) = condition_and(next_input_after)?;
+        cond = Condition::Or(Box::new(cond), Box::new(right));
+        input = next_input_after;
+    }
+    Ok((input, cond))
+}
+
+pub fn where_clause(input: &str) -> IResult<&str, Condition> {
+    let (input, _) = ws(alt((tag("WHERE"), tag("where"))))(input)?;
+    condition_or(input)
+}
+
 fn match_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MATCH"), tag("match"))))(input)?;
     let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
-    Ok((input, Clause::Match(paths)))
+    let (input, condition) = opt(where_clause)(input)?;
+    Ok((input, Clause::Match(paths, condition)))
 }
 
 fn return_clause(input: &str) -> IResult<&str, Clause> {
