@@ -57,10 +57,15 @@ impl QueryPlanner {
                 target_pattern.variable = Some(format!("_anon_node_{}", idx));
             }
 
+            let mut rel_pattern = rel.clone();
+            if rel_pattern.variable.is_none() {
+                rel_pattern.variable = Some(format!("_anon_rel_{}", idx));
+            }
+
             plan = PlanNode::PathExpand {
                 source: Box::new(plan),
                 source_node_pattern: prev_node_pattern,
-                rel_pattern: rel.clone(),
+                rel_pattern,
                 target_node_pattern: target_pattern.clone(),
             };
             prev_node_pattern = target_pattern;

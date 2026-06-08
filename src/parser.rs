@@ -32,6 +32,7 @@ pub enum PathPart {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Path {
+    pub bound_variable: Option<String>,
     pub start: NodePattern,
     pub edges: Vec<(RelPattern, NodePattern)>,
 }
@@ -157,9 +158,11 @@ fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
 }
 
 fn path(input: &str) -> IResult<&str, Path> {
+    let (input, bound_opt) = opt(pair(ws(identifier), ws(char('='))))(input)?;
+    let bound_variable = bound_opt.map(|(id, _)| id.to_string());
     let (input, start) = node_pattern(input)?;
     let (input, edges) = many0(pair(ws(rel_pattern), ws(node_pattern)))(input)?;
-    Ok((input, Path { start, edges }))
+    Ok((input, Path { bound_variable, start, edges }))
 }
 
 fn create_clause(input: &str) -> IResult<&str, Clause> {
@@ -176,13 +179,19 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
 
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
-    let (input, vars) = separated_list0(ws(char(',')), ws(identifier))(input)?;
+    let (input, vars) = alt((
+        |i| {
+            let (i, _) = ws(char('*'))(i)?;
+            Ok((i, vec!["*".to_string()]))
+        },
+        |i| separated_list0(ws(char(',')), ws(identifier))(i).map(|(i, v)| (i, v.into_iter().map(|s| s.to_string()).collect::<Vec<String>>()))
+    ))(input)?;
     let (input, limit) = opt(preceded(
         ws(alt((tag("LIMIT"), tag("limit")))),
         ws(digit1),
     ))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Return(vars.into_iter().map(|s| s.to_string()).collect(), limit_val)))
+    Ok((input, Clause::Return(vars, limit_val)))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {

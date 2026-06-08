@@ -85,3 +85,54 @@ fn test_parser_set() {
         _ => panic!("Expected Set clause"),
     }
 }
+
+#[test]
+fn test_return_star() {
+    use yagdb::parser::{parse_query, Clause};
+    let input = "RETURN *";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Return(vars, _) => {
+            assert_eq!(vars.len(), 1);
+            assert_eq!(vars[0], "*");
+        }
+        _ => panic!("Expected Return clause"),
+    }
+}
+
+#[test]
+fn test_return_star_graph() {
+    use yagdb::graph::Graph;
+    let mut g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice'})").unwrap();
+    let res = g.execute("MATCH (b:Person {name: 'Alice'}) RETURN *").unwrap();
+    assert!(res.contains("b: Node { labels: [0], edges: [], properties: {\"name\": \"Alice\"} }"));
+}
+
+#[test]
+fn test_match_path_assignment() {
+    use yagdb::parser::{parse_query, Clause};
+    let input = "MATCH p=(a:Person)-[:is]->(x:Alias)";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(paths) => {
+            assert_eq!(paths.len(), 1);
+            assert_eq!(paths[0].bound_variable.as_deref(), Some("p"));
+        }
+        _ => panic!("Expected Match clause"),
+    }
+}
+
+#[test]
+fn test_execute_bound_path() {
+    use yagdb::graph::Graph;
+    let mut g = Graph::new();
+    g.execute("CREATE p=(a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})").unwrap();
+    let res = g.execute("MATCH p=(a:Person)-[:KNOWS]->(b:Person) RETURN p").unwrap();
+    println!("{}", res);
+    assert!(res.contains("p: [Node { labels: [0], edges: [0], properties: {\"name\": \"Alice\"} }"));
+    assert!(res.contains("Edge { labels: [1], start: 0, end: 1, properties: {} }"));
+    assert!(res.contains("Node { labels: [0], edges: [0], properties: {\"name\": \"Bob\"} }]"));
+}
