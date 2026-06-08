@@ -28,4 +28,4 @@ curl -X POST http://127.0.0.1:3001/raft/change-membership -H "Content-Type: appl
 sleep 2
 
 echo "Cluster is running!"
-kill $PID1 $PID2 $PID3
+#kill $PID1 $PID2 $PID3
