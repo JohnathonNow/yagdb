@@ -552,19 +552,14 @@ impl Graph {
                         let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<Environment>)> =
                             Vec::new();
 
-                        for env in &envs {
+                        for env in std::mem::take(&mut envs) {
                             let key: Vec<Option<GraphElement>> =
                                 grouping_keys.iter().map(|k| env.get(k).cloned()).collect();
-                            let mut found = false;
-                            for (group_key, group_envs) in groups.iter_mut() {
-                                if key == *group_key {
-                                    group_envs.push(env.clone());
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if !found {
-                                groups.push((key, vec![env.clone()]));
+
+                            if let Some((_, group_envs)) = groups.iter_mut().find(|(k, _)| *k == key) {
+                                group_envs.push(env);
+                            } else {
+                                groups.push((key, vec![env]));
                             }
                         }
 
@@ -639,18 +634,18 @@ impl Graph {
                         }
                     } else {
                         // Simple projection without aggregation
-                        for env in &envs {
+                        for env in std::mem::take(&mut envs) {
                             let mut projected_env = HashMap::new();
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
-                                        if let Some(val) = env.get(var) {
-                                            projected_env.insert(var.clone(), val.clone());
+                                        if let Some(val) = env.get(var).cloned() {
+                                            projected_env.insert(var.clone(), val);
                                         }
                                     }
                                     ProjectionItem::AliasedVariable(var, alias) => {
-                                        if let Some(val) = env.get(var) {
-                                            projected_env.insert(alias.clone(), val.clone());
+                                        if let Some(val) = env.get(var).cloned() {
+                                            projected_env.insert(alias.clone(), val);
                                         }
                                     }
                                     _ => {}
@@ -661,9 +656,10 @@ impl Graph {
                     }
 
                     if is_return {
+                        let len = final_envs.len();
                         let iter = match limit {
-                            Some(l) => final_envs.iter().take(l),
-                            None => final_envs.iter().take(final_envs.len()),
+                            Some(l) => final_envs.into_iter().take(l),
+                            None => final_envs.into_iter().take(len),
                         };
                         let mut results_json = Vec::new();
                         for env in iter {
@@ -942,7 +938,7 @@ impl Graph {
                         }
                         if valid {
                             let mut merged = l.clone();
-                            merged.extend(r.clone());
+                            merged.extend(r.iter().map(|(k, v)| (k.clone(), v.clone())));
                             joined_res.push(merged);
                         }
                     }
