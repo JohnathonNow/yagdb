@@ -479,6 +479,33 @@ impl Graph {
                         }
                     }
                 }
+                Clause::Unwind(ref items) => {
+                    let mut final_envs: Vec<Environment> = Vec::new();
+                    for env in &envs {
+                        for item in items.iter() {
+                            match item {
+                                ProjectionItem::Variable(var) => {
+                                    if let Some(val) = env.get(var) {
+                                        match val {
+                                            GraphElement::List(v) => {
+                                                for x in v {
+                                                    let mut new_env = env.clone();
+                                                    new_env.insert(var.clone(), x.clone());
+                                                    final_envs.push(new_env);
+                                                }
+                                            }
+                                            _ => {
+
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    envs = final_envs;
+                }
                 Clause::With(ref items) | Clause::Return(ref items, _) => {
                     let mut is_return = false;
                     let mut limit = None;

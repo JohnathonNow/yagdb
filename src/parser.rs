@@ -88,6 +88,7 @@ pub enum Clause {
     CreateIndex { label: String, property: String },
     Return(Vec<ProjectionItem>, Option<usize>),
     With(Vec<ProjectionItem>),
+    Unwind(Vec<ProjectionItem>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -391,6 +392,12 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
     ))
 }
 
+fn unwind_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("UNWIND"), tag("unwind"))))(input)?;
+    let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
+    Ok((input, Clause::Unwind(vars)))
+}
+
 fn clause(input: &str) -> IResult<&str, Clause> {
     alt((
         create_index_clause,
@@ -400,6 +407,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
         set_clause,
         with_clause,
         return_clause,
+        unwind_clause,
     ))(input)
 }
 
