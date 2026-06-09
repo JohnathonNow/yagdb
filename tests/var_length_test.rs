@@ -29,5 +29,5 @@ fn test_variable_length_bind_var() {
     let res = g.execute("MATCH (a:Node {id: '1'})-[r*1..2]->(c) RETURN r").unwrap();
     println!("{}", res);
     // if r is array:
-    assert!(res.contains("Edge"));
+    assert!(res.contains("start"));
 }

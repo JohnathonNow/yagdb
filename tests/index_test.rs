@@ -53,13 +53,13 @@ fn test_index_usage() {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
 
         let result = g.execute("MATCH (u:User {username: 'bob'}) RETURN u").unwrap();
-        assert!(result.contains("u: Node"));
+        assert!(result.contains("\"u\":"));
         assert!(result.contains(r#""username": "bob""#));
         assert!(!result.contains("alice"));
         assert!(!result.contains("charlie"));
 
         let result2 = g.execute("MATCH (u:User {username: 'charlie'}) RETURN u").unwrap();
-        assert!(result2.contains("u: Node"));
+        assert!(result2.contains("\"u\":"));
         assert!(result2.contains(r#""username": "charlie""#));
     }
 

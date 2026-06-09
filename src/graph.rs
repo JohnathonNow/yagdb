@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use serde_json::{json, Value};
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
@@ -162,6 +163,27 @@ impl Graph {
             .unwrap());
 
         graph
+    }
+
+
+    pub fn element_to_json(&self, element: &GraphElement) -> Value {
+        match element {
+            GraphElement::Node(node_id) => serde_json::to_value(&self.nodes[*node_id]).unwrap(),
+            GraphElement::Edge(edge_id) => serde_json::to_value(&self.edges[*edge_id]).unwrap(),
+            GraphElement::EdgeArray(edge_ids) => {
+                let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
+                serde_json::to_value(&edges).unwrap()
+            }
+            GraphElement::Path(elements) => {
+                let path_out: Vec<Value> = elements.iter().map(|el| self.element_to_json(el)).collect();
+                serde_json::to_value(&path_out).unwrap()
+            }
+            GraphElement::List(elements) => {
+                let list_out: Vec<Value> = elements.iter().map(|el| self.element_to_json(el)).collect();
+                serde_json::to_value(&list_out).unwrap()
+            }
+            GraphElement::Number(n) => json!(n),
+        }
     }
 
     pub fn format_element(&self, element: &GraphElement) -> String {
@@ -505,7 +527,9 @@ impl Graph {
                             Some(l) => final_envs.iter().take(l),
                             None => final_envs.iter().take(final_envs.len()),
                         };
+                        let mut results_json = Vec::new();
                         for env in iter {
+                            let mut row = serde_json::Map::new();
                             for item in &items {
                                 let key = match item {
                                     ProjectionItem::Variable(var) => var.clone(),
@@ -516,12 +540,17 @@ impl Graph {
                                     ProjectionItem::Star => continue,
                                 };
                                 if let Some(element) = env.get(&key) {
-                                    output.push_str(&format!("{}: {}\n", key, self.format_element(element)));
+                                    row.insert(key, self.element_to_json(element));
                                 } else {
-                                    output.push_str(&format!("{}: null\n", key));
+                                    row.insert(key, Value::Null);
                                 }
                             }
-                            output.push_str("---\n");
+                            if !row.is_empty() {
+                                results_json.push(Value::Object(row));
+                            }
+                        }
+                        if !results_json.is_empty() {
+                            output = serde_json::to_string_pretty(&results_json).unwrap();
                         }
                     } else {
                         // WITH clause
@@ -535,22 +564,23 @@ impl Graph {
             }
         }
 
-        // Clean up output formatting if it ends with "---"
-        let mut final_output = String::new();
         if let Some(prof) = profile_out {
-            final_output.push_str("Profile:\n");
-            final_output.push_str(&prof);
-            final_output.push_str("\n");
+            let results: Value = if output.is_empty() {
+                json!([])
+            } else {
+                serde_json::from_str(&output).unwrap_or_else(|_| json!([]))
+            };
+            Ok(serde_json::to_string_pretty(&json!({
+                "profile": prof,
+                "results": results
+            })).unwrap())
+        } else {
+            if output.is_empty() {
+                Ok("[]".to_string())
+            } else {
+                Ok(output)
+            }
         }
-
-        let mut data_output = output;
-        if data_output.ends_with("---\n") {
-            data_output.truncate(data_output.len() - 4);
-        }
-
-        final_output.push_str(&data_output);
-
-        Ok(final_output)
     }
 
     fn execute_create_path(&mut self, path: Path, env: &mut Environment) {
