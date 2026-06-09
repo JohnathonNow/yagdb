@@ -28,9 +28,11 @@ jobs:
 
       - name: Prepare deployment directory
         run: |
+          ls
           mkdir dist
+          mkdir dist/pkg
           cp index.html dist/
-          cp -r pkg dist/
+          cp -r pkg/* dist/pkg
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
