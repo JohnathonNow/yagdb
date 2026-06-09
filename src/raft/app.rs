@@ -31,6 +31,7 @@ impl App {
         let graph_store = crate::raft::store::GraphStore {
             graph: graph.clone(),
             inner: memstore,
+            current_snapshot: Arc::new(tokio::sync::RwLock::new(None)),
         };
 
         let (log_store, state_machine) = openraft::storage::Adaptor::new(graph_store);

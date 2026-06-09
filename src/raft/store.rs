@@ -16,6 +16,44 @@ pub type QueryResponse = MemStoreClientResponse;
 pub struct GraphStore {
     pub graph: Arc<Mutex<Graph>>,
     pub inner: Arc<MemStore>,
+    pub current_snapshot: Arc<tokio::sync::RwLock<Option<(SnapshotMeta<u64, ()>, Vec<u8>)>>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GraphSnapshotData {
+    pub memstore_data: Vec<u8>,
+    pub graph_data: Vec<u8>,
+}
+
+pub struct GraphSnapshotBuilder {
+    pub inner: <Arc<MemStore> as RaftStorage<TypeConfig>>::SnapshotBuilder,
+    pub graph: Arc<Mutex<Graph>>,
+    pub current_snapshot: Arc<tokio::sync::RwLock<Option<(SnapshotMeta<u64, ()>, Vec<u8>)>>>,
+}
+
+impl openraft::storage::RaftSnapshotBuilder<TypeConfig> for GraphSnapshotBuilder {
+    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<u64>> {
+        let mut inner_snap = self.inner.build_snapshot().await?;
+        let memstore_data = (*inner_snap.snapshot).into_inner();
+
+        let graph_data = {
+            let g = self.graph.lock().await;
+            bincode::serialize(&*g).map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?
+        };
+
+        let combined = GraphSnapshotData {
+            memstore_data,
+            graph_data,
+        };
+
+        let combined_bytes = bincode::serialize(&combined).map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+
+        let meta = inner_snap.meta.clone();
+        *self.current_snapshot.write().await = Some((meta, combined_bytes.clone()));
+
+        inner_snap.snapshot = Box::new(std::io::Cursor::new(combined_bytes));
+        Ok(inner_snap)
+    }
 }
 
 impl RaftLogReader<TypeConfig> for GraphStore {
@@ -29,7 +67,7 @@ impl RaftLogReader<TypeConfig> for GraphStore {
 
 impl RaftStorage<TypeConfig> for GraphStore {
     type LogReader = <Arc<MemStore> as RaftStorage<TypeConfig>>::LogReader;
-    type SnapshotBuilder = <Arc<MemStore> as RaftStorage<TypeConfig>>::SnapshotBuilder;
+    type SnapshotBuilder = GraphSnapshotBuilder;
 
     async fn save_vote(&mut self, vote: &Vote<u64>) -> Result<(), StorageError<u64>> {
         self.inner.save_vote(vote).await
@@ -85,7 +123,11 @@ impl RaftStorage<TypeConfig> for GraphStore {
     }
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-        self.inner.get_snapshot_builder().await
+        GraphSnapshotBuilder {
+            inner: self.inner.get_snapshot_builder().await,
+            graph: self.graph.clone(),
+            current_snapshot: self.current_snapshot.clone(),
+        }
     }
 
     async fn begin_receiving_snapshot(&mut self) -> Result<Box<<TypeConfig as RaftTypeConfig>::SnapshotData>, StorageError<u64>> {
@@ -97,10 +139,36 @@ impl RaftStorage<TypeConfig> for GraphStore {
         meta: &SnapshotMeta<u64, ()>,
         snapshot: Box<<TypeConfig as RaftTypeConfig>::SnapshotData>,
     ) -> Result<(), StorageError<u64>> {
-        self.inner.install_snapshot(meta, snapshot).await
+        let combined_bytes = (*snapshot).into_inner();
+        let combined: GraphSnapshotData = bincode::deserialize(&combined_bytes)
+            .map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+
+        {
+            let mut g = self.graph.lock().await;
+            let mut new_g: Graph = bincode::deserialize(&combined.graph_data)
+                .map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                new_g.wal_file = g.wal_file.take();
+            }
+            *g = new_g;
+        }
+
+        *self.current_snapshot.write().await = Some((meta.clone(), combined_bytes));
+
+        let inner_snapshot = Box::new(std::io::Cursor::new(combined.memstore_data));
+        self.inner.install_snapshot(meta, inner_snapshot).await
     }
 
     async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, StorageError<u64>> {
-        self.inner.get_current_snapshot().await
+        let snap = self.current_snapshot.read().await;
+        if let Some((meta, data)) = &*snap {
+            Ok(Some(Snapshot {
+                meta: meta.clone(),
+                snapshot: Box::new(std::io::Cursor::new(data.clone())),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
