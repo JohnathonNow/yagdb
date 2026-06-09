@@ -1,21 +1,45 @@
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use serde::{Serialize, Deserialize};
 
-use crate::{edge::Edge, node::Node, parser::{parse_query, Clause, NodePattern, Path, RelPattern, Condition, Expression, CompareOp, ProjectionItem}};
 use crate::planner::{PlanNode, QueryPlanner};
+use crate::{
+    edge::Edge,
+    node::Node,
+    parser::{
+        parse_query, Clause, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
+        RelPattern,
+    },
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WalEntry {
-    AddLabel { label: String },
-    AddNode { label: usize, properties: HashMap<String, String> },
-    AddEdge { start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String> },
-    CreateIndex { label: usize, property: String },
-    SetNodeProperty { node_id: usize, key: String, value: String },
+    AddLabel {
+        label: String,
+    },
+    AddNode {
+        label: usize,
+        properties: HashMap<String, String>,
+    },
+    AddEdge {
+        start: usize,
+        end: usize,
+        labels: Vec<usize>,
+        properties: HashMap<String, String>,
+    },
+    CreateIndex {
+        label: usize,
+        property: String,
+    },
+    SetNodeProperty {
+        node_id: usize,
+        key: String,
+        value: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,12 +113,20 @@ impl Graph {
                         if let Some(label_indices) = graph.indices.get_mut(&label) {
                             for (prop_key, prop_index) in label_indices.iter_mut() {
                                 if let Some(prop_val) = properties.get(prop_key) {
-                                    prop_index.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                    prop_index
+                                        .entry(prop_val.clone())
+                                        .or_insert_with(Vec::new)
+                                        .push(node_id);
                                 }
                             }
                         }
                     }
-                    WalEntry::AddEdge { start, end, labels, properties } => {
+                    WalEntry::AddEdge {
+                        start,
+                        end,
+                        labels,
+                        properties,
+                    } => {
                         let edge = Edge::new(labels, start, end, properties);
                         graph.edges.push(edge);
                         let edge_idx = graph.edges.len() - 1;
@@ -104,8 +136,14 @@ impl Graph {
                     WalEntry::CreateIndex { label, property } => {
                         graph.create_index_internal(label, property);
                     }
-                    WalEntry::SetNodeProperty { node_id, key, value } => {
-                        let old_value = graph.nodes[node_id].properties.insert(key.clone(), value.clone());
+                    WalEntry::SetNodeProperty {
+                        node_id,
+                        key,
+                        value,
+                    } => {
+                        let old_value = graph.nodes[node_id]
+                            .properties
+                            .insert(key.clone(), value.clone());
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if graph.nodes[node_id].labels.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
@@ -116,7 +154,8 @@ impl Graph {
                                         }
                                     }
                                     // Add to new index if not already present
-                                    let entry_vec = prop_index.entry(value.clone()).or_insert_with(Vec::new);
+                                    let entry_vec =
+                                        prop_index.entry(value.clone()).or_insert_with(Vec::new);
                                     if !entry_vec.contains(&node_id) {
                                         entry_vec.push(node_id);
                                     }
@@ -156,15 +195,16 @@ impl Graph {
             wal_file.sync_data().unwrap();
         }
 
-        graph.wal_file = Some(std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(wal_path)
-            .unwrap());
+        graph.wal_file = Some(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(wal_path)
+                .unwrap(),
+        );
 
         graph
     }
-
 
     pub fn element_to_json(&self, element: &GraphElement) -> Value {
         match element {
@@ -175,11 +215,13 @@ impl Graph {
                 serde_json::to_value(&edges).unwrap()
             }
             GraphElement::Path(elements) => {
-                let path_out: Vec<Value> = elements.iter().map(|el| self.element_to_json(el)).collect();
+                let path_out: Vec<Value> =
+                    elements.iter().map(|el| self.element_to_json(el)).collect();
                 serde_json::to_value(&path_out).unwrap()
             }
             GraphElement::List(elements) => {
-                let list_out: Vec<Value> = elements.iter().map(|el| self.element_to_json(el)).collect();
+                let list_out: Vec<Value> =
+                    elements.iter().map(|el| self.element_to_json(el)).collect();
                 serde_json::to_value(&list_out).unwrap()
             }
             GraphElement::Number(n) => json!(n),
@@ -243,7 +285,9 @@ impl Graph {
         } else {
             let id = self.labels.len();
             self.labels.insert(label.to_string(), id);
-            self.log_wal(&WalEntry::AddLabel { label: label.to_string() });
+            self.log_wal(&WalEntry::AddLabel {
+                label: label.to_string(),
+            });
             id
         }
     }
@@ -257,7 +301,10 @@ impl Graph {
         if let Some(label_indices) = self.indices.get_mut(&label) {
             for (prop_key, prop_index) in label_indices.iter_mut() {
                 if let Some(prop_val) = properties.get(prop_key) {
-                    prop_index.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                    prop_index
+                        .entry(prop_val.clone())
+                        .or_insert_with(Vec::new)
+                        .push(node_id);
                 }
             }
         }
@@ -285,19 +332,33 @@ impl Graph {
         for (node_id, node) in self.nodes.iter().enumerate() {
             if node.labels.contains(&label) {
                 if let Some(value) = node.properties.get(&property) {
-                    property_index.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                    property_index
+                        .entry(value.clone())
+                        .or_insert_with(Vec::new)
+                        .push(node_id);
                 }
             }
         }
     }
 
-    pub fn add_edge(&mut self, start: usize, end: usize, labels: Vec<usize>, properties: HashMap<String, String>) -> usize {
+    pub fn add_edge(
+        &mut self,
+        start: usize,
+        end: usize,
+        labels: Vec<usize>,
+        properties: HashMap<String, String>,
+    ) -> usize {
         let edge = Edge::new(labels.clone(), start, end, properties.clone());
         self.edges.push(edge);
         let edge_idx = self.edges.len() - 1;
         self.nodes[start].edges.push(edge_idx);
         self.nodes[end].edges.push(edge_idx);
-        self.log_wal(&WalEntry::AddEdge { start, end, labels, properties });
+        self.log_wal(&WalEntry::AddEdge {
+            start,
+            end,
+            labels,
+            properties,
+        });
         edge_idx
     }
 
@@ -305,7 +366,11 @@ impl Graph {
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut output = String::new();
-        let mut profile_out = if query.profile { Some(String::new()) } else { None };
+        let mut profile_out = if query.profile {
+            Some(String::new())
+        } else {
+            None
+        };
 
         // A single environment initially, representing the "root" row.
         let mut envs: Vec<Environment> = vec![HashMap::new()];
@@ -320,10 +385,17 @@ impl Graph {
                     }
                 }
                 Clause::Match(paths, condition_opt) => {
-                    for path in paths {
+                    if let Some(plan) =
+                        QueryPlanner::plan_match_paths(&paths, &self.labels, &self.indices)
+                    {
                         let mut new_envs = Vec::new();
                         for env in envs {
-                            let matches = self.execute_match_path(&path, &env, &mut profile_out);
+                            let matches = self.execute_plan_and_bind_paths(
+                                &plan,
+                                &paths,
+                                &env,
+                                &mut profile_out,
+                            );
                             new_envs.extend(matches);
                         }
                         envs = new_envs;
@@ -331,18 +403,33 @@ impl Graph {
                             // If MATCH yields no results, we abort further clauses and return empty
                             break;
                         }
-                    }
-                    if let Some(cond) = condition_opt {
-                        envs.retain(|env| self.evaluate_condition(&cond, env));
+                        if let Some(cond) = condition_opt {
+                            envs.retain(|env| self.evaluate_condition(&cond, env));
+                        }
                     }
                 }
                 Clause::Merge(paths) => {
                     for path in paths {
                         let mut new_envs = Vec::new();
                         for env in envs {
-                            let matches = self.execute_match_path(&path, &env, &mut profile_out);
-                            if !matches.is_empty() {
-                                new_envs.extend(matches);
+                            if let Some(plan) = QueryPlanner::plan_match_paths(
+                                &[path.clone()],
+                                &self.labels,
+                                &self.indices,
+                            ) {
+                                let matches = self.execute_plan_and_bind_paths(
+                                    &plan,
+                                    &[path.clone()],
+                                    &env,
+                                    &mut profile_out,
+                                );
+                                if !matches.is_empty() {
+                                    new_envs.extend(matches);
+                                } else {
+                                    let mut create_env = env.clone();
+                                    self.execute_create_path(path.clone(), &mut create_env);
+                                    new_envs.push(create_env);
+                                }
                             } else {
                                 let mut create_env = env.clone();
                                 self.execute_create_path(path.clone(), &mut create_env);
@@ -358,7 +445,9 @@ impl Graph {
                         if let Some(GraphElement::Node(node_id)) = env.get(&var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
-                                let old_value = self.nodes[node_id].properties.insert(key.clone(), value.clone());
+                                let old_value = self.nodes[node_id]
+                                    .properties
+                                    .insert(key.clone(), value.clone());
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
@@ -371,7 +460,9 @@ impl Graph {
                                                 }
                                             }
                                             // Add to new index
-                                            let entry_vec = prop_index.entry(value.clone()).or_insert_with(Vec::new);
+                                            let entry_vec = prop_index
+                                                .entry(value.clone())
+                                                .or_insert_with(Vec::new);
                                             if !entry_vec.contains(&node_id) {
                                                 entry_vec.push(node_id);
                                             }
@@ -397,20 +488,22 @@ impl Graph {
                     }
 
                     // Handle Star conversion
-                    let items: Vec<ProjectionItem> = if items.len() == 1 && matches!(items[0], ProjectionItem::Star) {
-                        if let Some(first_env) = envs.first() {
-                            let mut keys: Vec<String> = first_env.keys()
-                                .filter(|k| !k.starts_with("_anon_"))
-                                .cloned()
-                                .collect();
-                            keys.sort();
-                            keys.into_iter().map(ProjectionItem::Variable).collect()
+                    let items: Vec<ProjectionItem> =
+                        if items.len() == 1 && matches!(items[0], ProjectionItem::Star) {
+                            if let Some(first_env) = envs.first() {
+                                let mut keys: Vec<String> = first_env
+                                    .keys()
+                                    .filter(|k| !k.starts_with("_anon_"))
+                                    .cloned()
+                                    .collect();
+                                keys.sort();
+                                keys.into_iter().map(ProjectionItem::Variable).collect()
+                            } else {
+                                Vec::new()
+                            }
                         } else {
-                            Vec::new()
-                        }
-                    } else {
-                        items.clone()
-                    };
+                            items.clone()
+                        };
 
                     let mut has_aggregate = false;
                     let mut grouping_keys = Vec::new();
@@ -419,7 +512,9 @@ impl Graph {
                         match item {
                             ProjectionItem::Aggregate { .. } => has_aggregate = true,
                             ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
-                            ProjectionItem::AliasedVariable(var, _) => grouping_keys.push(var.clone()),
+                            ProjectionItem::AliasedVariable(var, _) => {
+                                grouping_keys.push(var.clone())
+                            }
                             ProjectionItem::Star => {} // Already handled above
                         }
                     }
@@ -427,10 +522,12 @@ impl Graph {
                     let mut final_envs: Vec<Environment> = Vec::new();
 
                     if has_aggregate {
-                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<Environment>)> = Vec::new();
+                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<Environment>)> =
+                            Vec::new();
 
                         for env in &envs {
-                            let key: Vec<Option<GraphElement>> = grouping_keys.iter().map(|k| env.get(k).cloned()).collect();
+                            let key: Vec<Option<GraphElement>> =
+                                grouping_keys.iter().map(|k| env.get(k).cloned()).collect();
                             let mut found = false;
                             for (group_key, group_envs) in groups.iter_mut() {
                                 if key == *group_key {
@@ -450,26 +547,38 @@ impl Graph {
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
-                                        if let Some(val) = group_envs.first().and_then(|e| e.get(var)) {
+                                        if let Some(val) =
+                                            group_envs.first().and_then(|e| e.get(var))
+                                        {
                                             grouped_env.insert(var.clone(), val.clone());
                                         }
                                     }
                                     ProjectionItem::AliasedVariable(var, alias) => {
-                                        if let Some(val) = group_envs.first().and_then(|e| e.get(var)) {
+                                        if let Some(val) =
+                                            group_envs.first().and_then(|e| e.get(var))
+                                        {
                                             grouped_env.insert(alias.clone(), val.clone());
                                         }
                                     }
                                     ProjectionItem::Aggregate { func, var, alias } => {
-                                        let out_key = alias.clone().unwrap_or_else(|| format!("{}({})", func, var));
+                                        let out_key = alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}({})", func, var));
 
                                         match func.as_str() {
                                             "COUNT" => {
                                                 let count = if var == "*" {
                                                     group_envs.len()
                                                 } else {
-                                                    group_envs.iter().filter(|e| e.contains_key(var)).count()
+                                                    group_envs
+                                                        .iter()
+                                                        .filter(|e| e.contains_key(var))
+                                                        .count()
                                                 };
-                                                grouped_env.insert(out_key, GraphElement::Number(count as f64));
+                                                grouped_env.insert(
+                                                    out_key,
+                                                    GraphElement::Number(count as f64),
+                                                );
                                             }
                                             "COLLECT" => {
                                                 let mut elements = Vec::new();
@@ -478,7 +587,8 @@ impl Graph {
                                                         elements.push(val.clone());
                                                     }
                                                 }
-                                                grouped_env.insert(out_key, GraphElement::List(elements));
+                                                grouped_env
+                                                    .insert(out_key, GraphElement::List(elements));
                                             }
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
@@ -489,7 +599,8 @@ impl Graph {
                                                         }
                                                     }
                                                 }
-                                                grouped_env.insert(out_key, GraphElement::List(elements));
+                                                grouped_env
+                                                    .insert(out_key, GraphElement::List(elements));
                                             }
                                             _ => {}
                                         }
@@ -534,9 +645,9 @@ impl Graph {
                                 let key = match item {
                                     ProjectionItem::Variable(var) => var.clone(),
                                     ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
-                                    ProjectionItem::Aggregate { func, var, alias } => {
-                                        alias.clone().unwrap_or_else(|| format!("{}({})", func, var))
-                                    }
+                                    ProjectionItem::Aggregate { func, var, alias } => alias
+                                        .clone()
+                                        .unwrap_or_else(|| format!("{}({})", func, var)),
                                     ProjectionItem::Star => continue,
                                 };
                                 if let Some(element) = env.get(&key) {
@@ -573,7 +684,8 @@ impl Graph {
             Ok(serde_json::to_string_pretty(&json!({
                 "profile": prof,
                 "results": results
-            })).unwrap())
+            }))
+            .unwrap())
         } else {
             if output.is_empty() {
                 Ok("[]".to_string())
@@ -639,7 +751,13 @@ impl Graph {
         self.add_edge(start, end, vec![label_id], pattern.properties.clone())
     }
 
-    pub fn execute_plan(&self, plan: &PlanNode, env: &Environment, profile: &mut Option<String>, depth: usize) -> Vec<Environment> {
+    pub fn execute_plan(
+        &self,
+        plan: &PlanNode,
+        env: &Environment,
+        profile: &mut Option<String>,
+        depth: usize,
+    ) -> Vec<Environment> {
         let indent = "  ".repeat(depth);
         let op_name;
 
@@ -662,7 +780,9 @@ impl Graph {
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     for id in 0..self.nodes.len() {
-                        if self.nodes[id].labels.contains(label_id) && self.node_matches(id, pattern) {
+                        if self.nodes[id].labels.contains(label_id)
+                            && self.node_matches(id, pattern)
+                        {
                             matched_nodes.push(id);
                         }
                     }
@@ -678,7 +798,12 @@ impl Graph {
                 }
                 results
             }
-            PlanNode::NodeIndexLookup { label, property, value, pattern } => {
+            PlanNode::NodeIndexLookup {
+                label,
+                property,
+                value,
+                pattern,
+            } => {
                 op_name = format!("NodeIndexLookup({}.{}='{}')", label, property, value);
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
@@ -705,7 +830,12 @@ impl Graph {
                 }
                 results
             }
-            PlanNode::PathExpand { source, source_node_pattern, rel_pattern, target_node_pattern } => {
+            PlanNode::PathExpand {
+                source,
+                source_node_pattern,
+                rel_pattern,
+                target_node_pattern,
+            } => {
                 op_name = "PathExpand".to_string();
                 let source_envs = self.execute_plan(source, env, profile, depth + 1);
                 let mut results = Vec::new();
@@ -725,7 +855,13 @@ impl Graph {
 
                     for source_node_id in source_node_ids {
                         let edges = vec![(rel_pattern.clone(), target_node_pattern.clone())];
-                        self.match_edges_recursive(&edges, 0, source_node_id, source_env.clone(), &mut results);
+                        self.match_edges_recursive(
+                            &edges,
+                            0,
+                            source_node_id,
+                            source_env.clone(),
+                            &mut results,
+                        );
                     }
                 }
 
@@ -735,13 +871,56 @@ impl Graph {
                 op_name = "Intersect".to_string();
                 let left_res = self.execute_plan(left, env, profile, depth + 1);
                 let right_res = self.execute_plan(right, env, profile, depth + 1);
-                left_res.into_iter().filter(|l| right_res.contains(l)).collect()
+                left_res
+                    .into_iter()
+                    .filter(|l| right_res.contains(l))
+                    .collect()
             }
             PlanNode::Union { left, right } => {
                 op_name = "Union".to_string();
                 let mut res = self.execute_plan(left, env, profile, depth + 1);
                 res.extend(self.execute_plan(right, env, profile, depth + 1));
                 res
+            }
+            PlanNode::CrossProduct { left, right } => {
+                op_name = "CrossProduct".to_string();
+                let left_res = self.execute_plan(left, env, profile, depth + 1);
+
+                // To avoid multiple executions of `right` cluttering the profile, we pass a temporary profile for `right`
+                // ONLY ONCE or we execute right ONCE. Since right doesn't depend on left's rows in a cross product:
+                let mut right_prof = if profile.is_some() {
+                    Some(String::new())
+                } else {
+                    None
+                };
+                let right_res = self.execute_plan(right, env, &mut right_prof, depth + 1);
+
+                if let Some(prof) = profile {
+                    if let Some(r_prof) = right_prof {
+                        prof.push_str(&r_prof);
+                    }
+                }
+
+                let mut joined_res = Vec::new();
+                for l in &left_res {
+                    for r in &right_res {
+                        let mut valid = true;
+                        for (k, v) in r.iter() {
+                            if let Some(lv) = l.get(k) {
+                                if lv != v {
+                                    valid = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if valid {
+                            let mut merged = l.clone();
+                            merged.extend(r.clone());
+                            joined_res.push(merged);
+                        }
+                    }
+                }
+                joined_res
             }
         };
 
@@ -752,31 +931,48 @@ impl Graph {
         results
     }
 
-    fn execute_match_path(&self, path: &Path, env: &Environment, profile: &mut Option<String>) -> Vec<Environment> {
-        let plan = QueryPlanner::plan_match_path(path, &self.labels, &self.indices);
-        let mut envs = self.execute_plan(&plan, env, profile, 0);
+    fn execute_plan_and_bind_paths(
+        &self,
+        plan: &PlanNode,
+        paths: &[Path],
+        env: &Environment,
+        profile: &mut Option<String>,
+    ) -> Vec<Environment> {
+        let mut envs = self.execute_plan(plan, env, profile, 0);
 
-        if let Some(bound_var) = &path.bound_variable {
-            for e in envs.iter_mut() {
-                let mut path_elements = Vec::new();
-                let start_var = path.start.variable.clone().unwrap_or_else(|| "_anon_start".to_string());
-                if let Some(el) = e.get(&start_var) {
-                    path_elements.push(el.clone());
-                }
-
-                for (idx, (rel, target)) in path.edges.iter().enumerate() {
-                    let rel_var = rel.variable.clone().unwrap_or_else(|| format!("_anon_rel_{}", idx));
-                    let target_var = target.variable.clone().unwrap_or_else(|| format!("_anon_node_{}", idx));
-
-                    if let Some(el) = e.get(&rel_var) {
+        for path in paths {
+            if let Some(bound_var) = &path.bound_variable {
+                for e in envs.iter_mut() {
+                    let mut path_elements = Vec::new();
+                    let start_var = path
+                        .start
+                        .variable
+                        .clone()
+                        .unwrap_or_else(|| "_anon_start".to_string());
+                    if let Some(el) = e.get(&start_var) {
                         path_elements.push(el.clone());
                     }
-                    if let Some(el) = e.get(&target_var) {
-                        path_elements.push(el.clone());
-                    }
-                }
 
-                e.insert(bound_var.clone(), GraphElement::Path(path_elements));
+                    for (idx, (rel, target)) in path.edges.iter().enumerate() {
+                        let rel_var = rel
+                            .variable
+                            .clone()
+                            .unwrap_or_else(|| format!("_anon_rel_{}", idx));
+                        let target_var = target
+                            .variable
+                            .clone()
+                            .unwrap_or_else(|| format!("_anon_node_{}", idx));
+
+                        if let Some(el) = e.get(&rel_var) {
+                            path_elements.push(el.clone());
+                        }
+                        if let Some(el) = e.get(&target_var) {
+                            path_elements.push(el.clone());
+                        }
+                    }
+
+                    e.insert(bound_var.clone(), GraphElement::Path(path_elements));
+                }
             }
         }
 
@@ -815,7 +1011,12 @@ impl Graph {
             }
         }
 
-        let matches = self.find_edges_and_nodes(current_node_id, rel_pattern, target_node_pattern, &current_env);
+        let matches = self.find_edges_and_nodes(
+            current_node_id,
+            rel_pattern,
+            target_node_pattern,
+            &current_env,
+        );
 
         for (next_node_id, edge_id) in matches {
             let mut new_env = current_env.clone();
@@ -1073,8 +1274,12 @@ impl Graph {
 
     fn evaluate_condition(&self, condition: &Condition, env: &Environment) -> bool {
         match condition {
-            Condition::And(left, right) => self.evaluate_condition(left, env) && self.evaluate_condition(right, env),
-            Condition::Or(left, right) => self.evaluate_condition(left, env) || self.evaluate_condition(right, env),
+            Condition::And(left, right) => {
+                self.evaluate_condition(left, env) && self.evaluate_condition(right, env)
+            }
+            Condition::Or(left, right) => {
+                self.evaluate_condition(left, env) || self.evaluate_condition(right, env)
+            }
             Condition::Not(inner) => !self.evaluate_condition(inner, env),
             Condition::Compare { left, op, right } => {
                 let l_val = self.evaluate_expression(left, env);

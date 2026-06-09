@@ -19,7 +19,8 @@ fn test_merge_set() {
         // Should still only have one Alice
         assert_eq!(r1, r2);
 
-        g.execute("MATCH (n:Person {name: 'Alice'}) SET n.age = '30'").unwrap();
+        g.execute("MATCH (n:Person {name: 'Alice'}) SET n.age = '30'")
+            .unwrap();
         let r3 = g.execute("MATCH (n:Person) RETURN n").unwrap();
         assert!(r3.contains("30"));
     }
@@ -49,19 +50,26 @@ fn test_set_index_update() {
         g.execute("MERGE (n:Person {name: 'Alice'})").unwrap();
 
         // Verify index works
-        let r1 = g.execute("MATCH (n:Person {name: 'Alice'}) RETURN n").unwrap();
+        let r1 = g
+            .execute("MATCH (n:Person {name: 'Alice'}) RETURN n")
+            .unwrap();
         assert!(r1.contains("Alice"));
 
         // Update property
-        g.execute("MATCH (n:Person {name: 'Alice'}) SET n.name = 'Bob'").unwrap();
+        g.execute("MATCH (n:Person {name: 'Alice'}) SET n.name = 'Bob'")
+            .unwrap();
 
         // Old index value should be gone
-        let r2 = g.execute("MATCH (n:Person {name: 'Alice'}) RETURN n").unwrap();
+        let r2 = g
+            .execute("MATCH (n:Person {name: 'Alice'}) RETURN n")
+            .unwrap();
         assert!(!r2.contains("Alice"));
         assert!(!r2.contains("Node"));
 
         // New index value should be present
-        let r3 = g.execute("MATCH (n:Person {name: 'Bob'}) RETURN n").unwrap();
+        let r3 = g
+            .execute("MATCH (n:Person {name: 'Bob'}) RETURN n")
+            .unwrap();
         assert!(r3.contains("Bob"));
     }
 

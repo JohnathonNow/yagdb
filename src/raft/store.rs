@@ -1,11 +1,16 @@
-use openraft::{Entry, EntryPayload, LogId, SnapshotMeta, StorageError, RaftTypeConfig, Vote, LogState};
 use openraft::storage::{RaftLogReader, RaftStorage, Snapshot};
-use openraft_memstore::{MemStore, TypeConfig as MemStoreTypeConfig, ClientRequest as MemStoreClientRequest, ClientResponse as MemStoreClientResponse};
+use openraft::{
+    Entry, EntryPayload, LogId, LogState, RaftTypeConfig, SnapshotMeta, StorageError, Vote,
+};
+use openraft_memstore::{
+    ClientRequest as MemStoreClientRequest, ClientResponse as MemStoreClientResponse, MemStore,
+    TypeConfig as MemStoreTypeConfig,
+};
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use crate::graph::Graph;
 use std::fmt::Debug;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub type TypeConfig = MemStoreTypeConfig;
 
@@ -38,7 +43,9 @@ impl openraft::storage::RaftSnapshotBuilder<TypeConfig> for GraphSnapshotBuilder
 
         let graph_data = {
             let g = self.graph.lock().await;
-            bincode::serialize(&*g).map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?
+            bincode::serialize(&*g).map_err(|e| openraft::StorageError::IO {
+                source: openraft::StorageIOError::read_state_machine(&e),
+            })?
         };
 
         let combined = GraphSnapshotData {
@@ -46,7 +53,10 @@ impl openraft::storage::RaftSnapshotBuilder<TypeConfig> for GraphSnapshotBuilder
             graph_data,
         };
 
-        let combined_bytes = bincode::serialize(&combined).map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+        let combined_bytes =
+            bincode::serialize(&combined).map_err(|e| openraft::StorageError::IO {
+                source: openraft::StorageIOError::read_state_machine(&e),
+            })?;
 
         let meta = inner_snap.meta.clone();
         *self.current_snapshot.write().await = Some((meta, combined_bytes.clone()));
@@ -57,7 +67,9 @@ impl openraft::storage::RaftSnapshotBuilder<TypeConfig> for GraphSnapshotBuilder
 }
 
 impl RaftLogReader<TypeConfig> for GraphStore {
-    async fn try_get_log_entries<RB: std::ops::RangeBounds<u64> + Clone + Debug + openraft::OptionalSend>(
+    async fn try_get_log_entries<
+        RB: std::ops::RangeBounds<u64> + Clone + Debug + openraft::OptionalSend,
+    >(
         &mut self,
         range: RB,
     ) -> Result<Vec<Entry<TypeConfig>>, StorageError<u64>> {
@@ -92,7 +104,10 @@ impl RaftStorage<TypeConfig> for GraphStore {
         self.inner.append_to_log(entries).await
     }
 
-    async fn delete_conflict_logs_since(&mut self, log_id: LogId<u64>) -> Result<(), StorageError<u64>> {
+    async fn delete_conflict_logs_since(
+        &mut self,
+        log_id: LogId<u64>,
+    ) -> Result<(), StorageError<u64>> {
         self.inner.delete_conflict_logs_since(log_id).await
     }
 
@@ -106,7 +121,10 @@ impl RaftStorage<TypeConfig> for GraphStore {
         self.inner.last_applied_state().await
     }
 
-    async fn apply_to_state_machine(&mut self, entries: &[Entry<TypeConfig>]) -> Result<Vec<QueryResponse>, StorageError<u64>> {
+    async fn apply_to_state_machine(
+        &mut self,
+        entries: &[Entry<TypeConfig>],
+    ) -> Result<Vec<QueryResponse>, StorageError<u64>> {
         let mut res = Vec::with_capacity(entries.len());
         let mut g = self.graph.lock().await;
         for entry in entries {
@@ -130,7 +148,9 @@ impl RaftStorage<TypeConfig> for GraphStore {
         }
     }
 
-    async fn begin_receiving_snapshot(&mut self) -> Result<Box<<TypeConfig as RaftTypeConfig>::SnapshotData>, StorageError<u64>> {
+    async fn begin_receiving_snapshot(
+        &mut self,
+    ) -> Result<Box<<TypeConfig as RaftTypeConfig>::SnapshotData>, StorageError<u64>> {
         self.inner.begin_receiving_snapshot().await
     }
 
@@ -140,13 +160,18 @@ impl RaftStorage<TypeConfig> for GraphStore {
         snapshot: Box<<TypeConfig as RaftTypeConfig>::SnapshotData>,
     ) -> Result<(), StorageError<u64>> {
         let combined_bytes = (*snapshot).into_inner();
-        let combined: GraphSnapshotData = bincode::deserialize(&combined_bytes)
-            .map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+        let combined: GraphSnapshotData =
+            bincode::deserialize(&combined_bytes).map_err(|e| openraft::StorageError::IO {
+                source: openraft::StorageIOError::read_state_machine(&e),
+            })?;
 
         {
             let mut g = self.graph.lock().await;
-            let mut new_g: Graph = bincode::deserialize(&combined.graph_data)
-                .map_err(|e| openraft::StorageError::IO { source: openraft::StorageIOError::read_state_machine(&e) })?;
+            let mut new_g: Graph = bincode::deserialize(&combined.graph_data).map_err(|e| {
+                openraft::StorageError::IO {
+                    source: openraft::StorageIOError::read_state_machine(&e),
+                }
+            })?;
             #[cfg(not(target_arch = "wasm32"))]
             {
                 new_g.wal_file = g.wal_file.take();
@@ -160,7 +185,9 @@ impl RaftStorage<TypeConfig> for GraphStore {
         self.inner.install_snapshot(meta, inner_snapshot).await
     }
 
-    async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, StorageError<u64>> {
+    async fn get_current_snapshot(
+        &mut self,
+    ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<u64>> {
         let snap = self.current_snapshot.read().await;
         if let Some((meta, data)) = &*snap {
             Ok(Some(Snapshot {

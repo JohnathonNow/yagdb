@@ -9,13 +9,12 @@ pub mod raft;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {
-    use wasm_bindgen::prelude::*;
-    use std::sync::Mutex;
     use crate::graph::Graph;
+    use std::sync::Mutex;
+    use wasm_bindgen::prelude::*;
 
-    static GRAPH: once_cell::sync::Lazy<Mutex<Graph>> = once_cell::sync::Lazy::new(|| {
-        Mutex::new(Graph::new())
-    });
+    static GRAPH: once_cell::sync::Lazy<Mutex<Graph>> =
+        once_cell::sync::Lazy::new(|| Mutex::new(Graph::new()));
 
     #[wasm_bindgen]
     pub fn execute_query(query: &str) -> String {

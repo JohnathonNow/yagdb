@@ -30,6 +30,10 @@ pub enum PlanNode {
         left: Box<PlanNode>,
         right: Box<PlanNode>,
     },
+    CrossProduct {
+        left: Box<PlanNode>,
+        right: Box<PlanNode>,
+    },
 }
 
 pub struct QueryPlanner;
@@ -72,6 +76,24 @@ impl QueryPlanner {
         }
 
         plan
+    }
+
+    pub fn plan_match_paths(
+        paths: &[Path],
+        labels: &HashMap<String, usize>,
+        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+    ) -> Option<PlanNode> {
+        if paths.is_empty() {
+            return None;
+        }
+        let mut plan = Self::plan_match_path(&paths[0], labels, indices);
+        for path in paths.iter().skip(1) {
+            plan = PlanNode::CrossProduct {
+                left: Box::new(plan),
+                right: Box::new(Self::plan_match_path(path, labels, indices)),
+            };
+        }
+        Some(plan)
     }
 
     fn plan_node_lookup(
