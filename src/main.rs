@@ -100,9 +100,9 @@ mod tests {
 
         let result = g.execute("MATCH (u1:User {id: '1'})-[rel:FOLLOWS]->(u2:User {id: '2'}) RETURN u1, rel, u2").unwrap();
 
-        assert!(result.contains("u1: Node"));
-        assert!(result.contains("rel: Edge"));
-        assert!(result.contains("u2: Node"));
+        assert!(result.contains("\"u1\": {"));
+        assert!(result.contains("\"rel\": {"));
+        assert!(result.contains("\"u2\": {"));
         assert!(result.contains(r#""id": "1""#));
         assert!(result.contains(r#""id": "2""#));
     }
@@ -113,7 +113,7 @@ mod tests {
         g.execute("CREATE (a:User {id: '1'})").unwrap();
 
         let result = g.execute("MATCH (a:Admin {id: '1'}) RETURN a").unwrap();
-        assert_eq!(result.trim(), "");
+        assert_eq!(result.trim(), "[]");
     }
 
     #[test]
@@ -131,15 +131,15 @@ mod tests {
         g.execute("CREATE (a:User {id: '3'})").unwrap();
 
         let result_all = g.execute("MATCH (u:User) RETURN u").unwrap();
-        let rows_all = result_all.split("---\n").filter(|s| !s.trim().is_empty()).count();
-        assert_eq!(rows_all, 3);
+        let parsed_all: serde_json::Value = serde_json::from_str(&result_all).unwrap();
+        assert_eq!(parsed_all.as_array().unwrap().len(), 3);
 
         let result_limit = g.execute("MATCH (u:User) RETURN u LIMIT 2").unwrap();
-        let rows_limit = result_limit.split("---\n").filter(|s| !s.trim().is_empty()).count();
-        assert_eq!(rows_limit, 2);
+        let parsed_limit: serde_json::Value = serde_json::from_str(&result_limit).unwrap();
+        assert_eq!(parsed_limit.as_array().unwrap().len(), 2);
 
         let result_limit_large = g.execute("MATCH (u:User) RETURN u LIMIT 10").unwrap();
-        let rows_limit_large = result_limit_large.split("---\n").filter(|s| !s.trim().is_empty()).count();
-        assert_eq!(rows_limit_large, 3);
+        let parsed_limit_large: serde_json::Value = serde_json::from_str(&result_limit_large).unwrap();
+        assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
 }

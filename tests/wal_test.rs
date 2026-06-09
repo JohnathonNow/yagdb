@@ -22,9 +22,9 @@ fn test_wal_and_recovery() {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
         let result = g.execute("MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b").unwrap();
 
-        assert!(result.contains("a: Node"));
-        assert!(result.contains("r: Edge"));
-        assert!(result.contains("b: Node"));
+        assert!(result.contains("\"a\":"));
+        assert!(result.contains("\"r\":"));
+        assert!(result.contains("\"b\":"));
         assert!(result.contains(r#""name": "Alice""#));
         assert!(result.contains(r#""name": "Bob""#));
 
@@ -36,7 +36,7 @@ fn test_wal_and_recovery() {
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
         let result = g.execute("MATCH (c:Person {name: 'Charlie'}) RETURN c").unwrap();
-        assert!(result.contains("c: Node"));
+        assert!(result.contains("\"c\":"));
         assert!(result.contains(r#""name": "Charlie""#));
     }
 
