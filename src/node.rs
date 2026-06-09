@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Node {
@@ -9,5 +9,11 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(labels: Vec<usize>, edges: Vec<usize>, properties: HashMap<String, String>) -> Self { Self { labels, edges, properties } }
+    pub fn new(labels: Vec<usize>, edges: Vec<usize>, properties: HashMap<String, String>) -> Self {
+        Self {
+            labels,
+            edges,
+            properties,
+        }
+    }
 }

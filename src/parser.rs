@@ -1,12 +1,12 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
-    character::complete::{alpha1, alphanumeric1, char, multispace0, digit1},
-    combinator::{all_consuming, opt, recognize, map},
+    character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
+    combinator::{all_consuming, map, opt, recognize},
+    error::Error,
     multi::{many0, separated_list0},
     sequence::{delimited, pair, preceded, tuple},
     IResult,
-    error::Error,
 };
 use std::collections::HashMap;
 
@@ -106,10 +106,7 @@ where
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
-    recognize(pair(
-        alpha1,
-        many0(alt((alphanumeric1, tag("_"))))
-    ))(input)
+    recognize(pair(alpha1, many0(alt((alphanumeric1, tag("_"))))))(input)
 }
 
 fn string_literal(input: &str) -> IResult<&str, &str> {
@@ -205,7 +202,14 @@ fn path(input: &str) -> IResult<&str, Path> {
     let bound_variable = bound_opt.map(|(id, _)| id.to_string());
     let (input, start) = node_pattern(input)?;
     let (input, edges) = many0(pair(ws(rel_pattern), ws(node_pattern)))(input)?;
-    Ok((input, Path { bound_variable, start, edges }))
+    Ok((
+        input,
+        Path {
+            bound_variable,
+            start,
+            edges,
+        },
+    ))
 }
 
 fn create_clause(input: &str) -> IResult<&str, Clause> {
@@ -225,9 +229,14 @@ fn number_literal(input: &str) -> IResult<&str, f64> {
 
 fn expression(input: &str) -> IResult<&str, Expression> {
     alt((
-        map(ws(string_literal), |s| Expression::StringLiteral(s.to_string())),
+        map(ws(string_literal), |s| {
+            Expression::StringLiteral(s.to_string())
+        }),
         map(ws(number_literal), Expression::NumberLiteral),
-        map(tuple((ws(identifier), char('.'), ws(identifier))), |(var, _, prop)| Expression::Property(var.to_string(), prop.to_string())),
+        map(
+            tuple((ws(identifier), char('.'), ws(identifier))),
+            |(var, _, prop)| Expression::Property(var.to_string(), prop.to_string()),
+        ),
     ))(input)
 }
 
@@ -246,19 +255,23 @@ fn condition_base(input: &str) -> IResult<&str, Condition> {
     alt((
         map(
             tuple((ws(alt((tag("NOT"), tag("not")))), ws(condition_base))),
-            |(_, cond)| Condition::Not(Box::new(cond))
+            |(_, cond)| Condition::Not(Box::new(cond)),
         ),
         delimited(ws(char('(')), ws(condition_or), ws(char(')'))),
         map(
             tuple((expression, ws(compare_op), expression)),
-            |(left, op, right)| Condition::Compare { left, op, right }
-        )
+            |(left, op, right)| Condition::Compare { left, op, right },
+        ),
     ))(input)
 }
 
 fn condition_and(input: &str) -> IResult<&str, Condition> {
     let (mut input, mut cond) = condition_base(input)?;
-    while let Ok((next_input_after, _)) = ws(alt((tag::<&str, &str, Error<&str>>("AND"), tag::<&str, &str, Error<&str>>("and"))))(input) {
+    while let Ok((next_input_after, _)) = ws(alt((
+        tag::<&str, &str, Error<&str>>("AND"),
+        tag::<&str, &str, Error<&str>>("and"),
+    )))(input)
+    {
         let (next_input_after, right) = condition_base(next_input_after)?;
         cond = Condition::And(Box::new(cond), Box::new(right));
         input = next_input_after;
@@ -268,7 +281,11 @@ fn condition_and(input: &str) -> IResult<&str, Condition> {
 
 fn condition_or(input: &str) -> IResult<&str, Condition> {
     let (mut input, mut cond) = condition_and(input)?;
-    while let Ok((next_input_after, _)) = ws(alt((tag::<&str, &str, Error<&str>>("OR"), tag::<&str, &str, Error<&str>>("or"))))(input) {
+    while let Ok((next_input_after, _)) = ws(alt((
+        tag::<&str, &str, Error<&str>>("OR"),
+        tag::<&str, &str, Error<&str>>("or"),
+    )))(input)
+    {
         let (next_input_after, right) = condition_and(next_input_after)?;
         cond = Condition::Or(Box::new(cond), Box::new(right));
         input = next_input_after;
@@ -293,39 +310,45 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
         map(ws(char('*')), |_| ProjectionItem::Star),
         |i| {
             let (i, func) = ws(alt((
-                tag("COUNT"), tag("count"),
-                tag("COLLECT"), tag("collect"),
-                tag("UNIQUE"), tag("unique")
+                tag("COUNT"),
+                tag("count"),
+                tag("COLLECT"),
+                tag("collect"),
+                tag("UNIQUE"),
+                tag("unique"),
             )))(i)?;
             let (i, _) = ws(char('('))(i)?;
             let (i, var) = ws(alt((identifier, tag("*"))))(i)?;
             let (i, _) = ws(char(')'))(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
-            Ok((i, ProjectionItem::Aggregate {
-                func: func.to_uppercase(),
-                var: var.to_string(),
-                alias: alias.map(|s| s.to_string())
-            }))
+            Ok((
+                i,
+                ProjectionItem::Aggregate {
+                    func: func.to_uppercase(),
+                    var: var.to_string(),
+                    alias: alias.map(|s| s.to_string()),
+                },
+            ))
         },
         |i| {
             let (i, var) = ws(identifier)(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
             if let Some(a) = alias {
-                Ok((i, ProjectionItem::AliasedVariable(var.to_string(), a.to_string())))
+                Ok((
+                    i,
+                    ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
+                ))
             } else {
                 Ok((i, ProjectionItem::Variable(var.to_string())))
             }
-        }
+        },
     ))(input)
 }
 
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
-    let (input, limit) = opt(preceded(
-        ws(alt((tag("LIMIT"), tag("limit")))),
-        ws(digit1),
-    ))(input)?;
+    let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
     Ok((input, Clause::Return(vars, limit_val)))
 }
@@ -349,7 +372,6 @@ fn create_index_clause(input: &str) -> IResult<&str, Clause> {
     ))
 }
 
-
 fn merge_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MERGE"), tag("merge"))))(input)?;
     let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
@@ -363,15 +385,32 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
     let (input, prop) = ws(identifier)(input)?;
     let (input, _) = ws(char('='))(input)?;
     let (input, val) = ws(alt((string_literal, identifier)))(input)?;
-    Ok((input, Clause::Set(var.to_string(), prop.to_string(), val.to_string())))
+    Ok((
+        input,
+        Clause::Set(var.to_string(), prop.to_string(), val.to_string()),
+    ))
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {
-    alt((create_index_clause, create_clause, match_clause, merge_clause, set_clause, with_clause, return_clause))(input)
+    alt((
+        create_index_clause,
+        create_clause,
+        match_clause,
+        merge_clause,
+        set_clause,
+        with_clause,
+        return_clause,
+    ))(input)
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
     let (input, profile_opt) = opt(ws(alt((tag("PROFILE"), tag("profile")))))(input)?;
     let (input, clauses) = all_consuming(many0(ws(clause)))(input)?;
-    Ok((input, Query { profile: profile_opt.is_some(), clauses }))
+    Ok((
+        input,
+        Query {
+            profile: profile_opt.is_some(),
+            clauses,
+        },
+    ))
 }

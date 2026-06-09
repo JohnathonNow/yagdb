@@ -1,12 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Router};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,9 +51,13 @@ async fn main() {
     let args = Args::parse();
     env_logger::init();
 
-    let graph = Arc::new(Mutex::new(Graph::load_or_create(&format!("graph_{}.bin", args.id), &format!("wal_{}.bin", args.id))));
+    let graph = Arc::new(Mutex::new(Graph::load_or_create(
+        &format!("graph_{}.bin", args.id),
+        &format!("wal_{}.bin", args.id),
+    )));
 
-    let app: Arc<yagdb::raft::app::App> = Arc::new(yagdb::raft::app::App::new(args.id, args.addr.clone(), graph).await);
+    let app: Arc<yagdb::raft::app::App> =
+        Arc::new(yagdb::raft::app::App::new(args.id, args.addr.clone(), graph).await);
 
     let router = yagdb::raft::server::create_router().with_state(app.clone());
 
@@ -74,10 +72,7 @@ async fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_query(
-    State(graph): State<SharedGraph>,
-    body: String,
-) -> impl IntoResponse {
+async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
     let mut g = graph.lock().await;
     match g.execute(&body) {
         Ok(result) => (StatusCode::OK, result),
@@ -96,9 +91,14 @@ mod tests {
     #[test]
     fn test_cypher_create_and_match() {
         let mut g = Graph::new();
-        g.execute("CREATE (a:User {id: '1'})-[r:FOLLOWS]->(b:User {id: '2'})").unwrap();
+        g.execute("CREATE (a:User {id: '1'})-[r:FOLLOWS]->(b:User {id: '2'})")
+            .unwrap();
 
-        let result = g.execute("MATCH (u1:User {id: '1'})-[rel:FOLLOWS]->(u2:User {id: '2'}) RETURN u1, rel, u2").unwrap();
+        let result = g
+            .execute(
+                "MATCH (u1:User {id: '1'})-[rel:FOLLOWS]->(u2:User {id: '2'}) RETURN u1, rel, u2",
+            )
+            .unwrap();
 
         assert!(result.contains("\"u1\": {"));
         assert!(result.contains("\"rel\": {"));
@@ -139,7 +139,8 @@ mod tests {
         assert_eq!(parsed_limit.as_array().unwrap().len(), 2);
 
         let result_limit_large = g.execute("MATCH (u:User) RETURN u LIMIT 10").unwrap();
-        let parsed_limit_large: serde_json::Value = serde_json::from_str(&result_limit_large).unwrap();
+        let parsed_limit_large: serde_json::Value =
+            serde_json::from_str(&result_limit_large).unwrap();
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
 }

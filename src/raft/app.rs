@@ -3,9 +3,9 @@ use openraft_memstore::MemStore;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::graph::Graph;
-use super::store::TypeConfig;
 use super::network::Network;
+use super::store::TypeConfig;
+use crate::graph::Graph;
 
 pub type AppRaft = Raft<TypeConfig>;
 

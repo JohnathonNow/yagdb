@@ -1,10 +1,9 @@
-
-use yagdb::parser::*;
-use nom::IResult;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::opt;
 use nom::sequence::delimited;
+use nom::IResult;
+use yagdb::parser::*;
 
 fn ws<'a, F, O, E: nom::error::ParseError<&'a str>>(
     inner: F,
@@ -12,7 +11,11 @@ fn ws<'a, F, O, E: nom::error::ParseError<&'a str>>(
 where
     F: FnMut(&'a str) -> IResult<&'a str, O, E>,
 {
-    delimited(nom::character::complete::multispace0, inner, nom::character::complete::multispace0)
+    delimited(
+        nom::character::complete::multispace0,
+        inner,
+        nom::character::complete::multispace0,
+    )
 }
 
 fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
@@ -41,7 +44,8 @@ fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
 
 #[test]
 fn test_where_clause() {
-    let input = "MATCH (n) WHERE n.age > 30 AND n.name = 'Alice' OR NOT m.active = 'false' RETURN n";
+    let input =
+        "MATCH (n) WHERE n.age > 30 AND n.name = 'Alice' OR NOT m.active = 'false' RETURN n";
     use yagdb::parser::Condition;
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
@@ -75,7 +79,6 @@ fn test_parser_create_index() {
     let (rest, _ast) = parse_query(input).unwrap();
     assert_eq!(rest, "");
 }
-
 
 #[test]
 fn test_parser_merge() {
@@ -127,7 +130,9 @@ fn test_return_star_graph() {
     use yagdb::graph::Graph;
     let mut g = Graph::new();
     g.execute("CREATE (a:Person {name: 'Alice'})").unwrap();
-    let res = g.execute("MATCH (b:Person {name: 'Alice'}) RETURN *").unwrap();
+    let res = g
+        .execute("MATCH (b:Person {name: 'Alice'}) RETURN *")
+        .unwrap();
     assert!(res.contains("\"Alice\""));
 }
 
@@ -151,8 +156,11 @@ fn test_match_path_assignment() {
 fn test_execute_bound_path() {
     use yagdb::graph::Graph;
     let mut g = Graph::new();
-    g.execute("CREATE p=(a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})").unwrap();
-    let res = g.execute("MATCH p=(a:Person)-[:KNOWS]->(b:Person) RETURN p").unwrap();
+    g.execute("CREATE p=(a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})")
+        .unwrap();
+    let res = g
+        .execute("MATCH p=(a:Person)-[:KNOWS]->(b:Person) RETURN p")
+        .unwrap();
     println!("{}", res);
     assert!(res.contains("\"Alice\""));
     assert!(res.contains("start") && res.contains("end"));
@@ -169,8 +177,22 @@ fn test_with_and_aggregates_parse() {
     match &query.clauses[1] {
         Clause::With(items) => {
             assert_eq!(items.len(), 2);
-            assert_eq!(items[0], yagdb::parser::ProjectionItem::Aggregate { func: "COUNT".to_string(), var: "a".to_string(), alias: Some("c".to_string()) });
-            assert_eq!(items[1], yagdb::parser::ProjectionItem::Aggregate { func: "COLLECT".to_string(), var: "a".to_string(), alias: Some("lst".to_string()) });
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "COUNT".to_string(),
+                    var: "a".to_string(),
+                    alias: Some("c".to_string())
+                }
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "COLLECT".to_string(),
+                    var: "a".to_string(),
+                    alias: Some("lst".to_string())
+                }
+            );
         }
         _ => panic!("Expected With clause"),
     }
@@ -178,8 +200,14 @@ fn test_with_and_aggregates_parse() {
     match &query.clauses[2] {
         Clause::Return(items, _) => {
             assert_eq!(items.len(), 2);
-            assert_eq!(items[0], yagdb::parser::ProjectionItem::Variable("c".to_string()));
-            assert_eq!(items[1], yagdb::parser::ProjectionItem::Variable("lst".to_string()));
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Variable("c".to_string())
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Variable("lst".to_string())
+            );
         }
         _ => panic!("Expected Return clause"),
     }

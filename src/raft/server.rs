@@ -1,14 +1,14 @@
+use crate::raft::app::App;
+use crate::raft::store::TypeConfig;
 use axum::{
-    extract::{State, Json},
+    extract::{Json, State},
     routing::post,
     Router,
 };
-use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
-use std::sync::Arc;
-use crate::raft::app::App;
-use crate::raft::store::TypeConfig;
 use openraft::error::ClientWriteError;
+use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
 use openraft_memstore::ClientRequest;
+use std::sync::Arc;
 
 pub type AppState = Arc<App>;
 
@@ -39,37 +39,61 @@ async fn handle_query(
 ) -> Result<Json<QueryRes>, (axum::http::StatusCode, String)> {
     let q = crate::parser::parse_query(&body);
     let is_write = match q {
-        Ok((_, query)) => {
-            query.clauses.iter().any(|c| matches!(c, crate::parser::Clause::Create(_)))
-        }
+        Ok((_, query)) => query
+            .clauses
+            .iter()
+            .any(|c| matches!(c, crate::parser::Clause::Create(_))),
         Err(_) => false,
     };
 
     if is_write {
         // Trigger the consensus with the query embedded in status
-        let req = ClientRequest { client: "app".to_string(), serial: 1, status: body.clone() };
+        let req = ClientRequest {
+            client: "app".to_string(),
+            serial: 1,
+            status: body.clone(),
+        };
         match app.raft.client_write(req).await {
             Ok(resp) => {
                 let result_str = resp.data.0.unwrap_or_else(|| "null".to_string());
-                let res: Result<String, String> = serde_json::from_str(&result_str).unwrap_or(Err("Failed to parse inner response".into()));
+                let res: Result<String, String> = serde_json::from_str(&result_str)
+                    .unwrap_or(Err("Failed to parse inner response".into()));
                 Ok(Json(QueryRes { result: res }))
             }
             Err(e) => {
                 match e {
-                    openraft::error::RaftError::APIError(ClientWriteError::ForwardToLeader(fwd)) => {
+                    openraft::error::RaftError::APIError(ClientWriteError::ForwardToLeader(
+                        fwd,
+                    )) => {
                         // Forward the request to the leader if we know it
                         if let Some(leader_node_id) = fwd.leader_id {
                             // Find leader node address from id (convention: port is 3000 + id)
                             let url = format!("http://127.0.0.1:{}/query", 3000 + leader_node_id);
                             let client = reqwest::Client::new();
-                            let resp = client.post(&url).body(body).send().await.map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, format!("Failed to forward: {}", e)))?;
-                            let res: QueryRes = resp.json().await.map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, format!("Failed to parse response: {}", e)))?;
+                            let resp = client.post(&url).body(body).send().await.map_err(|e| {
+                                (
+                                    axum::http::StatusCode::BAD_GATEWAY,
+                                    format!("Failed to forward: {}", e),
+                                )
+                            })?;
+                            let res: QueryRes = resp.json().await.map_err(|e| {
+                                (
+                                    axum::http::StatusCode::BAD_GATEWAY,
+                                    format!("Failed to parse response: {}", e),
+                                )
+                            })?;
                             Ok(Json(res))
                         } else {
-                            Err((axum::http::StatusCode::SERVICE_UNAVAILABLE, "No leader available".to_string()))
+                            Err((
+                                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                                "No leader available".to_string(),
+                            ))
                         }
                     }
-                    _ => Err((axum::http::StatusCode::BAD_REQUEST, format!("Raft write error: {:?}", e)))
+                    _ => Err((
+                        axum::http::StatusCode::BAD_REQUEST,
+                        format!("Raft write error: {:?}", e),
+                    )),
                 }
             }
         }
@@ -91,7 +115,12 @@ async fn handle_append(
 async fn handle_snapshot(
     State(app): State<AppState>,
     Json(req): Json<InstallSnapshotRequest<TypeConfig>>,
-) -> Json<Result<openraft::raft::InstallSnapshotResponse<u64>, openraft::error::RaftError<u64, openraft::error::InstallSnapshotError>>> {
+) -> Json<
+    Result<
+        openraft::raft::InstallSnapshotResponse<u64>,
+        openraft::error::RaftError<u64, openraft::error::InstallSnapshotError>,
+    >,
+> {
     Json(app.raft.install_snapshot(req).await)
 }
 
@@ -103,10 +132,17 @@ async fn handle_vote(
 }
 
 use std::collections::BTreeSet;
-async fn handle_init(State(app): State<AppState>) -> Result<Json<()>, (axum::http::StatusCode, String)> {
+async fn handle_init(
+    State(app): State<AppState>,
+) -> Result<Json<()>, (axum::http::StatusCode, String)> {
     let mut nodes = std::collections::BTreeMap::new();
     nodes.insert(app.id, ());
-    app.raft.initialize(nodes).await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{:?}", e)))?;
+    app.raft.initialize(nodes).await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{:?}", e),
+        )
+    })?;
     Ok(Json(()))
 }
 
@@ -118,15 +154,27 @@ struct AddLearnerReq {
 async fn handle_add_learner(
     State(app): State<AppState>,
     Json(req): Json<AddLearnerReq>,
-) -> Result<Json<openraft::raft::ClientWriteResponse<TypeConfig>>, (axum::http::StatusCode, String)> {
-    let res = app.raft.add_learner(req.id, (), true).await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{:?}", e)))?;
+) -> Result<Json<openraft::raft::ClientWriteResponse<TypeConfig>>, (axum::http::StatusCode, String)>
+{
+    let res = app.raft.add_learner(req.id, (), true).await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{:?}", e),
+        )
+    })?;
     Ok(Json(res))
 }
 
 async fn handle_change_membership(
     State(app): State<AppState>,
     Json(req): Json<BTreeSet<u64>>,
-) -> Result<Json<openraft::raft::ClientWriteResponse<TypeConfig>>, (axum::http::StatusCode, String)> {
-    let res = app.raft.change_membership(req, false).await.map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{:?}", e)))?;
+) -> Result<Json<openraft::raft::ClientWriteResponse<TypeConfig>>, (axum::http::StatusCode, String)>
+{
+    let res = app.raft.change_membership(req, false).await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{:?}", e),
+        )
+    })?;
     Ok(Json(res))
 }

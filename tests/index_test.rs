@@ -14,8 +14,8 @@ fn test_parse_create_index() {
     }
 }
 
-use yagdb::graph::Graph;
 use std::fs;
+use yagdb::graph::Graph;
 
 #[test]
 fn test_index_usage() {
@@ -27,7 +27,8 @@ fn test_index_usage() {
 
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
-        g.execute("CREATE (a:User {username: 'alice'}), (b:User {username: 'bob'})").unwrap();
+        g.execute("CREATE (a:User {username: 'alice'}), (b:User {username: 'bob'})")
+            .unwrap();
 
         // Create an index on the username property
         g.execute("CREATE INDEX ON :User(username)").unwrap();
@@ -40,7 +41,6 @@ fn test_index_usage() {
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
 
-
         // Create an index on the username property
         g.execute("CREATE INDEX ON :User(username)").unwrap();
 
@@ -52,17 +52,20 @@ fn test_index_usage() {
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
 
-        let result = g.execute("MATCH (u:User {username: 'bob'}) RETURN u").unwrap();
+        let result = g
+            .execute("MATCH (u:User {username: 'bob'}) RETURN u")
+            .unwrap();
         assert!(result.contains("\"u\":"));
         assert!(result.contains(r#""username": "bob""#));
         assert!(!result.contains("alice"));
         assert!(!result.contains("charlie"));
 
-        let result2 = g.execute("MATCH (u:User {username: 'charlie'}) RETURN u").unwrap();
+        let result2 = g
+            .execute("MATCH (u:User {username: 'charlie'}) RETURN u")
+            .unwrap();
         assert!(result2.contains("\"u\":"));
         assert!(result2.contains(r#""username": "charlie""#));
     }
-
 
     let _ = fs::remove_file(snapshot_path);
     let _ = fs::remove_file(wal_path);

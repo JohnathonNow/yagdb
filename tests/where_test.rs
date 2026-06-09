@@ -19,7 +19,8 @@ fn test_match_where_evaluation() {
     assert!(!results.contains("Bob"));
 
     // Test AND, OR, NOT and string/number parsing
-    let q_match2 = "MATCH (n:Person) WHERE n.age = '30' OR NOT n.name = 'Charlie' AND n.age > 20 RETURN n";
+    let q_match2 =
+        "MATCH (n:Person) WHERE n.age = '30' OR NOT n.name = 'Charlie' AND n.age > 20 RETURN n";
     let results2 = graph.execute(q_match2).unwrap();
     let parsed2: serde_json::Value = serde_json::from_str(&results2).unwrap();
     let count2 = parsed2.as_array().unwrap().len();
