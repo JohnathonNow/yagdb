@@ -8,12 +8,12 @@ use std::io::Write;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Seek;
 
-use crate::planner::{PlanNode, QueryPlanner};
+use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
     edge::Edge,
     node::Node,
     parser::{
-        parse_query, Clause, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
+        parse_query, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
         RelPattern,
     },
 };
@@ -389,19 +389,19 @@ impl Graph {
         // A single environment initially, representing the "root" row.
         let mut envs: Vec<Environment> = vec![HashMap::new()];
 
-        for clause in query.clauses {
-            match clause {
-                Clause::Create(paths) => {
+        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+
+        for step in plan.steps {
+            match step {
+                ExecutionStep::Create(paths) => {
                     for path in paths {
                         for env in &mut envs {
                             self.execute_create_path(path.clone(), env);
                         }
                     }
                 }
-                Clause::Match(paths, condition_opt) => {
-                    if let Some(plan) =
-                        QueryPlanner::plan_match_paths(&paths, &self.labels, &self.indices)
-                    {
+                ExecutionStep::Match(plan_opt, paths, condition_opt) => {
+                    if let Some(plan) = plan_opt {
                         let mut new_envs = Vec::new();
                         for env in envs {
                             let matches = self.execute_plan_and_bind_paths(
@@ -414,7 +414,6 @@ impl Graph {
                         }
                         envs = new_envs;
                         if envs.is_empty() {
-                            // If MATCH yields no results, we abort further clauses and return empty
                             break;
                         }
                         if let Some(cond) = condition_opt {
@@ -422,17 +421,13 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Merge(paths) => {
-                    for path in paths {
+                ExecutionStep::Merge(planned_paths) => {
+                    for (plan_opt, path) in planned_paths {
                         let mut new_envs = Vec::new();
                         for env in envs {
-                            if let Some(plan) = QueryPlanner::plan_match_paths(
-                                &[path.clone()],
-                                &self.labels,
-                                &self.indices,
-                            ) {
+                            if let Some(plan) = &plan_opt {
                                 let matches = self.execute_plan_and_bind_paths(
-                                    &plan,
+                                    plan,
                                     &[path.clone()],
                                     &env,
                                     &mut profile_out,
@@ -453,7 +448,7 @@ impl Graph {
                         envs = new_envs;
                     }
                 }
-                Clause::Set(var, key, value) => {
+                ExecutionStep::Set(var, key, value) => {
                     let mut updated_nodes = std::collections::HashSet::new();
                     for env in &envs {
                         if let Some(GraphElement::Node(node_id)) = env.get(&var) {
@@ -493,7 +488,7 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Unwind(ref items) => {
+                ExecutionStep::Unwind(ref items) => {
                     let mut final_envs: Vec<Environment> = Vec::new();
                     for env in &envs {
                         for item in items.iter() {
@@ -520,10 +515,10 @@ impl Graph {
                     }
                     envs = final_envs;
                 }
-                Clause::With(ref items) | Clause::Return(ref items, _) => {
+                ExecutionStep::With(ref items) | ExecutionStep::Return(ref items, _) => {
                     let mut is_return = false;
                     let mut limit = None;
-                    if let Clause::Return(_, l) = &clause {
+                    if let ExecutionStep::Return(_, l) = &step {
                         is_return = true;
                         limit = *l;
                     }
@@ -705,7 +700,7 @@ impl Graph {
                         envs = final_envs;
                     }
                 }
-                Clause::CreateIndex { label, property } => {
+                ExecutionStep::CreateIndex { label, property } => {
                     let label_id = self.get_or_add_label(&label);
                     self.create_index(label_id, property);
                 }
