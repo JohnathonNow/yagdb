@@ -19,6 +19,8 @@ reqwest = { version = "0.13.4", features = ["json"], optional = true }
 tower = { version = "0.5.3", features = ["util"], optional = true }
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 env_logger = { version = "0.11.10", optional = true }
+rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]

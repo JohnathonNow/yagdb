@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Write;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Seek;
+use rand::Rng;
 
 use crate::planner::{PlanNode, QueryPlanner};
 use crate::{
@@ -520,10 +521,10 @@ impl Graph {
                     }
                     envs = final_envs;
                 }
-                Clause::With(ref items) | Clause::Return(ref items, _) => {
+                Clause::With(ref items, ref order_by_opt) | Clause::Return(ref items, ref order_by_opt, _) => {
                     let mut is_return = false;
                     let mut limit = None;
-                    if let Clause::Return(_, l) = &clause {
+                    if let Clause::Return(_, _, l) = &clause {
                         is_return = true;
                         limit = *l;
                     }
@@ -555,6 +556,9 @@ impl Graph {
                             ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
                             ProjectionItem::AliasedVariable(var, _) => {
                                 grouping_keys.push(var.clone())
+                            }
+                            ProjectionItem::Function { .. } => {
+                                // Function without aggregate isn't an aggregate grouping key directly
                             }
                             ProjectionItem::Star => {} // Already handled above
                         }
@@ -641,6 +645,14 @@ impl Graph {
                                             _ => {}
                                         }
                                     }
+                                    ProjectionItem::Function { func, args: _, alias } => {
+                                        let out_key = alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}()", func));
+                                        if func.eq_ignore_ascii_case("rand") {
+                                            grouped_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                        }
+                                    }
                                     ProjectionItem::Star => {}
                                 }
                             }
@@ -662,11 +674,45 @@ impl Graph {
                                             projected_env.insert(alias.clone(), val);
                                         }
                                     }
+                                    ProjectionItem::Function { func, args: _, alias } => {
+                                        let out_key = alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}()", func));
+                                        if func.eq_ignore_ascii_case("rand") {
+                                            projected_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
                             final_envs.push(projected_env);
                         }
+                    }
+
+                    if let Some(order_items) = order_by_opt {
+                        let mut env_with_keys: Vec<(Vec<EvalValue>, Environment)> = final_envs.into_iter().map(|env| {
+                            let keys = order_items.iter().map(|item| {
+                                self.evaluate_expression(&item.expr, &env)
+                            }).collect();
+                            (keys, env)
+                        }).collect();
+
+                        env_with_keys.sort_by(|a, b| {
+                            for (idx, item) in order_items.iter().enumerate() {
+                                let key_a = &a.0[idx];
+                                let key_b = &b.0[idx];
+                                let mut cmp = key_a.partial_cmp(key_b).unwrap_or(std::cmp::Ordering::Equal);
+                                if !item.asc {
+                                    cmp = cmp.reverse();
+                                }
+                                if cmp != std::cmp::Ordering::Equal {
+                                    return cmp;
+                                }
+                            }
+                            std::cmp::Ordering::Equal
+                        });
+
+                        final_envs = env_with_keys.into_iter().map(|(_, env)| env).collect();
                     }
 
                     if is_return {
@@ -685,6 +731,9 @@ impl Graph {
                                     ProjectionItem::Aggregate { func, var, alias } => alias
                                         .clone()
                                         .unwrap_or_else(|| format!("{}({})", func, var)),
+                                    ProjectionItem::Function { func, args: _, alias } => alias
+                                        .clone()
+                                        .unwrap_or_else(|| format!("{}()", func)),
                                     ProjectionItem::Star => continue,
                                 };
                                 if let Some(element) = env.get(&key) {
@@ -1330,6 +1379,25 @@ impl Graph {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(s.clone()),
             Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::Variable(var) => {
+                if let Some(element) = env.get(var) {
+                    match element {
+                        GraphElement::Number(n) => EvalValue::Number(*n),
+                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
+                            EvalValue::String(self.format_element(element))
+                        }
+                    }
+                } else {
+                    EvalValue::Null
+                }
+            }
+            Expression::Function(func, _args) => {
+                if func.eq_ignore_ascii_case("rand") {
+                    EvalValue::Number(rand::thread_rng().gen::<f64>())
+                } else {
+                    EvalValue::Null
+                }
+            }
             Expression::Property(var, prop) => {
                 if let Some(element) = env.get(var) {
                     let prop_str = match element {
@@ -1355,6 +1423,7 @@ impl Graph {
     }
 }
 
+#[derive(Clone, Debug)]
 enum EvalValue {
     String(String),
     Number(f64),
@@ -1362,6 +1431,38 @@ enum EvalValue {
 }
 
 impl EvalValue {
+    fn partial_cmp(&self, other: &EvalValue) -> Option<std::cmp::Ordering> {
+        if let (EvalValue::Null, EvalValue::Null) = (self, other) {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        if let EvalValue::Null = self {
+            return Some(std::cmp::Ordering::Less);
+        }
+        if let EvalValue::Null = other {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        match (self, other) {
+            (EvalValue::Number(l), EvalValue::Number(r)) => l.partial_cmp(r),
+            (EvalValue::String(l), EvalValue::String(r)) => l.partial_cmp(r),
+            (EvalValue::Number(l), EvalValue::String(r)) => {
+                if let Ok(r_num) = r.parse::<f64>() {
+                    l.partial_cmp(&r_num)
+                } else {
+                    None
+                }
+            }
+            (EvalValue::String(l), EvalValue::Number(r)) => {
+                if let Ok(l_num) = l.parse::<f64>() {
+                    l_num.partial_cmp(r)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn compare(&self, other: &EvalValue, op: &CompareOp) -> bool {
         if let (EvalValue::Null, _) | (_, EvalValue::Null) = (self, other) {
             return false;

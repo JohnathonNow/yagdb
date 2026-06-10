@@ -117,7 +117,7 @@ fn test_return_star() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Return(vars, _) => {
+        Clause::Return(vars, _, _) => {
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], yagdb::parser::ProjectionItem::Star);
         }
@@ -175,7 +175,7 @@ fn test_with_and_aggregates_parse() {
     assert_eq!(query.clauses.len(), 3);
 
     match &query.clauses[1] {
-        Clause::With(items) => {
+        Clause::With(items, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
@@ -198,7 +198,7 @@ fn test_with_and_aggregates_parse() {
     }
 
     match &query.clauses[2] {
-        Clause::Return(items, _) => {
+        Clause::Return(items, _, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
