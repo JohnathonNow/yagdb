@@ -3,9 +3,11 @@ use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Node {
+    pub id: String,
     pub labels: Vec<usize>,
     pub edges: Vec<usize>,
     pub properties: HashMap<String, crate::property::PropertyValue>,
+    pub deleted: bool,
 }
 
 impl Node {
@@ -15,9 +17,11 @@ impl Node {
         properties: HashMap<String, crate::property::PropertyValue>,
     ) -> Self {
         Self {
+            id,
             labels,
             edges,
             properties,
+            deleted: false,
         }
     }
 }
