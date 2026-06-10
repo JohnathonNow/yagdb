@@ -89,7 +89,10 @@ fn test_parser_merge() {
         Clause::Merge(paths) => {
             assert_eq!(paths.len(), 1);
             assert_eq!(paths[0].start.label.as_deref(), Some("Person"));
-            assert_eq!(paths[0].start.properties.get("name").unwrap(), "Alice");
+            assert_eq!(
+                paths[0].start.properties.get("name").unwrap(),
+                &yagdb::property::PropertyValue::String("Alice".to_string())
+            );
         }
         _ => panic!("Expected Merge clause"),
     }
@@ -104,7 +107,10 @@ fn test_parser_set() {
         Clause::Set(var, prop, val) => {
             assert_eq!(var, "n");
             assert_eq!(prop, "age");
-            assert_eq!(val, "30");
+            assert_eq!(
+                val,
+                &yagdb::property::PropertyValue::String("30".to_string())
+            );
         }
         _ => panic!("Expected Set clause"),
     }

@@ -14,7 +14,7 @@ pub enum PlanNode {
     NodeIndexLookup {
         label: String,
         property: String,
-        value: String,
+        value: crate::property::PropertyValue,
         pattern: NodePattern,
     },
     PathExpand {
@@ -43,7 +43,10 @@ impl QueryPlanner {
     pub fn plan_match_path(
         path: &Path,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+        indices: &HashMap<
+            usize,
+            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+        >,
     ) -> PlanNode {
         // Ensure the start node has a variable for chaining.
         let mut start_pattern = path.start.clone();
@@ -82,7 +85,10 @@ impl QueryPlanner {
     pub fn plan_match_paths(
         paths: &[Path],
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+        indices: &HashMap<
+            usize,
+            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+        >,
     ) -> Option<PlanNode> {
         if paths.is_empty() {
             return None;
@@ -100,7 +106,10 @@ impl QueryPlanner {
     fn plan_node_lookup(
         pattern: &NodePattern,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+        indices: &HashMap<
+            usize,
+            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+        >,
     ) -> PlanNode {
         if let Some(label_name) = &pattern.label {
             if let Some(label_id) = labels.get(label_name) {

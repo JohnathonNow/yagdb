@@ -3,6 +3,7 @@ pub mod graph;
 pub mod node;
 pub mod parser;
 pub mod planner;
+pub mod property;
 
 #[cfg(feature = "cluster")]
 pub mod raft;

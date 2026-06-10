@@ -4,9 +4,9 @@ use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::Write;
-#[cfg(not(target_arch = "wasm32"))]
 use std::io::Seek;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Write;
 use rand::Rng;
 
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
@@ -27,14 +27,14 @@ pub enum WalEntry {
     AddNode {
         id: String,
         label: usize,
-        properties: HashMap<String, String>,
+        properties: HashMap<String, crate::property::PropertyValue>,
     },
     AddEdge {
         id: String,
         start: usize,
         end: usize,
         labels: Vec<usize>,
-        properties: HashMap<String, String>,
+        properties: HashMap<String, crate::property::PropertyValue>,
     },
     CreateIndex {
         label: usize,
@@ -43,7 +43,7 @@ pub enum WalEntry {
     SetNodeProperty {
         node_id: usize,
         key: String,
-        value: String,
+        value: crate::property::PropertyValue,
     },
     DeleteNode { node_id: usize },
     DeleteEdge { edge_id: usize },
@@ -66,7 +66,8 @@ pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub labels: HashMap<String, usize>,
-    pub indices: HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+    pub indices:
+        HashMap<usize, HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
@@ -231,11 +232,49 @@ impl Graph {
 
     pub fn element_to_json(&self, element: &GraphElement) -> Value {
         match element {
-            GraphElement::Node(node_id) => serde_json::to_value(&self.nodes[*node_id]).unwrap(),
-            GraphElement::Edge(edge_id) => serde_json::to_value(&self.edges[*edge_id]).unwrap(),
+            GraphElement::Node(node_id) => {
+                let node = &self.nodes[*node_id];
+                let mut map = serde_json::Map::new();
+                map.insert(
+                    "labels".to_string(),
+                    serde_json::to_value(&node.labels).unwrap(),
+                );
+                map.insert(
+                    "edges".to_string(),
+                    serde_json::to_value(&node.edges).unwrap(),
+                );
+                let mut props = serde_json::Map::new();
+                for (k, v) in &node.properties {
+                    props.insert(k.clone(), v.to_json_value());
+                }
+                map.insert("properties".to_string(), Value::Object(props));
+                Value::Object(map)
+            }
+            GraphElement::Edge(edge_id) => {
+                let edge = &self.edges[*edge_id];
+                let mut map = serde_json::Map::new();
+                map.insert(
+                    "labels".to_string(),
+                    serde_json::to_value(&edge.labels).unwrap(),
+                );
+                map.insert(
+                    "start".to_string(),
+                    serde_json::to_value(edge.start).unwrap(),
+                );
+                map.insert("end".to_string(), serde_json::to_value(edge.end).unwrap());
+                let mut props = serde_json::Map::new();
+                for (k, v) in &edge.properties {
+                    props.insert(k.clone(), v.to_json_value());
+                }
+                map.insert("properties".to_string(), Value::Object(props));
+                Value::Object(map)
+            }
             GraphElement::EdgeArray(edge_ids) => {
-                let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
-                serde_json::to_value(&edges).unwrap()
+                let edges_val: Vec<_> = edge_ids
+                    .iter()
+                    .map(|&id| self.element_to_json(&GraphElement::Edge(id)))
+                    .collect();
+                serde_json::to_value(&edges_val).unwrap()
             }
             GraphElement::Path(elements) => {
                 let path_out: Vec<Value> =
@@ -327,7 +366,11 @@ impl Graph {
         }
     }
 
-    pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
+    pub fn add_node(
+        &mut self,
+        label: usize,
+        properties: HashMap<String, crate::property::PropertyValue>,
+    ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
         self.nodes.push(node);
@@ -382,7 +425,7 @@ impl Graph {
         start: usize,
         end: usize,
         labels: Vec<usize>,
-        properties: HashMap<String, String>,
+        properties: HashMap<String, crate::property::PropertyValue>,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
@@ -567,9 +610,7 @@ impl Graph {
                                                     final_envs.push(new_env);
                                                 }
                                             }
-                                            _ => {
-
-                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
@@ -632,7 +673,9 @@ impl Graph {
                             let key: Vec<Option<GraphElement>> =
                                 grouping_keys.iter().map(|k| env.get(k).cloned()).collect();
 
-                            if let Some((_, group_envs)) = groups.iter_mut().find(|(k, _)| *k == key) {
+                            if let Some((_, group_envs)) =
+                                groups.iter_mut().find(|(k, _)| *k == key)
+                            {
                                 group_envs.push(env);
                             } else {
                                 groups.push((key, vec![env]));
@@ -948,7 +991,7 @@ impl Graph {
                 value,
                 pattern,
             } => {
-                op_name = format!("NodeIndexLookup({}.{}='{}')", label, property, value);
+                op_name = format!("NodeIndexLookup({}.{}='{:?}')", label, property, value);
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     if let Some(label_indices) = self.indices.get(label_id) {
@@ -1439,6 +1482,7 @@ impl Graph {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(s.clone()),
             Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
             Expression::Variable(var) => {
                 if let Some(element) = env.get(var) {
                     match element {
@@ -1460,19 +1504,17 @@ impl Graph {
             }
             Expression::Property(var, prop) => {
                 if let Some(element) = env.get(var) {
-                    let prop_str = match element {
+                    let prop_val = match element {
                         GraphElement::Node(id) => self.nodes[*id].properties.get(prop),
                         GraphElement::Edge(id) => self.edges[*id].properties.get(prop),
                         _ => None,
                     };
-                    match prop_str {
-                        Some(s) => {
-                            if let Ok(n) = s.parse::<f64>() {
-                                EvalValue::Number(n)
-                            } else {
-                                EvalValue::String(s.clone())
-                            }
+                    match prop_val {
+                        Some(crate::property::PropertyValue::String(s)) => {
+                            EvalValue::String(s.clone())
                         }
+                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(*n),
+                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(*b),
                         None => EvalValue::Null,
                     }
                 } else {
@@ -1487,6 +1529,7 @@ impl Graph {
 enum EvalValue {
     String(String),
     Number(f64),
+    Boolean(bool),
     Null,
 }
 
@@ -1544,7 +1587,19 @@ impl EvalValue {
                     false
                 }
             }
+            (EvalValue::Boolean(l), EvalValue::Boolean(r)) => Self::compare_bool(*l, *r, op),
             _ => false,
+        }
+    }
+
+    fn compare_bool(l: bool, r: bool, op: &CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => l == r,
+            CompareOp::Neq => l != r,
+            CompareOp::Gt => l & !r,
+            CompareOp::Gte => l >= r,
+            CompareOp::Lt => !l & r,
+            CompareOp::Lte => l <= r,
         }
     }
 

@@ -14,14 +14,14 @@ use std::collections::HashMap;
 pub struct NodePattern {
     pub variable: Option<String>,
     pub label: Option<String>,
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, crate::property::PropertyValue>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct RelPattern {
     pub variable: Option<String>,
     pub label: Option<String>,
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, crate::property::PropertyValue>,
     pub length: Option<(usize, Option<usize>)>,
 }
 
@@ -43,6 +43,7 @@ pub enum Expression {
     Property(String, String),
     StringLiteral(String),
     NumberLiteral(f64),
+    BooleanLiteral(bool),
     Variable(String),
     Function(String, Vec<Expression>),
 }
@@ -91,7 +92,7 @@ pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>, Option<Condition>),
     Merge(Vec<Path>),
-    Set(String, String, String),
+    Set(String, String, crate::property::PropertyValue),
     CreateIndex { label: String, property: String },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>)
@@ -132,14 +133,19 @@ fn string_literal(input: &str) -> IResult<&str, &str> {
     ))(input)
 }
 
-fn property(input: &str) -> IResult<&str, (String, String)> {
+fn property(input: &str) -> IResult<&str, (String, crate::property::PropertyValue)> {
     let (input, key) = ws(identifier)(input)?;
     let (input, _) = ws(char(':'))(input)?;
-    let (input, val) = ws(alt((string_literal, identifier)))(input)?;
-    Ok((input, (key.to_string(), val.to_string())))
+    let (input, val) = ws(alt((
+        property_value_parser,
+        map(identifier, |s| {
+            crate::property::PropertyValue::String(s.to_string())
+        }),
+    )))(input)?;
+    Ok((input, (key.to_string(), val)))
 }
 
-fn properties(input: &str) -> IResult<&str, HashMap<String, String>> {
+fn properties(input: &str) -> IResult<&str, HashMap<String, crate::property::PropertyValue>> {
     let (input, props) = delimited(
         ws(char('{')),
         separated_list1(ws(char(',')), property),
@@ -243,12 +249,43 @@ fn number_literal(input: &str) -> IResult<&str, f64> {
     Ok((input, num_str.parse().unwrap()))
 }
 
+fn boolean_literal(input: &str) -> IResult<&str, bool> {
+    let (input, b_str) = alt((tag("true"), tag("TRUE"), tag("false"), tag("FALSE")))(input)?;
+    // Ensure word boundary to prevent partial matches like "true_story"
+    if let Ok((_, _)) = nom::character::complete::satisfy::<_, &str, nom::error::Error<&str>>(|c| {
+        c.is_alphanumeric() || c == '_'
+    })(input)
+    {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    let val = match b_str {
+        "true" | "TRUE" => true,
+        "false" | "FALSE" => false,
+        _ => unreachable!(),
+    };
+    Ok((input, val))
+}
+
+fn property_value_parser(input: &str) -> IResult<&str, crate::property::PropertyValue> {
+    alt((
+        map(string_literal, |s| {
+            crate::property::PropertyValue::String(s.to_string())
+        }),
+        map(number_literal, crate::property::PropertyValue::Number),
+        map(boolean_literal, crate::property::PropertyValue::Boolean),
+    ))(input)
+}
+
 fn expression(input: &str) -> IResult<&str, Expression> {
     alt((
         map(ws(string_literal), |s| {
             Expression::StringLiteral(s.to_string())
         }),
         map(ws(number_literal), Expression::NumberLiteral),
+        map(ws(boolean_literal), Expression::BooleanLiteral),
         map(
             tuple((ws(identifier), char('.'), ws(identifier))),
             |(var, _, prop)| Expression::Property(var.to_string(), prop.to_string()),
@@ -449,11 +486,13 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(char('.'))(input)?;
     let (input, prop) = ws(identifier)(input)?;
     let (input, _) = ws(char('='))(input)?;
-    let (input, val) = ws(alt((string_literal, identifier)))(input)?;
-    Ok((
-        input,
-        Clause::Set(var.to_string(), prop.to_string(), val.to_string()),
-    ))
+    let (input, val) = ws(alt((
+        property_value_parser,
+        map(identifier, |s| {
+            crate::property::PropertyValue::String(s.to_string())
+        }),
+    )))(input)?;
+    Ok((input, Clause::Set(var.to_string(), prop.to_string(), val)))
 }
 
 fn unwind_clause(input: &str) -> IResult<&str, Clause> {

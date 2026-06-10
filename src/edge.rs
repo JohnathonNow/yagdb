@@ -7,7 +7,7 @@ pub struct Edge {
     pub labels: Vec<usize>,
     pub start: usize,
     pub end: usize,
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, crate::property::PropertyValue>,
     pub deleted: bool,
 }
 
@@ -17,7 +17,7 @@ impl Edge {
         labels: Vec<usize>,
         start: usize,
         end: usize,
-        properties: HashMap<String, String>,
+        properties: HashMap<String, crate::property::PropertyValue>,
     ) -> Self {
         Self {
             id,
