@@ -7,13 +7,14 @@ use std::fs::File;
 use std::io::Write;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Seek;
+use rand::Rng;
 
-use crate::planner::{PlanNode, QueryPlanner};
+use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
     edge::Edge,
     node::Node,
     parser::{
-        parse_query, Clause, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
+        parse_query, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
         RelPattern,
     },
 };
@@ -24,10 +25,12 @@ pub enum WalEntry {
         label: String,
     },
     AddNode {
+        id: String,
         label: usize,
         properties: HashMap<String, String>,
     },
     AddEdge {
+        id: String,
         start: usize,
         end: usize,
         labels: Vec<usize>,
@@ -108,8 +111,8 @@ impl Graph {
                         let id = graph.labels.len();
                         graph.labels.insert(label, id);
                     }
-                    WalEntry::AddNode { label, properties } => {
-                        let node = Node::new(vec![label], vec![], properties.clone());
+                    WalEntry::AddNode { id, label, properties } => {
+                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
                         graph.nodes.push(node);
                         let node_id = graph.nodes.len() - 1;
 
@@ -126,12 +129,13 @@ impl Graph {
                         }
                     }
                     WalEntry::AddEdge {
+                        id,
                         start,
                         end,
                         labels,
                         properties,
                     } => {
-                        let edge = Edge::new(labels, start, end, properties);
+                        let edge = Edge::new(id.clone(), labels, start, end, properties);
                         graph.edges.push(edge);
                         let edge_idx = graph.edges.len() - 1;
                         graph.nodes[start].edges.push(edge_idx);
@@ -324,7 +328,8 @@ impl Graph {
     }
 
     pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
-        let node = Node::new(vec![label], vec![], properties.clone());
+        let id = uuid::Uuid::new_v4().to_string();
+        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
         self.nodes.push(node);
         let node_id = self.nodes.len() - 1;
 
@@ -340,7 +345,7 @@ impl Graph {
             }
         }
 
-        self.log_wal(&WalEntry::AddNode { label, properties });
+        self.log_wal(&WalEntry::AddNode { id, label, properties });
         node_id
     }
 
@@ -379,12 +384,14 @@ impl Graph {
         labels: Vec<usize>,
         properties: HashMap<String, String>,
     ) -> usize {
-        let edge = Edge::new(labels.clone(), start, end, properties.clone());
+        let id = uuid::Uuid::new_v4().to_string();
+        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
         self.edges.push(edge);
         let edge_idx = self.edges.len() - 1;
         self.nodes[start].edges.push(edge_idx);
         self.nodes[end].edges.push(edge_idx);
         self.log_wal(&WalEntry::AddEdge {
+            id,
             start,
             end,
             labels,
@@ -406,19 +413,19 @@ impl Graph {
         // A single environment initially, representing the "root" row.
         let mut envs: Vec<Environment> = vec![HashMap::new()];
 
-        for clause in query.clauses {
-            match clause {
-                Clause::Create(paths) => {
+        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+
+        for step in plan.steps {
+            match step {
+                ExecutionStep::Create(paths) => {
                     for path in paths {
                         for env in &mut envs {
                             self.execute_create_path(path.clone(), env);
                         }
                     }
                 }
-                Clause::Match(paths, condition_opt) => {
-                    if let Some(plan) =
-                        QueryPlanner::plan_match_paths(&paths, &self.labels, &self.indices)
-                    {
+                ExecutionStep::Match(plan_opt, paths, condition_opt) => {
+                    if let Some(plan) = plan_opt {
                         let mut new_envs = Vec::new();
                         for env in envs {
                             let matches = self.execute_plan_and_bind_paths(
@@ -431,7 +438,6 @@ impl Graph {
                         }
                         envs = new_envs;
                         if envs.is_empty() {
-                            // If MATCH yields no results, we abort further clauses and return empty
                             break;
                         }
                         if let Some(cond) = condition_opt {
@@ -439,17 +445,13 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Merge(paths) => {
-                    for path in paths {
+                ExecutionStep::Merge(planned_paths) => {
+                    for (plan_opt, path) in planned_paths {
                         let mut new_envs = Vec::new();
                         for env in envs {
-                            if let Some(plan) = QueryPlanner::plan_match_paths(
-                                &[path.clone()],
-                                &self.labels,
-                                &self.indices,
-                            ) {
+                            if let Some(plan) = &plan_opt {
                                 let matches = self.execute_plan_and_bind_paths(
-                                    &plan,
+                                    plan,
                                     &[path.clone()],
                                     &env,
                                     &mut profile_out,
@@ -470,7 +472,7 @@ impl Graph {
                         envs = new_envs;
                     }
                 }
-                Clause::Set(var, key, value) => {
+                ExecutionStep::Set(var, key, value) => {
                     let mut updated_nodes = std::collections::HashSet::new();
                     for env in &envs {
                         if let Some(GraphElement::Node(node_id)) = env.get(&var) {
@@ -510,7 +512,7 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Delete(vars) => {
+                ExecutionStep::Delete(vars) => {
                     let mut nodes_to_delete = Vec::new();
                     let mut edges_to_delete = Vec::new();
                     for var in &vars {
@@ -550,7 +552,7 @@ impl Graph {
                         }
                     }
                 }
-                Clause::Unwind(ref items) => {
+                ExecutionStep::Unwind(ref items) => {
                     let mut final_envs: Vec<Environment> = Vec::new();
                     for env in &envs {
                         for item in items.iter() {
@@ -577,10 +579,10 @@ impl Graph {
                     }
                     envs = final_envs;
                 }
-                Clause::With(ref items) | Clause::Return(ref items, _) => {
+                ExecutionStep::With(ref items, ref order_by_opt) | ExecutionStep::Return(ref items, ref order_by_opt, _) => {
                     let mut is_return = false;
                     let mut limit = None;
-                    if let Clause::Return(_, l) = &clause {
+                    if let ExecutionStep::Return(_, _, l) = &step {
                         is_return = true;
                         limit = *l;
                     }
@@ -612,6 +614,9 @@ impl Graph {
                             ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
                             ProjectionItem::AliasedVariable(var, _) => {
                                 grouping_keys.push(var.clone())
+                            }
+                            ProjectionItem::Function { .. } => {
+                                // Function without aggregate isn't an aggregate grouping key directly
                             }
                             ProjectionItem::Star => {} // Already handled above
                         }
@@ -698,6 +703,14 @@ impl Graph {
                                             _ => {}
                                         }
                                     }
+                                    ProjectionItem::Function { func, args: _, alias } => {
+                                        let out_key = alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}()", func));
+                                        if func.eq_ignore_ascii_case("rand") {
+                                            grouped_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                        }
+                                    }
                                     ProjectionItem::Star => {}
                                 }
                             }
@@ -719,11 +732,45 @@ impl Graph {
                                             projected_env.insert(alias.clone(), val);
                                         }
                                     }
+                                    ProjectionItem::Function { func, args: _, alias } => {
+                                        let out_key = alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}()", func));
+                                        if func.eq_ignore_ascii_case("rand") {
+                                            projected_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
                             final_envs.push(projected_env);
                         }
+                    }
+
+                    if let Some(order_items) = order_by_opt {
+                        let mut env_with_keys: Vec<(Vec<EvalValue>, Environment)> = final_envs.into_iter().map(|env| {
+                            let keys = order_items.iter().map(|item| {
+                                self.evaluate_expression(&item.expr, &env)
+                            }).collect();
+                            (keys, env)
+                        }).collect();
+
+                        env_with_keys.sort_by(|a, b| {
+                            for (idx, item) in order_items.iter().enumerate() {
+                                let key_a = &a.0[idx];
+                                let key_b = &b.0[idx];
+                                let mut cmp = key_a.partial_cmp(key_b).unwrap_or(std::cmp::Ordering::Equal);
+                                if !item.asc {
+                                    cmp = cmp.reverse();
+                                }
+                                if cmp != std::cmp::Ordering::Equal {
+                                    return cmp;
+                                }
+                            }
+                            std::cmp::Ordering::Equal
+                        });
+
+                        final_envs = env_with_keys.into_iter().map(|(_, env)| env).collect();
                     }
 
                     if is_return {
@@ -742,6 +789,9 @@ impl Graph {
                                     ProjectionItem::Aggregate { func, var, alias } => alias
                                         .clone()
                                         .unwrap_or_else(|| format!("{}({})", func, var)),
+                                    ProjectionItem::Function { func, args: _, alias } => alias
+                                        .clone()
+                                        .unwrap_or_else(|| format!("{}()", func)),
                                     ProjectionItem::Star => continue,
                                 };
                                 if let Some(element) = env.get(&key) {
@@ -762,7 +812,7 @@ impl Graph {
                         envs = final_envs;
                     }
                 }
-                Clause::CreateIndex { label, property } => {
+                ExecutionStep::CreateIndex { label, property } => {
                     let label_id = self.get_or_add_label(&label);
                     self.create_index(label_id, property);
                 }
@@ -1389,6 +1439,25 @@ impl Graph {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(s.clone()),
             Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::Variable(var) => {
+                if let Some(element) = env.get(var) {
+                    match element {
+                        GraphElement::Number(n) => EvalValue::Number(*n),
+                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
+                            EvalValue::String(self.format_element(element))
+                        }
+                    }
+                } else {
+                    EvalValue::Null
+                }
+            }
+            Expression::Function(func, _args) => {
+                if func.eq_ignore_ascii_case("rand") {
+                    EvalValue::Number(rand::thread_rng().gen::<f64>())
+                } else {
+                    EvalValue::Null
+                }
+            }
             Expression::Property(var, prop) => {
                 if let Some(element) = env.get(var) {
                     let prop_str = match element {
@@ -1414,6 +1483,7 @@ impl Graph {
     }
 }
 
+#[derive(Clone, Debug)]
 enum EvalValue {
     String(String),
     Number(f64),
@@ -1421,6 +1491,38 @@ enum EvalValue {
 }
 
 impl EvalValue {
+    fn partial_cmp(&self, other: &EvalValue) -> Option<std::cmp::Ordering> {
+        if let (EvalValue::Null, EvalValue::Null) = (self, other) {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        if let EvalValue::Null = self {
+            return Some(std::cmp::Ordering::Less);
+        }
+        if let EvalValue::Null = other {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        match (self, other) {
+            (EvalValue::Number(l), EvalValue::Number(r)) => l.partial_cmp(r),
+            (EvalValue::String(l), EvalValue::String(r)) => l.partial_cmp(r),
+            (EvalValue::Number(l), EvalValue::String(r)) => {
+                if let Ok(r_num) = r.parse::<f64>() {
+                    l.partial_cmp(&r_num)
+                } else {
+                    None
+                }
+            }
+            (EvalValue::String(l), EvalValue::Number(r)) => {
+                if let Ok(l_num) = l.parse::<f64>() {
+                    l_num.partial_cmp(r)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn compare(&self, other: &EvalValue, op: &CompareOp) -> bool {
         if let (EvalValue::Null, _) | (_, EvalValue::Null) = (self, other) {
             return false;
