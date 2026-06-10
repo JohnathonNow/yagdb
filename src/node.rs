@@ -6,6 +6,7 @@ pub struct Node {
     pub labels: Vec<usize>,
     pub edges: Vec<usize>,
     pub properties: HashMap<String, String>,
+    pub deleted: bool,
 }
 
 impl Node {
@@ -14,6 +15,7 @@ impl Node {
             labels,
             edges,
             properties,
+            deleted: false,
         }
     }
 }

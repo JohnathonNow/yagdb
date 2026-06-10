@@ -7,6 +7,7 @@ pub struct Edge {
     pub start: usize,
     pub end: usize,
     pub properties: HashMap<String, String>,
+    pub deleted: bool,
 }
 
 impl Edge {
@@ -21,6 +22,7 @@ impl Edge {
             start,
             end,
             properties,
+            deleted: false,
         }
     }
 }

@@ -42,6 +42,8 @@ pub enum WalEntry {
         key: String,
         value: String,
     },
+    DeleteNode { node_id: usize },
+    DeleteEdge { edge_id: usize },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -164,6 +166,21 @@ impl Graph {
                                 }
                             }
                         }
+                    }
+                    WalEntry::DeleteNode { node_id } => {
+                        graph.nodes[node_id].deleted = true;
+                        for (label_id, label_indices) in graph.indices.iter_mut() {
+                            if graph.nodes[node_id].labels.contains(label_id) {
+                                for (_, prop_index) in label_indices.iter_mut() {
+                                    for (_, vec) in prop_index.iter_mut() {
+                                        vec.retain(|&id| id != node_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WalEntry::DeleteEdge { edge_id } => {
+                        graph.edges[edge_id].deleted = true;
                     }
                 }
                 needs_snapshot = true;
@@ -490,6 +507,46 @@ impl Graph {
                                     value: value.clone(),
                                 });
                             }
+                        }
+                    }
+                }
+                Clause::Delete(vars) => {
+                    let mut nodes_to_delete = Vec::new();
+                    let mut edges_to_delete = Vec::new();
+                    for var in &vars {
+                        for env in &envs {
+                            if let Some(GraphElement::Node(node_id)) = env.get(var) {
+                                if !nodes_to_delete.contains(node_id) {
+                                    nodes_to_delete.push(*node_id);
+                                }
+                            } else if let Some(GraphElement::Edge(edge_id)) = env.get(var) {
+                                if !edges_to_delete.contains(edge_id) {
+                                    edges_to_delete.push(*edge_id);
+                                }
+                            }
+                        }
+                    }
+
+                    for &edge_id in &edges_to_delete {
+                        if !self.edges[edge_id].deleted {
+                            self.edges[edge_id].deleted = true;
+                            self.log_wal(&WalEntry::DeleteEdge { edge_id });
+                        }
+                    }
+
+                    for &node_id in &nodes_to_delete {
+                        if !self.nodes[node_id].deleted {
+                            self.nodes[node_id].deleted = true;
+                            for (label_id, label_indices) in self.indices.iter_mut() {
+                                if self.nodes[node_id].labels.contains(label_id) {
+                                    for (_, prop_index) in label_indices.iter_mut() {
+                                        for (_, vec) in prop_index.iter_mut() {
+                                            vec.retain(|&id| id != node_id);
+                                        }
+                                    }
+                                }
+                            }
+                            self.log_wal(&WalEntry::DeleteNode { node_id });
                         }
                     }
                 }
@@ -1198,6 +1255,7 @@ impl Graph {
     }
 
     fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
+        if self.nodes[node_id].deleted { return false; }
         let node = &self.nodes[node_id];
 
         let label_id = if let Some(l) = &pattern.label {
@@ -1282,6 +1340,7 @@ impl Graph {
     }
 
     fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
+        if self.edges[edge_id].deleted { return false; }
         let edge = &self.edges[edge_id];
 
         let label_id = if let Some(l) = &pattern.label {
