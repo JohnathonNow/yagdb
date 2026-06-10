@@ -376,21 +376,18 @@ impl Graph {
         edge_idx
     }
 
-    pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
-        let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
-        let mut output = String::new();
-        let mut profile_out = if query.profile {
-            Some(String::new())
-        } else {
-            None
-        };
-
-        // A single environment initially, representing the "root" row.
-        let mut envs: Vec<Environment> = vec![HashMap::new()];
-
-        for clause in query.clauses {
+    pub fn execute_clauses(
+        &mut self,
+        clauses: &[Clause],
+        mut envs: Vec<Environment>,
+        mut profile_out: &mut Option<String>,
+        output: &mut String,
+        is_subquery: bool,
+    ) -> Vec<Environment> {
+        for clause in clauses {
             match clause {
+
                 Clause::Create(paths) => {
                     for path in paths {
                         for env in &mut envs {
@@ -415,7 +412,7 @@ impl Graph {
                         envs = new_envs;
                         if envs.is_empty() {
                             // If MATCH yields no results, we abort further clauses and return empty
-                            break;
+                            return vec![];
                         }
                         if let Some(cond) = condition_opt {
                             envs.retain(|env| self.evaluate_condition(&cond, env));
@@ -456,7 +453,7 @@ impl Graph {
                 Clause::Set(var, key, value) => {
                     let mut updated_nodes = std::collections::HashSet::new();
                     for env in &envs {
-                        if let Some(GraphElement::Node(node_id)) = env.get(&var) {
+                        if let Some(GraphElement::Node(node_id)) = env.get(var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
                                 let old_value = self.nodes[node_id]
@@ -466,7 +463,7 @@ impl Graph {
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
                                     if self.nodes[node_id].labels.contains(label_id) {
-                                        if let Some(prop_index) = label_indices.get_mut(&key) {
+                                        if let Some(prop_index) = label_indices.get_mut(key) {
                                             // Remove from old index
                                             if let Some(old_val) = &old_value {
                                                 if let Some(vec) = prop_index.get_mut(old_val) {
@@ -523,7 +520,7 @@ impl Graph {
                 Clause::With(ref items) | Clause::Return(ref items, _) => {
                     let mut is_return = false;
                     let mut limit = None;
-                    if let Clause::Return(_, l) = &clause {
+                    if let Clause::Return(_, l) = clause {
                         is_return = true;
                         limit = *l;
                     }
@@ -675,31 +672,37 @@ impl Graph {
                             Some(l) => final_envs.into_iter().take(l),
                             None => final_envs.into_iter().take(len),
                         };
-                        let mut results_json = Vec::new();
-                        for env in iter {
-                            let mut row = serde_json::Map::new();
-                            for item in &items {
-                                let key = match item {
-                                    ProjectionItem::Variable(var) => var.clone(),
-                                    ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
-                                    ProjectionItem::Aggregate { func, var, alias } => alias
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{}({})", func, var)),
-                                    ProjectionItem::Star => continue,
-                                };
-                                if let Some(element) = env.get(&key) {
-                                    row.insert(key, self.element_to_json(element));
-                                } else {
-                                    row.insert(key, Value::Null);
+
+                        let collected_envs: Vec<_> = iter.collect();
+
+                        if !is_subquery {
+                            let mut results_json = Vec::new();
+                            for env in &collected_envs {
+                                let mut row = serde_json::Map::new();
+                                for item in &items {
+                                    let key = match item {
+                                        ProjectionItem::Variable(var) => var.clone(),
+                                        ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
+                                        ProjectionItem::Aggregate { func, var, alias } => alias
+                                            .clone()
+                                            .unwrap_or_else(|| format!("{}({})", func, var)),
+                                        ProjectionItem::Star => continue,
+                                    };
+                                    if let Some(element) = env.get(&key) {
+                                        row.insert(key, self.element_to_json(element));
+                                    } else {
+                                        row.insert(key, Value::Null);
+                                    }
+                                }
+                                if !row.is_empty() {
+                                    results_json.push(Value::Object(row));
                                 }
                             }
-                            if !row.is_empty() {
-                                results_json.push(Value::Object(row));
+                            if !results_json.is_empty() {
+                                *output = serde_json::to_string_pretty(&results_json).unwrap();
                             }
                         }
-                        if !results_json.is_empty() {
-                            output = serde_json::to_string_pretty(&results_json).unwrap();
-                        }
+                        envs = collected_envs;
                     } else {
                         // WITH clause
                         envs = final_envs;
@@ -707,11 +710,44 @@ impl Graph {
                 }
                 Clause::CreateIndex { label, property } => {
                     let label_id = self.get_or_add_label(&label);
-                    self.create_index(label_id, property);
+                    self.create_index(label_id, property.clone());
+                }
+
+                Clause::Call(sub_clauses) => {
+                    let mut new_envs = Vec::new();
+                    for env in envs {
+                        let inner_envs = vec![env.clone()];
+                        let res_envs = self.execute_clauses(sub_clauses, inner_envs, profile_out, output, true);
+                        for res_env in res_envs {
+                            let mut merged = env.clone();
+                            for (k, v) in res_env {
+                                merged.insert(k, v);
+                            }
+                            new_envs.push(merged);
+                        }
+                    }
+                    envs = new_envs;
                 }
             }
         }
+        envs
+    }
 
+    pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
+        let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+
+        let mut output = String::new();
+        let mut profile_out = if query.profile {
+            Some(String::new())
+        } else {
+            None
+        };
+
+        // A single environment initially, representing the "root" row.
+        let envs: Vec<Environment> = vec![HashMap::new()];
+
+
+        let _ = self.execute_clauses(&query.clauses, envs, &mut profile_out, &mut output, false);
         if let Some(prof) = profile_out {
             let results: Value = if output.is_empty() {
                 json!([])

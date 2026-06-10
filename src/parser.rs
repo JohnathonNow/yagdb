@@ -88,7 +88,8 @@ pub enum Clause {
     CreateIndex { label: String, property: String },
     Return(Vec<ProjectionItem>, Option<usize>),
     With(Vec<ProjectionItem>),
-    Unwind(Vec<ProjectionItem>)
+    Unwind(Vec<ProjectionItem>),
+    Call(Vec<Clause>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -392,6 +393,15 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
     ))
 }
 
+
+fn call_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("CALL"), tag("call"))))(input)?;
+    let (input, _) = ws(char('{'))(input)?;
+    let (input, clauses) = many0(ws(clause))(input)?;
+    let (input, _) = ws(char('}'))(input)?;
+    Ok((input, Clause::Call(clauses)))
+}
+
 fn unwind_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("UNWIND"), tag("unwind"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
@@ -408,6 +418,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
         with_clause,
         return_clause,
         unwind_clause,
+        call_clause,
     ))(input)
 }
 
