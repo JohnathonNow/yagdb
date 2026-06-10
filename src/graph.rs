@@ -24,10 +24,12 @@ pub enum WalEntry {
         label: String,
     },
     AddNode {
+        id: String,
         label: usize,
         properties: HashMap<String, String>,
     },
     AddEdge {
+        id: String,
         start: usize,
         end: usize,
         labels: Vec<usize>,
@@ -106,8 +108,8 @@ impl Graph {
                         let id = graph.labels.len();
                         graph.labels.insert(label, id);
                     }
-                    WalEntry::AddNode { label, properties } => {
-                        let node = Node::new(vec![label], vec![], properties.clone());
+                    WalEntry::AddNode { id, label, properties } => {
+                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
                         graph.nodes.push(node);
                         let node_id = graph.nodes.len() - 1;
 
@@ -124,12 +126,13 @@ impl Graph {
                         }
                     }
                     WalEntry::AddEdge {
+                        id,
                         start,
                         end,
                         labels,
                         properties,
                     } => {
-                        let edge = Edge::new(labels, start, end, properties);
+                        let edge = Edge::new(id.clone(), labels, start, end, properties);
                         graph.edges.push(edge);
                         let edge_idx = graph.edges.len() - 1;
                         graph.nodes[start].edges.push(edge_idx);
@@ -307,7 +310,8 @@ impl Graph {
     }
 
     pub fn add_node(&mut self, label: usize, properties: HashMap<String, String>) -> usize {
-        let node = Node::new(vec![label], vec![], properties.clone());
+        let id = uuid::Uuid::new_v4().to_string();
+        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
         self.nodes.push(node);
         let node_id = self.nodes.len() - 1;
 
@@ -323,7 +327,7 @@ impl Graph {
             }
         }
 
-        self.log_wal(&WalEntry::AddNode { label, properties });
+        self.log_wal(&WalEntry::AddNode { id, label, properties });
         node_id
     }
 
@@ -362,12 +366,14 @@ impl Graph {
         labels: Vec<usize>,
         properties: HashMap<String, String>,
     ) -> usize {
-        let edge = Edge::new(labels.clone(), start, end, properties.clone());
+        let id = uuid::Uuid::new_v4().to_string();
+        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
         self.edges.push(edge);
         let edge_idx = self.edges.len() - 1;
         self.nodes[start].edges.push(edge_idx);
         self.nodes[end].edges.push(edge_idx);
         self.log_wal(&WalEntry::AddEdge {
+            id,
             start,
             end,
             labels,
