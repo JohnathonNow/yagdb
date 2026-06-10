@@ -3,17 +3,26 @@ use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Node {
+    pub id: String,
     pub labels: Vec<usize>,
     pub edges: Vec<usize>,
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, crate::property::PropertyValue>,
+    pub deleted: bool,
 }
 
 impl Node {
-    pub fn new(labels: Vec<usize>, edges: Vec<usize>, properties: HashMap<String, String>) -> Self {
+    pub fn new(
+        id: String,
+        labels: Vec<usize>,
+        edges: Vec<usize>,
+        properties: HashMap<String, crate::property::PropertyValue>,
+    ) -> Self {
         Self {
+            id,
             labels,
             edges,
             properties,
+            deleted: false,
         }
     }
 }

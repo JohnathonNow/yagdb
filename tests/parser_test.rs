@@ -89,7 +89,10 @@ fn test_parser_merge() {
         Clause::Merge(paths) => {
             assert_eq!(paths.len(), 1);
             assert_eq!(paths[0].start.label.as_deref(), Some("Person"));
-            assert_eq!(paths[0].start.properties.get("name").unwrap(), "Alice");
+            assert_eq!(
+                paths[0].start.properties.get("name").unwrap(),
+                &yagdb::property::PropertyValue::String("Alice".to_string())
+            );
         }
         _ => panic!("Expected Merge clause"),
     }
@@ -104,7 +107,10 @@ fn test_parser_set() {
         Clause::Set(var, prop, val) => {
             assert_eq!(var, "n");
             assert_eq!(prop, "age");
-            assert_eq!(val, "30");
+            assert_eq!(
+                val,
+                &yagdb::property::PropertyValue::String("30".to_string())
+            );
         }
         _ => panic!("Expected Set clause"),
     }
@@ -117,7 +123,7 @@ fn test_return_star() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Return(vars, _) => {
+        Clause::Return(vars, _, _) => {
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], yagdb::parser::ProjectionItem::Star);
         }
@@ -175,7 +181,7 @@ fn test_with_and_aggregates_parse() {
     assert_eq!(query.clauses.len(), 3);
 
     match &query.clauses[1] {
-        Clause::With(items) => {
+        Clause::With(items, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
@@ -198,7 +204,7 @@ fn test_with_and_aggregates_parse() {
     }
 
     match &query.clauses[2] {
-        Clause::Return(items, _) => {
+        Clause::Return(items, _, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
