@@ -2,6 +2,7 @@ use crate::raft::app::App;
 use crate::raft::store::TypeConfig;
 use axum::{
     extract::{Json, State},
+    response::{sse::Event, sse::Sse, IntoResponse},
     routing::post,
     Router,
 };
@@ -25,6 +26,7 @@ pub struct QueryRes {
 pub fn create_router() -> Router<AppState> {
     Router::new()
         .route("/query", post(handle_query))
+        .route("/query_stream", post(handle_query_stream))
         .route("/raft/append", post(handle_append))
         .route("/raft/snapshot", post(handle_snapshot))
         .route("/raft/vote", post(handle_vote))
@@ -102,6 +104,90 @@ async fn handle_query(
         let mut g = app.graph.lock().await;
         let res = g.execute(&body);
         Ok(Json(QueryRes { result: res }))
+    }
+}
+
+async fn handle_query_stream(
+    State(app): State<AppState>,
+    body: String,
+) -> impl IntoResponse {
+    let q = crate::parser::parse_query(&body);
+    let is_write = match q {
+        Ok((_, query)) => query
+            .clauses
+            .iter()
+            .any(|c| matches!(c, crate::parser::Clause::Create(_))),
+        Err(_) => false,
+    };
+
+    let result_to_stream = if is_write {
+        let req = ClientRequest {
+            client: "app".to_string(),
+            serial: 1,
+            status: body.clone(),
+        };
+        match app.raft.client_write(req).await {
+            Ok(resp) => {
+                let result_str = resp.data.0.unwrap_or_else(|| "null".to_string());
+                let res: Result<String, String> = serde_json::from_str(&result_str)
+                    .unwrap_or(Err("Failed to parse inner response".into()));
+                res
+            }
+            Err(e) => {
+                match e {
+                    openraft::error::RaftError::APIError(ClientWriteError::ForwardToLeader(
+                        fwd,
+                    )) => {
+                        if let Some(leader_node_id) = fwd.leader_id {
+                            // Find leader node address from id (convention: port is 3000 + id)
+                            let url = format!("http://127.0.0.1:{}/query", 3000 + leader_node_id);
+                            let client = reqwest::Client::new();
+                            match client.post(&url).body(body).send().await {
+                                Ok(resp) => {
+                                    match resp.json::<QueryRes>().await {
+                                        Ok(res) => res.result,
+                                        Err(e) => Err(format!("Failed to parse response: {}", e)),
+                                    }
+                                }
+                                Err(e) => Err(format!("Failed to forward: {}", e)),
+                            }
+                        } else {
+                            Err("No leader available".to_string())
+                        }
+                    }
+                    _ => Err(format!("Raft write error: {:?}", e)),
+                }
+            }
+        }
+    } else {
+        let mut g = app.graph.lock().await;
+        g.execute(&body)
+    };
+
+    match result_to_stream {
+        Ok(result) => {
+            if result.trim().is_empty() {
+                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+            }
+
+            match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
+                Ok(arr) => {
+                    let stream = futures::stream::iter(arr.into_iter().map(|val| {
+                        Ok::<_, std::convert::Infallible>(
+                            Event::default().data(serde_json::to_string(&val).unwrap())
+                        )
+                    }));
+                    Sse::new(stream).into_response()
+                }
+                Err(_) => {
+                    let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
+                        Event::default().data(result)
+                    )]);
+                    Sse::new(stream).into_response()
+                }
+            }
+        }
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
 }
 

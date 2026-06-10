@@ -1,3 +1,4 @@
+use crate::parser::{Clause, Condition, ProjectionItem, Query};
 use crate::parser::{NodePattern, Path, RelPattern};
 use std::collections::HashMap;
 
@@ -127,6 +128,61 @@ impl QueryPlanner {
         // Fallback: full scan
         PlanNode::FullNodeScan {
             pattern: pattern.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionStep {
+    Create(Vec<Path>),
+    Match(Option<PlanNode>, Vec<Path>, Option<Condition>),
+    Merge(Vec<(Option<PlanNode>, Path)>),
+    Set(String, String, String),
+    CreateIndex { label: String, property: String },
+    Return(Vec<ProjectionItem>, Option<usize>),
+    With(Vec<ProjectionItem>),
+    Unwind(Vec<ProjectionItem>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryPlan {
+    pub profile: bool,
+    pub steps: Vec<ExecutionStep>,
+}
+
+impl QueryPlanner {
+    pub fn plan_query(
+        query: Query,
+        labels: &HashMap<String, usize>,
+        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+    ) -> QueryPlan {
+        let mut steps = Vec::new();
+        for clause in query.clauses {
+            let step = match clause {
+                Clause::Create(paths) => ExecutionStep::Create(paths),
+                Clause::Match(paths, condition) => {
+                    let plan = Self::plan_match_paths(&paths, labels, indices);
+                    ExecutionStep::Match(plan, paths, condition)
+                }
+                Clause::Merge(paths) => {
+                    let mut planned_paths = Vec::new();
+                    for path in paths {
+                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices);
+                        planned_paths.push((plan, path));
+                    }
+                    ExecutionStep::Merge(planned_paths)
+                }
+                Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
+                Clause::CreateIndex { label, property } => ExecutionStep::CreateIndex { label, property },
+                Clause::Return(items, limit) => ExecutionStep::Return(items, limit),
+                Clause::With(items) => ExecutionStep::With(items),
+                Clause::Unwind(items) => ExecutionStep::Unwind(items),
+            };
+            steps.push(step);
+        }
+        QueryPlan {
+            profile: query.profile,
+            steps,
         }
     }
 }

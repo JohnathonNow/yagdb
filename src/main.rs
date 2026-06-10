@@ -1,6 +1,12 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{sse::Event, sse::Sse, IntoResponse},
+    routing::post,
+    Router,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,6 +27,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/query", post(handle_query))
+        .route("/query_stream", post(handle_query_stream))
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -75,8 +82,39 @@ async fn main() {
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
     let mut g = graph.lock().await;
     match g.execute(&body) {
-        Ok(result) => (StatusCode::OK, result),
-        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)),
+        Ok(result) => (StatusCode::OK, result).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+    let mut g = graph.lock().await;
+    match g.execute(&body) {
+        Ok(result) => {
+            if result.trim().is_empty() {
+                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+            }
+
+            match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
+                Ok(arr) => {
+                    let stream = futures::stream::iter(arr.into_iter().map(|val| {
+                        Ok::<_, std::convert::Infallible>(
+                            Event::default().data(serde_json::to_string(&val).unwrap())
+                        )
+                    }));
+                    Sse::new(stream).into_response()
+                }
+                Err(_) => {
+                    let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
+                        Event::default().data(result)
+                    )]);
+                    Sse::new(stream).into_response()
+                }
+            }
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
 }
 
