@@ -442,6 +442,12 @@ impl Graph {
         edge_idx
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn backup(&self) -> Result<Vec<u8>, String> {
+        let encoded = bincode::serialize(self).map_err(|e| format!("Serialization error: {}", e))?;
+        Ok(encoded)
+    }
+
     pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 

@@ -28,6 +28,7 @@ async fn main() {
     let app = Router::new()
         .route("/query", post(handle_query))
         .route("/query_stream", post(handle_query_stream))
+        .route("/backup", axum::routing::get(handle_backup))
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -84,6 +85,21 @@ async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl In
     match g.execute(&body) {
         Ok(result) => (StatusCode::OK, result).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
+    let g = graph.lock().await;
+    match g.backup() {
+        Ok(bytes) => {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/octet-stream"));
+            headers.insert(axum::http::header::CONTENT_DISPOSITION, axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""));
+            (StatusCode::OK, headers, bytes).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response(),
     }
 }
 
