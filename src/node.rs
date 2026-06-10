@@ -5,11 +5,15 @@ use std::collections::HashMap;
 pub struct Node {
     pub labels: Vec<usize>,
     pub edges: Vec<usize>,
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, crate::property::PropertyValue>,
 }
 
 impl Node {
-    pub fn new(labels: Vec<usize>, edges: Vec<usize>, properties: HashMap<String, String>) -> Self {
+    pub fn new(
+        labels: Vec<usize>,
+        edges: Vec<usize>,
+        properties: HashMap<String, crate::property::PropertyValue>,
+    ) -> Self {
         Self {
             labels,
             edges,
