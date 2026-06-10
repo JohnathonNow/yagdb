@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Seek;
 
 use crate::planner::{PlanNode, QueryPlanner};
 use crate::{
@@ -262,6 +264,18 @@ impl Graph {
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.edges.clear();
+        self.labels.clear();
+        self.indices.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(file) = &mut self.wal_file {
+            let _ = file.set_len(0);
+            let _ = file.rewind();
         }
     }
 

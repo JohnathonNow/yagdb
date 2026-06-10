@@ -24,4 +24,10 @@ pub mod wasm {
             Err(e) => format!("Error: {}", e),
         }
     }
+
+    #[wasm_bindgen]
+    pub fn clear_graph() {
+        let mut g = GRAPH.lock().unwrap();
+        g.clear();
+    }
 }
