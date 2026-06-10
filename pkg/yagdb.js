@@ -1,5 +1,9 @@
 /* @ts-self-types="./yagdb.d.ts" */
 
+export function clear_graph() {
+    wasm.clear_graph();
+}
+
 /**
  * @param {string} query
  * @returns {string}

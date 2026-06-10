@@ -1,6 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export function clear_graph(): void;
+
 export function execute_query(query: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -8,6 +10,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly execute_query: (a: number, b: number) => [number, number];
+    readonly clear_graph: () => void;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
