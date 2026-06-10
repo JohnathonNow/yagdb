@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::Seek;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use rand::Rng;
 
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
@@ -751,7 +750,7 @@ impl Graph {
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
                                         if func.eq_ignore_ascii_case("rand") {
-                                            grouped_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                            grouped_env.insert(out_key, GraphElement::Number(0f64));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -780,7 +779,7 @@ impl Graph {
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
                                         if func.eq_ignore_ascii_case("rand") {
-                                            projected_env.insert(out_key, GraphElement::Number(rand::thread_rng().gen::<f64>()));
+                                            projected_env.insert(out_key, GraphElement::Number(0f64));
                                         }
                                     }
                                     _ => {}
@@ -1497,7 +1496,7 @@ impl Graph {
             }
             Expression::Function(func, _args) => {
                 if func.eq_ignore_ascii_case("rand") {
-                    EvalValue::Number(rand::thread_rng().gen::<f64>())
+                    EvalValue::Number(0f64)
                 } else {
                     EvalValue::Null
                 }

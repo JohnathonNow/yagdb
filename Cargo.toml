@@ -22,6 +22,7 @@ clap = { version = "4.6.1", features = ["derive"], optional = true }
 env_logger = { version = "0.11.10", optional = true }
 getrandom = { version = "0.2", features = ["js"] }
 uuid = { version = "1.23.3", features = ["v4"] }
+rand = "0.10.1"
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]

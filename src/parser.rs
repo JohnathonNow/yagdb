@@ -95,10 +95,9 @@ pub enum Clause {
     Set(String, String, crate::property::PropertyValue),
     CreateIndex { label: String, property: String },
     Unwind(Vec<ProjectionItem>),
-    Delete(Vec<String>)
+    Delete(Vec<String>),
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>),
-    Unwind(Vec<ProjectionItem>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -294,7 +293,7 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             tuple((
                 ws(identifier),
                 ws(char('(')),
-                separated_list0(ws(char(',')), expression),
+                separated_list1(ws(char(',')), expression),
                 ws(char(')')),
             )),
             |(func, _, args, _)| Expression::Function(func.to_string(), args),
@@ -361,7 +360,7 @@ pub fn where_clause(input: &str) -> IResult<&str, Condition> {
     condition_or(input)
 }
 
-use nom::multi::separated_list1;
+use nom::multi::separated_list0;
 
 fn order_by_clause(input: &str) -> IResult<&str, Vec<OrderItem>> {
     let (input, _) = ws(alt((tag("ORDER BY"), tag("order by"))))(input)?;
@@ -447,7 +446,7 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
 
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
-    let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
+    let (input, vars) = separated_list1(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());

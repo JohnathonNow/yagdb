@@ -12,6 +12,7 @@ pub struct Node {
 
 impl Node {
     pub fn new(
+        id: String,
         labels: Vec<usize>,
         edges: Vec<usize>,
         properties: HashMap<String, crate::property::PropertyValue>,

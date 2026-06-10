@@ -1,4 +1,5 @@
-use crate::parser::{Clause, Condition, ProjectionItem, Query};
+use crate::parser::{Clause, Condition, ProjectionItem, Query, OrderItem};
+use crate::property::{PropertyValue};
 use crate::parser::{NodePattern, Path, RelPattern};
 use std::collections::HashMap;
 
@@ -146,11 +147,12 @@ pub enum ExecutionStep {
     Create(Vec<Path>),
     Match(Option<PlanNode>, Vec<Path>, Option<Condition>),
     Merge(Vec<(Option<PlanNode>, Path)>),
-    Set(String, String, String),
+    Set(String, String, PropertyValue),
     CreateIndex { label: String, property: String },
-    Return(Vec<ProjectionItem>, Option<usize>),
-    With(Vec<ProjectionItem>),
+    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
+    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>),
     Unwind(Vec<ProjectionItem>),
+    Delete(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,7 +165,7 @@ impl QueryPlanner {
     pub fn plan_query(
         query: Query,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<String, HashMap<String, Vec<usize>>>>,
+        indices: &HashMap<usize, HashMap<String, HashMap<PropertyValue, Vec<usize>>>>,
     ) -> QueryPlan {
         let mut steps = Vec::new();
         for clause in query.clauses {
@@ -183,9 +185,10 @@ impl QueryPlanner {
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
                 Clause::CreateIndex { label, property } => ExecutionStep::CreateIndex { label, property },
-                Clause::Return(items, limit) => ExecutionStep::Return(items, limit),
-                Clause::With(items) => ExecutionStep::With(items),
+                Clause::Return(items, order, limit) => ExecutionStep::Return(items, order, limit),
+                Clause::With(items, order) => ExecutionStep::With(items, order),
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
+                Clause::Delete(items) => ExecutionStep::Delete(items),
             };
             steps.push(step);
         }
