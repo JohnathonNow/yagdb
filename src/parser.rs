@@ -1,10 +1,10 @@
 use nom::{
+    multi::{many0, separated_list1},
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
     combinator::{all_consuming, map, opt, recognize},
     error::Error,
-    multi::{many0, separated_list0},
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
@@ -93,6 +93,8 @@ pub enum Clause {
     Merge(Vec<Path>),
     Set(String, String, String),
     CreateIndex { label: String, property: String },
+    Unwind(Vec<ProjectionItem>),
+    Delete(Vec<String>)
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>),
     Unwind(Vec<ProjectionItem>)
@@ -140,7 +142,7 @@ fn property(input: &str) -> IResult<&str, (String, String)> {
 fn properties(input: &str) -> IResult<&str, HashMap<String, String>> {
     let (input, props) = delimited(
         ws(char('{')),
-        separated_list0(ws(char(',')), property),
+        separated_list1(ws(char(',')), property),
         ws(char('}')),
     )(input)?;
 
@@ -228,7 +230,7 @@ fn path(input: &str) -> IResult<&str, Path> {
 
 fn create_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("CREATE"), tag("create"))))(input)?;
-    let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
+    let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     Ok((input, Clause::Create(paths)))
 }
 
@@ -346,7 +348,7 @@ fn order_by_clause(input: &str) -> IResult<&str, Vec<OrderItem>> {
 
 fn match_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MATCH"), tag("match"))))(input)?;
-    let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
+    let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     let (input, condition) = opt(where_clause)(input)?;
     Ok((input, Clause::Match(paths, condition)))
 }
@@ -437,7 +439,7 @@ fn create_index_clause(input: &str) -> IResult<&str, Clause> {
 
 fn merge_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MERGE"), tag("merge"))))(input)?;
-    let (input, paths) = separated_list0(ws(char(',')), path)(input)?;
+    let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     Ok((input, Clause::Merge(paths)))
 }
 
@@ -456,8 +458,14 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
 
 fn unwind_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("UNWIND"), tag("unwind"))))(input)?;
-    let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
+    let (input, vars) = separated_list1(ws(char(',')), projection_item)(input)?;
     Ok((input, Clause::Unwind(vars)))
+}
+
+fn delete_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("DELETE"), tag("delete"))))(input)?;
+    let (input, vars) = separated_list1(ws(char(',')), ws(identifier))(input)?;
+    Ok((input, Clause::Delete(vars.into_iter().map(|s| s.to_string()).collect())))
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {
@@ -470,6 +478,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
         with_clause,
         return_clause,
         unwind_clause,
+        delete_clause,
     ))(input)
 }
 
