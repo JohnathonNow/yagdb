@@ -23,9 +23,11 @@ env_logger = { version = "0.11.10", optional = true }
 getrandom = { version = "0.2", features = ["js"] }
 uuid = { version = "1.23.3", features = ["v4"] }
 rand = "0.10.1"
+dhat = "0.3.3"
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
+dhat-heap = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = "0.6"
@@ -40,3 +42,6 @@ once_cell = "1.21.4"
 [[bench]]
 name = "performance"
 harness = false
+[profile.release]
+debug = 1
+

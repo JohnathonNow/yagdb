@@ -1,3 +1,7 @@
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 use axum::{
@@ -15,6 +19,8 @@ use tokio::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
 
+use tokio::signal;
+
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 type SharedGraph = Arc<Mutex<Graph>>;
@@ -23,6 +29,8 @@ type SharedGraph = Arc<Mutex<Graph>>;
 #[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
     let graph = Arc::new(Mutex::new(Graph::load_or_create("graph.bin", "wal.bin")));
 
     let app = Router::new()
@@ -35,6 +43,7 @@ async fn main() {
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
 }
@@ -181,4 +190,19 @@ mod tests {
             serde_json::from_str(&result_limit_large).unwrap();
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
+}
+
+
+async fn shutdown_signal() {
+    // Wait for the Ctrl+C signal
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    tokio::select! {
+        _ = ctrl_c => {},
+    }
+
+    println!("Signal received, starting graceful shutdown...");
 }
