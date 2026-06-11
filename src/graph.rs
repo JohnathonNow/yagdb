@@ -60,10 +60,164 @@ pub enum GraphElement {
 
 pub type Environment = HashMap<String, GraphElement>;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::cell::RefCell;
+
+pub enum ItemStorage<T: Serialize + serde::de::DeserializeOwned + Clone> {
+    Memory(Vec<T>),
+    #[cfg(not(target_arch = "wasm32"))]
+    Disk(DiskStorage<T>),
+}
+
+impl<T: Serialize + serde::de::DeserializeOwned + Clone> Serialize for ItemStorage<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ItemStorage::Memory(vec) => vec.serialize(serializer),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.to_vec().serialize(serializer),
+        }
+    }
+}
+
+impl<'de, T: Serialize + serde::de::DeserializeOwned + Clone> Deserialize<'de> for ItemStorage<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let vec = Vec::<T>::deserialize(deserializer)?;
+        Ok(ItemStorage::Memory(vec))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct DiskStorage<T: Serialize + serde::de::DeserializeOwned + Clone> {
+    pub file: RefCell<File>,
+    pub cache: RefCell<HashMap<usize, T>>,
+    pub access_tracker: RefCell<Vec<usize>>,
+    pub offsets: RefCell<Vec<u64>>,
+    pub capacity: usize,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
+    pub fn to_vec(&self) -> Vec<T> {
+        let offsets = self.offsets.borrow();
+        let mut vec = Vec::with_capacity(offsets.len());
+        for i in 0..offsets.len() {
+            if let Some(item) = self.get(i) {
+                vec.push(item);
+            }
+        }
+        vec
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        let offsets = self.offsets.borrow();
+        if index >= offsets.len() {
+            return None;
+        }
+        let offset = offsets[index];
+        drop(offsets);
+
+        let mut cache = self.cache.borrow_mut();
+        if !cache.contains_key(&index) {
+            let mut file = self.file.borrow_mut();
+            file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+            let item: T = bincode::deserialize_from(&mut *file).unwrap();
+            cache.insert(index, item);
+        }
+        cache.get(&index).cloned()
+    }
+
+    pub fn push(&mut self, item: T) {
+        let mut offsets = self.offsets.borrow_mut();
+        let index = offsets.len();
+        let mut file = self.file.borrow_mut();
+        let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
+        bincode::serialize_into(&mut *file, &item).unwrap();
+        file.sync_data().unwrap();
+        offsets.push(offset);
+        self.cache.borrow_mut().insert(index, item);
+    }
+
+    pub fn update(&mut self, index: usize, item: T) {
+        let mut offsets = self.offsets.borrow_mut();
+        if index >= offsets.len() {
+            return;
+        }
+        let mut file = self.file.borrow_mut();
+        let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
+        bincode::serialize_into(&mut *file, &item).unwrap();
+        file.sync_data().unwrap();
+        offsets[index] = offset;
+        self.cache.borrow_mut().insert(index, item);
+    }
+
+    pub fn len(&self) -> usize {
+        self.offsets.borrow().len()
+    }
+
+    pub fn clear(&mut self) {
+        self.cache.borrow_mut().clear();
+        self.offsets.borrow_mut().clear();
+        self.file.borrow_mut().set_len(0).unwrap();
+    }
+}
+
+impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
+    pub fn get_item(&self, index: usize) -> Option<T> {
+        match self {
+            ItemStorage::Memory(vec) => vec.get(index).cloned(),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.get(index),
+        }
+    }
+
+    pub fn push_item(&mut self, item: T) {
+        match self {
+            ItemStorage::Memory(vec) => vec.push(item),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.push(item),
+        }
+    }
+
+    pub fn update_item(&mut self, index: usize, item: T) {
+        match self {
+            ItemStorage::Memory(vec) => {
+                if index < vec.len() {
+                    vec[index] = item;
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.update(index, item),
+        }
+    }
+
+    pub fn len_items(&self) -> usize {
+        match self {
+            ItemStorage::Memory(vec) => vec.len(),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.len(),
+        }
+    }
+
+    pub fn clear_items(&mut self) {
+        match self {
+            ItemStorage::Memory(vec) => vec.clear(),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.clear(),
+        }
+    }
+}
+
+
 #[derive(Serialize, Deserialize)]
 pub struct Graph {
-    pub nodes: Vec<Node>,
-    pub edges: Vec<Edge>,
+    pub nodes: ItemStorage<Node>,
+    pub edges: ItemStorage<Edge>,
     pub labels: HashMap<String, usize>,
     pub indices:
         HashMap<usize, HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
@@ -113,8 +267,8 @@ impl Graph {
                     }
                     WalEntry::AddNode { id, label, properties } => {
                         let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
-                        graph.nodes.push(node);
-                        let node_id = graph.nodes.len() - 1;
+                        graph.nodes.push_item(node);
+                        let node_id = graph.nodes.len_items() - 1;
 
                         // Update indices if any apply
                         if let Some(label_indices) = graph.indices.get_mut(&label) {
@@ -136,10 +290,10 @@ impl Graph {
                         properties,
                     } => {
                         let edge = Edge::new(id.clone(), labels, start, end, properties);
-                        graph.edges.push(edge);
-                        let edge_idx = graph.edges.len() - 1;
-                        graph.nodes[start].edges.push(edge_idx);
-                        graph.nodes[end].edges.push(edge_idx);
+                        graph.edges.push_item(edge);
+                        let edge_idx = graph.edges.len_items() - 1;
+                        { let mut n = graph.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(start, n); }
+                        { let mut n = graph.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(end, n); }
                     }
                     WalEntry::CreateIndex { label, property } => {
                         graph.create_index_internal(label, property);
@@ -149,11 +303,11 @@ impl Graph {
                         key,
                         value,
                     } => {
-                        let old_value = graph.nodes[node_id]
-                            .properties
-                            .insert(key.clone(), value.clone());
+                        let mut __node = graph.nodes.get_item(node_id).unwrap();
+                        let old_value = __node.properties.insert(key.clone(), value.clone());
+                        graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes[node_id].labels.contains(label_id) {
+                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
                                     // Remove from old index
                                     if let Some(old_val) = &old_value {
@@ -172,9 +326,9 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteNode { node_id } => {
-                        graph.nodes[node_id].deleted = true;
+                        { let mut n = graph.nodes.get_item(node_id).unwrap(); n.deleted = true; graph.nodes.update_item(node_id, n); }
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes[node_id].labels.contains(label_id) {
+                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
                                     for (_, vec) in prop_index.iter_mut() {
                                         vec.retain(|&id| id != node_id);
@@ -184,7 +338,7 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteEdge { edge_id } => {
-                        graph.edges[edge_id].deleted = true;
+                        { let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e); }
                     }
                 }
                 needs_snapshot = true;
@@ -232,7 +386,7 @@ impl Graph {
     pub fn element_to_json(&self, element: &GraphElement) -> Value {
         match element {
             GraphElement::Node(node_id) => {
-                let node = &self.nodes[*node_id];
+                let node = self.nodes.get_item(*node_id).unwrap();
                 let mut map = serde_json::Map::new();
                 map.insert(
                     "labels".to_string(),
@@ -250,7 +404,7 @@ impl Graph {
                 Value::Object(map)
             }
             GraphElement::Edge(edge_id) => {
-                let edge = &self.edges[*edge_id];
+                let edge = self.edges.get_item(*edge_id).unwrap();
                 let mut map = serde_json::Map::new();
                 map.insert(
                     "labels".to_string(),
@@ -291,10 +445,10 @@ impl Graph {
 
     pub fn format_element(&self, element: &GraphElement) -> String {
         match element {
-            GraphElement::Node(node_id) => format!("{:?}", self.nodes[*node_id]),
-            GraphElement::Edge(edge_id) => format!("{:?}", self.edges[*edge_id]),
+            GraphElement::Node(node_id) => format!("{:?}", self.nodes.get_item(*node_id).unwrap()),
+            GraphElement::Edge(edge_id) => format!("{:?}", self.edges.get_item(*edge_id).unwrap()),
             GraphElement::EdgeArray(edge_ids) => {
-                let edges: Vec<_> = edge_ids.iter().map(|&id| &self.edges[id]).collect();
+                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.get_item(id).unwrap()).collect();
                 format!("{:?}", edges)
             }
             GraphElement::Path(elements) => {
@@ -315,10 +469,54 @@ impl Graph {
         }
     }
 
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_disk_storage(&mut self, nodes_path: &str, edges_path: &str) {
+        let mut nodes_disk = DiskStorage {
+            file: RefCell::new(std::fs::OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .open(nodes_path)
+                .unwrap()),
+            cache: RefCell::new(HashMap::new()),
+            access_tracker: RefCell::new(Vec::new()),
+            offsets: RefCell::new(Vec::new()),
+            capacity: 10000,
+        };
+        if let ItemStorage::Memory(vec) = &self.nodes {
+            for node in vec {
+                nodes_disk.push(node.clone());
+            }
+        }
+        self.nodes = ItemStorage::Disk(nodes_disk);
+
+        let mut edges_disk = DiskStorage {
+            file: RefCell::new(std::fs::OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .open(edges_path)
+                .unwrap()),
+            cache: RefCell::new(HashMap::new()),
+            access_tracker: RefCell::new(Vec::new()),
+            offsets: RefCell::new(Vec::new()),
+            capacity: 10000,
+        };
+        if let ItemStorage::Memory(vec) = &self.edges {
+            for edge in vec {
+                edges_disk.push(edge.clone());
+            }
+        }
+        self.edges = ItemStorage::Disk(edges_disk);
+    }
+
     pub fn new() -> Self {
         Self {
-            nodes: Vec::new(),
-            edges: Vec::new(),
+            nodes: ItemStorage::Memory(Vec::new()),
+            edges: ItemStorage::Memory(Vec::new()),
             labels: HashMap::new(),
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -327,8 +525,8 @@ impl Graph {
     }
 
     pub fn clear(&mut self) {
-        self.nodes.clear();
-        self.edges.clear();
+        self.nodes.clear_items();
+        self.edges.clear_items();
         self.labels.clear();
         self.indices.clear();
         #[cfg(not(target_arch = "wasm32"))]
@@ -372,8 +570,8 @@ impl Graph {
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
-        self.nodes.push(node);
-        let node_id = self.nodes.len() - 1;
+        self.nodes.push_item(node);
+        let node_id = self.nodes.len_items() - 1;
 
         // Update indices if any apply
         if let Some(label_indices) = self.indices.get_mut(&label) {
@@ -407,7 +605,9 @@ impl Graph {
         let property_index = label_indices.get_mut(&property).unwrap();
 
         // Populate index with existing nodes
-        for (node_id, node) in self.nodes.iter().enumerate() {
+
+        for node_id in 0..self.nodes.len_items() {
+            let node = self.nodes.get_item(node_id).unwrap();
             if node.labels.contains(&label) {
                 if let Some(value) = node.properties.get(&property) {
                     property_index
@@ -428,10 +628,10 @@ impl Graph {
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
-        self.edges.push(edge);
-        let edge_idx = self.edges.len() - 1;
-        self.nodes[start].edges.push(edge_idx);
-        self.nodes[end].edges.push(edge_idx);
+        self.edges.push_item(edge);
+        let edge_idx = self.edges.len_items() - 1;
+        { let mut n = self.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(start, n); }
+        { let mut n = self.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(end, n); }
         self.log_wal(&WalEntry::AddEdge {
             id,
             start,
@@ -520,13 +720,13 @@ impl Graph {
                         if let Some(GraphElement::Node(node_id)) = env.get(&var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
-                                let old_value = self.nodes[node_id]
-                                    .properties
-                                    .insert(key.clone(), value.clone());
+                                let mut __node = self.nodes.get_item(node_id).unwrap();
+                                let old_value = __node.properties.insert(key.clone(), value.clone());
+                                self.nodes.update_item(node_id, __node);
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
-                                    if self.nodes[node_id].labels.contains(label_id) {
+                                    if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
                                             // Remove from old index
                                             if let Some(old_val) = &old_value {
@@ -572,17 +772,17 @@ impl Graph {
                     }
 
                     for &edge_id in &edges_to_delete {
-                        if !self.edges[edge_id].deleted {
-                            self.edges[edge_id].deleted = true;
+                        if !self.edges.get_item(edge_id).unwrap().deleted {
+                            { let mut e = self.edges.get_item(edge_id).unwrap(); e.deleted = true; self.edges.update_item(edge_id, e); }
                             self.log_wal(&WalEntry::DeleteEdge { edge_id });
                         }
                     }
 
                     for &node_id in &nodes_to_delete {
-                        if !self.nodes[node_id].deleted {
-                            self.nodes[node_id].deleted = true;
+                        if !self.nodes.get_item(node_id).unwrap().deleted {
+                            { let mut n = self.nodes.get_item(node_id).unwrap(); n.deleted = true; self.nodes.update_item(node_id, n); }
                             for (label_id, label_indices) in self.indices.iter_mut() {
-                                if self.nodes[node_id].labels.contains(label_id) {
+                                if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
                                         for (_, vec) in prop_index.iter_mut() {
                                             vec.retain(|&id| id != node_id);
@@ -964,9 +1164,13 @@ impl Graph {
             PlanNode::NodeLabelLookup { label, pattern } => {
                 op_name = format!("NodeLabelLookup({})", label);
                 let mut matched_nodes = Vec::new();
+                let mut target_label = None;
                 if let Some(label_id) = self.labels.get(label) {
-                    for id in 0..self.nodes.len() {
-                        if self.nodes[id].labels.contains(label_id)
+                    target_label = Some(*label_id);
+                }
+                if let Some(label_id) = target_label {
+                    for id in 0..self.nodes.len_items() {
+                        if self.nodes.get_item(id).unwrap().labels.contains(&label_id)
                             && self.node_matches(id, pattern)
                         {
                             matched_nodes.push(id);
@@ -992,17 +1196,19 @@ impl Graph {
             } => {
                 op_name = format!("NodeIndexLookup({}.{}='{:?}')", label, property, value);
                 let mut matched_nodes = Vec::new();
+                let mut candidate_ids = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     if let Some(label_indices) = self.indices.get(label_id) {
                         if let Some(prop_index) = label_indices.get(property) {
                             if let Some(node_ids) = prop_index.get(value) {
-                                for &id in node_ids {
-                                    if self.node_matches(id, pattern) {
-                                        matched_nodes.push(id);
-                                    }
-                                }
+                                candidate_ids.extend(node_ids.iter().copied());
                             }
                         }
+                    }
+                }
+                for id in candidate_ids {
+                    if self.node_matches(id, pattern) {
+                        matched_nodes.push(id);
                     }
                 }
 
@@ -1266,10 +1472,10 @@ impl Graph {
             }
         }
 
-        let start_node = &self.nodes[current_node_id];
+        let start_node = self.nodes.get_item(current_node_id).unwrap();
 
         for &edge_id in &start_node.edges {
-            let edge = &self.edges[edge_id];
+            let edge = self.edges.get_item(edge_id).unwrap();
 
             if edge.start == current_node_id {
                 if path_edges.contains(&edge_id) {
@@ -1338,7 +1544,7 @@ impl Graph {
         }
 
         let mut matched_nodes = Vec::new();
-        for id in 0..self.nodes.len() {
+        for id in 0..self.nodes.len_items() {
             if self.node_matches(id, pattern) {
                 matched_nodes.push(id);
             }
@@ -1347,8 +1553,8 @@ impl Graph {
     }
 
     fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
-        if self.nodes[node_id].deleted { return false; }
-        let node = &self.nodes[node_id];
+        if self.nodes.get_item(node_id).unwrap().deleted { return false; }
+        let node = self.nodes.get_item(node_id).unwrap();
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -1383,7 +1589,7 @@ impl Graph {
         env: &Environment,
     ) -> Vec<(usize, usize)> {
         let mut matches = Vec::new();
-        let start_node = &self.nodes[start_id];
+        let start_node = self.nodes.get_item(start_id).unwrap();
 
         // Pre-check if target is bound
         let target_bound_id = if let Some(var) = &target_node_pattern.variable {
@@ -1397,7 +1603,7 @@ impl Graph {
         };
 
         for &edge_id in &start_node.edges {
-            let edge = &self.edges[edge_id];
+            let edge = self.edges.get_item(edge_id).unwrap();
 
             // Only consider outgoing edges from start_id
             if edge.start == start_id {
@@ -1432,8 +1638,8 @@ impl Graph {
     }
 
     fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
-        if self.edges[edge_id].deleted { return false; }
-        let edge = &self.edges[edge_id];
+        if self.edges.get_item(edge_id).unwrap().deleted { return false; }
+        let edge = self.edges.get_item(edge_id).unwrap();
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -1480,12 +1686,12 @@ impl Graph {
     fn evaluate_expression(&self, expr: &Expression, env: &Environment) -> EvalValue {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(s.clone()),
-            Expression::NumberLiteral(n) => EvalValue::Number(*n),
-            Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
+            Expression::NumberLiteral(n) => EvalValue::Number(n.clone()),
+            Expression::BooleanLiteral(b) => EvalValue::Boolean(b.clone()),
             Expression::Variable(var) => {
                 if let Some(element) = env.get(var) {
                     match element {
-                        GraphElement::Number(n) => EvalValue::Number(*n),
+                        GraphElement::Number(n) => EvalValue::Number(n.clone()),
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
                             EvalValue::String(self.format_element(element))
                         }
@@ -1504,16 +1710,16 @@ impl Graph {
             Expression::Property(var, prop) => {
                 if let Some(element) = env.get(var) {
                     let prop_val = match element {
-                        GraphElement::Node(id) => self.nodes[*id].properties.get(prop),
-                        GraphElement::Edge(id) => self.edges[*id].properties.get(prop),
+                        GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
+                        GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
                         _ => None,
                     };
                     match prop_val {
                         Some(crate::property::PropertyValue::String(s)) => {
                             EvalValue::String(s.clone())
                         }
-                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(*n),
-                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(*b),
+                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n.clone()),
+                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b.clone()),
                         None => EvalValue::Null,
                     }
                 } else {
