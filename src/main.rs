@@ -23,7 +23,11 @@ type SharedGraph = Arc<Mutex<Graph>>;
 #[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
-    let graph = Arc::new(Mutex::new(Graph::load_or_create("graph.bin", "wal.bin")));
+    let mut g = Graph::load_or_create("graph.bin", "wal.bin");
+    if std::env::var("YAGDB_DISK_STORAGE").is_ok() {
+        g.enable_disk_storage("nodes.bin", "edges.bin");
+    }
+    let graph = Arc::new(Mutex::new(g));
 
     let app = Router::new()
         .route("/query", post(handle_query))
