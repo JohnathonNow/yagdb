@@ -11,10 +11,11 @@
   - `LIMIT` results.
   - `CREATE INDEX` for fast node property lookups.
   - `PROFILE` keyword prefix to inspect the execution plan and query metrics.
-- **Graph Engine**: Native Rust graph execution engine utilizing Depth-First Search (DFS) for path finding with edge-isomorphism to prevent infinite loops on cyclic graphs.
+- **Graph Engine**: Native Rust graph execution engine utilizing Depth-First Search (DFS) for path finding.
 - **Persistence**: Fast binary serialization of the database state and Write-Ahead Log (WAL) entries using `bincode` and `serde`. Automatically recovers state upon startup.
 - **HTTP Server**: An asynchronous API server using `axum` and `tokio`. Exposes a POST endpoint to execute queries.
-- **Clustering (Optional)**: Can be compiled with the `cluster` feature to enable distributed consensus using `openraft`.
+- **Clustering (Optional)**: Can be compiled with the `cluster` feature to enable distributed consensus using `openraft`. Extra experimental.
+- **Disk Storage**: Experimental support for managing large graphs by caching nodes and serving from disk.
 - **WASM Support**: Can be compiled to the `wasm32-unknown-unknown` target for browser embedding.
 
 ## Getting Started
