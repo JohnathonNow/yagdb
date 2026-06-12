@@ -45,3 +45,11 @@ harness = false
 [profile.release]
 debug = 1
 
+
+[[bin]]
+name = "dhat_test"
+path = "src/bin_dhat.rs"
+
+[[bin]]
+name = "dhat_test_match"
+path = "src/bin_dhat_match.rs"
