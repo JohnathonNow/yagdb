@@ -11,5 +11,5 @@ fn test_graph_backup_serialization() {
 
     // Test that the serialized bytes can be deserialized back into a Graph.
     let g2: Graph = bincode::deserialize(&backup_bytes).unwrap();
-    assert_eq!(g2.nodes.len(), 1);
+    assert_eq!(g2.nodes.len_items(), 1);
 }
