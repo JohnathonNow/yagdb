@@ -145,12 +145,12 @@ impl QueryPlanner {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStep {
     Create(Vec<Path>),
-    Match(Option<PlanNode>, Vec<Path>, Option<Condition>),
+    Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, PropertyValue),
     CreateIndex { label: String, property: String },
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>),
+    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
 }
@@ -171,9 +171,9 @@ impl QueryPlanner {
         for clause in query.clauses {
             let step = match clause {
                 Clause::Create(paths) => ExecutionStep::Create(paths),
-                Clause::Match(paths, condition) => {
+                Clause::Match(paths, condition, limit) => {
                     let plan = Self::plan_match_paths(&paths, labels, indices);
-                    ExecutionStep::Match(plan, paths, condition)
+                    ExecutionStep::Match(plan, paths, condition, limit)
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();
@@ -186,7 +186,7 @@ impl QueryPlanner {
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
                 Clause::CreateIndex { label, property } => ExecutionStep::CreateIndex { label, property },
                 Clause::Return(items, order, limit) => ExecutionStep::Return(items, order, limit),
-                Clause::With(items, order) => ExecutionStep::With(items, order),
+                Clause::With(items, order, limit) => ExecutionStep::With(items, order, limit),
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
                 Clause::Delete(items) => ExecutionStep::Delete(items),
             };

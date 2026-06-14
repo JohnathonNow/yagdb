@@ -798,15 +798,17 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::Match(plan_opt, paths, condition_opt) => {
+                ExecutionStep::Match(plan_opt, paths, condition_opt, limit_opt) => {
                     if let Some(plan) = plan_opt {
                         let mut new_result_set = ResultSet::new();
+                        let limit_for_plan = if condition_opt.is_none() { limit_opt.clone() } else { None };
                         self.execute_plan_and_bind_paths(
                             &plan,
                             &paths,
                             &result_set,
                             &mut new_result_set,
                             &mut profile_out,
+                            limit_for_plan,
                         );
 
                         if let Some(cond) = &condition_opt {
@@ -814,9 +816,16 @@ impl Graph {
                             for i in 0..new_result_set.rows {
                                 if self.evaluate_condition(cond, &new_result_set, i) {
                                     filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
+                                    if let Some(limit) = limit_opt {
+                                        if filtered.rows >= limit {
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                             new_result_set = filtered;
+                        } else if let Some(limit) = limit_opt {
+                            new_result_set.truncate(limit);
                         }
 
                         result_set = new_result_set;
@@ -840,6 +849,7 @@ impl Graph {
                                     &single_res,
                                     &mut matches,
                                     &mut profile_out,
+                                    None,
                                 );
                                 if !matches.is_empty() {
                                     for m_idx in 0..matches.rows {
@@ -962,12 +972,11 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::With(ref items, ref order_by_opt) | ExecutionStep::Return(ref items, ref order_by_opt, _) => {
+                ExecutionStep::With(ref items, ref order_by_opt, ref l) | ExecutionStep::Return(ref items, ref order_by_opt, ref l) => {
                     let mut is_return = false;
-                    let mut limit = None;
-                    if let ExecutionStep::Return(_, _, l) = &step {
+                    let limit = *l;
+                    if let ExecutionStep::Return(..) = &step {
                         is_return = true;
-                        limit = *l;
                     }
 
                     // Handle Star conversion
@@ -1192,6 +1201,9 @@ impl Graph {
                     } else {
                         // WITH clause
                         result_set = final_res;
+                        if let Some(l) = limit {
+                            result_set.truncate(l);
+                        }
                     }
                 }
                 ExecutionStep::CreateIndex { label, property } => {
@@ -1288,6 +1300,7 @@ impl Graph {
         out: &mut ResultSet,
         profile: &mut Option<String>,
         depth: usize,
+        limit: Option<usize>,
     ) {
         let indent = "  ".repeat(depth);
         let op_name;
@@ -1305,6 +1318,7 @@ impl Graph {
                         } else {
                             out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
                         }
+                        if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
             }
@@ -1328,6 +1342,7 @@ impl Graph {
                         } else {
                             out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
                         }
+                        if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
             }
@@ -1362,6 +1377,7 @@ impl Graph {
                         } else {
                             out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
                         }
+                        if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
             }
@@ -1373,7 +1389,7 @@ impl Graph {
             } => {
                 op_name = "PathExpand".to_string();
                 let mut source_res = ResultSet::new();
-                self.execute_plan(source, in_res, &mut source_res, profile, depth + 1);
+                self.execute_plan(source, in_res, &mut source_res, profile, depth + 1, None);
 
                 for i in 0..source_res.rows {
                     let mut source_node_ids = Vec::new();
@@ -1397,16 +1413,18 @@ impl Graph {
                             &source_res,
                             i,
                             out,
+                            limit,
                         );
+                        if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
             }
             PlanNode::Intersect { left, right } => {
                 op_name = "Intersect".to_string();
                 let mut left_res = ResultSet::new();
-                self.execute_plan(left, in_res, &mut left_res, profile, depth + 1);
+                self.execute_plan(left, in_res, &mut left_res, profile, depth + 1, None);
                 let mut right_res = ResultSet::new();
-                self.execute_plan(right, in_res, &mut right_res, profile, depth + 1);
+                self.execute_plan(right, in_res, &mut right_res, profile, depth + 1, None);
 
                 for l_idx in 0..left_res.rows {
                     let mut found = false;
@@ -1427,13 +1445,15 @@ impl Graph {
                     }
                     if found {
                         out.push_row_from(&left_res, l_idx, &[] as &[(&str, GraphElement)]);
+                        if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
             }
             PlanNode::Union { left, right } => {
                 op_name = "Union".to_string();
-                self.execute_plan(left, in_res, out, profile, depth + 1);
-                self.execute_plan(right, in_res, out, profile, depth + 1);
+                self.execute_plan(left, in_res, out, profile, depth + 1, limit);
+                if limit.is_some_and(|l| out.rows >= l) { return; }
+                self.execute_plan(right, in_res, out, profile, depth + 1, limit);
             }
             PlanNode::CrossProduct { left, right } => {
                 op_name = "CrossProduct".to_string();
@@ -1444,11 +1464,11 @@ impl Graph {
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
                     let mut left_res = ResultSet::new();
-                    self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1);
+                    self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None);
 
                     let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
                     let mut right_res = ResultSet::new();
-                    self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1);
+                    self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None);
 
                     if let Some(prof) = profile {
                         if let Some(r_prof) = right_prof { prof.push_str(&r_prof); }
@@ -1467,6 +1487,7 @@ impl Graph {
                             }
                             if valid {
                                 out.push_merged_row(&left_res, l_idx, &right_res, r_idx);
+                                if limit.is_some_and(|l| out.rows >= l) { return; }
                             }
                         }
                     }
@@ -1486,9 +1507,11 @@ impl Graph {
         in_res: &ResultSet,
         out: &mut ResultSet,
         profile: &mut Option<String>,
+        limit: Option<usize>,
     ) {
         let initial_rows = out.rows;
-        self.execute_plan(plan, in_res, out, profile, 0);
+        self.execute_plan(plan, in_res, out, profile, 0, limit);
+
 
         for path in paths {
             if let Some(bound_var) = &path.bound_variable {
@@ -1537,7 +1560,9 @@ impl Graph {
         in_res: &ResultSet,
         row_idx: usize,
         out: &mut ResultSet,
+        limit: Option<usize>,
     ) {
+        if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
             out.push_row_from(in_res, row_idx, &[] as &[(&str, GraphElement)]);
             return;
@@ -1558,6 +1583,7 @@ impl Graph {
                     max_len,
                     0,
                     Vec::new(),
+                    limit,
                 );
                 return;
             }
@@ -1582,7 +1608,8 @@ impl Graph {
             }
             single_res.push_row_from(in_res, row_idx, &bindings);
 
-            self.match_edges_recursive(edges, edge_idx + 1, next_node_id, &single_res, 0, out);
+            self.match_edges_recursive(edges, edge_idx + 1, next_node_id, &single_res, 0, out, limit);
+            if limit.is_some_and(|l| out.rows >= l) { return; }
         }
     }
 
@@ -1599,7 +1626,9 @@ impl Graph {
         max_len: Option<usize>,
         current_depth: usize,
         path_edges: Vec<usize>,
+        limit: Option<usize>,
     ) {
+        if limit.is_some_and(|l| out.rows >= l) { return; }
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 
         if current_depth >= min_len {
@@ -1630,7 +1659,7 @@ impl Graph {
                 }
                 single_res.push_row_from(in_res, row_idx, &bindings);
 
-                self.match_edges_recursive(edges, edge_idx + 1, current_node_id, &single_res, 0, out);
+                self.match_edges_recursive(edges, edge_idx + 1, current_node_id, &single_res, 0, out, limit);
             }
         }
 
@@ -1670,7 +1699,9 @@ impl Graph {
                     max_len,
                     current_depth + 1,
                     new_path_edges,
+                    limit,
                 );
+                if limit.is_some_and(|l| out.rows >= l) { return; }
             }
         }
     }
@@ -2005,3 +2036,13 @@ impl EvalValue {
 }
 
 
+
+impl ResultSet {
+    pub fn truncate(&mut self, len: usize) {
+        if len >= self.rows { return; }
+        self.rows = len;
+        for col in self.columns.values_mut() {
+            col.truncate(len);
+        }
+    }
+}

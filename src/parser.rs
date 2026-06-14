@@ -90,14 +90,14 @@ pub enum ProjectionItem {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
-    Match(Vec<Path>, Option<Condition>),
+    Match(Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, crate::property::PropertyValue),
     CreateIndex { label: String, property: String },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>),
+    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -386,7 +386,9 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MATCH"), tag("match"))))(input)?;
     let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     let (input, condition) = opt(where_clause)(input)?;
-    Ok((input, Clause::Match(paths, condition)))
+    let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
+    let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
+    Ok((input, Clause::Match(paths, condition, limit_val)))
 }
 
 fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
@@ -457,7 +459,9 @@ fn with_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("WITH"), tag("with"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
-    Ok((input, Clause::With(vars, order_by)))
+    let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
+    let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
+    Ok((input, Clause::With(vars, order_by, limit_val)))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {
