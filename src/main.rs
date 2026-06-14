@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
 
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::signal;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -213,6 +214,7 @@ mod tests {
 }
 
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn shutdown_signal() {
     // Wait for the Ctrl+C signal
     let ctrl_c = async {

@@ -1147,16 +1147,13 @@ impl Graph {
         }
 
         if let Some(prof) = profile_out {
-            let results: Value = if output.is_empty() {
-                json!([])
+            let results_str = if output.is_empty() {
+                "[]"
             } else {
-                serde_json::from_str(&output).unwrap_or_else(|_| json!([]))
+                &output
             };
-            Ok(serde_json::to_string_pretty(&json!({
-                "profile": prof,
-                "results": results
-            }))
-            .unwrap())
+            let prof_json = serde_json::to_string(&prof).unwrap_or_else(|_| "\"\"".to_string());
+            Ok(format!("{{\n  \"profile\": {},\n  \"results\": {}\n}}", prof_json, results_str))
         } else {
             if output.is_empty() {
                 Ok("[]".to_string())
