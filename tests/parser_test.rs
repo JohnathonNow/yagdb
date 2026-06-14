@@ -50,7 +50,7 @@ fn test_where_clause() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(_, Some(condition)) => {
+        Clause::Match(_, Some(condition), _) => {
             // Verify condition structure roughly
             match condition {
                 Condition::Or(left, right) => {
@@ -149,7 +149,7 @@ fn test_match_path_assignment() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(paths, condition) => {
+        Clause::Match(paths, condition, _) => {
             assert_eq!(paths.len(), 1);
             assert!(condition.is_none());
             assert_eq!(paths[0].bound_variable.as_deref(), Some("p"));
@@ -181,7 +181,7 @@ fn test_with_and_aggregates_parse() {
     assert_eq!(query.clauses.len(), 3);
 
     match &query.clauses[1] {
-        Clause::With(items, _) => {
+        Clause::With(items, _, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
