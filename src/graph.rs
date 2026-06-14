@@ -56,9 +56,56 @@ pub enum GraphElement {
     Path(Vec<GraphElement>),
     List(Vec<GraphElement>),
     Number(f64),
+    String(String),
+    Boolean(bool),
+    Null,
 }
 
 pub type Environment = HashMap<String, GraphElement>;
+
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct ResultSet {
+    pub columns: HashMap<String, Vec<GraphElement>>,
+    pub rows: usize,
+}
+
+impl ResultSet {
+    pub fn new() -> Self {
+        Self {
+            columns: HashMap::new(),
+            rows: 0,
+        }
+    }
+
+    pub fn get_row(&self, idx: usize) -> Environment {
+        let mut env = HashMap::new();
+        for (k, v) in &self.columns {
+            let val = &v[idx];
+            if !matches!(val, GraphElement::Null) {
+                env.insert(k.clone(), val.clone());
+            }
+        }
+        env
+    }
+
+    pub fn push_row(&mut self, env: &Environment) {
+        let current_rows = self.rows;
+        for (k, v) in env {
+            let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+            col.push(v.clone());
+        }
+        self.rows += 1;
+        for (_k, col) in self.columns.iter_mut() {
+            if col.len() < self.rows {
+                col.push(GraphElement::Null);
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows == 0
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::cell::RefCell;
@@ -440,6 +487,9 @@ impl Graph {
                 serde_json::to_value(&list_out).unwrap()
             }
             GraphElement::Number(n) => json!(n),
+            GraphElement::String(ref s) => json!(s),
+            GraphElement::Boolean(b) => json!(b),
+            GraphElement::Null => Value::Null,
         }
     }
 
@@ -466,6 +516,9 @@ impl Graph {
                 format!("[{}]", list_out.join(", "))
             }
             GraphElement::Number(n) => format!("{}", n),
+            GraphElement::String(ref s) => format!("\"{}\"", s),
+            GraphElement::Boolean(b) => format!("{}", b),
+            GraphElement::Null => "null".to_string(),
         }
     }
 
@@ -659,45 +712,54 @@ impl Graph {
         };
 
         // A single environment initially, representing the "root" row.
-        let mut envs: Vec<Environment> = vec![HashMap::new()];
+        let mut result_set = ResultSet::new();
+        result_set.push_row(&HashMap::new());
 
         let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
 
         for step in plan.steps {
             match step {
                 ExecutionStep::Create(paths) => {
-                    for path in paths {
-                        for env in &mut envs {
-                            self.execute_create_path(path.clone(), env);
+                    let mut new_result_set = ResultSet::new();
+                    for i in 0..result_set.rows {
+                        let mut env = result_set.get_row(i);
+                        for path in &paths {
+                            self.execute_create_path(path.clone(), &mut env);
                         }
+                        new_result_set.push_row(&env);
                     }
+                    result_set = new_result_set;
                 }
                 ExecutionStep::Match(plan_opt, paths, condition_opt) => {
                     if let Some(plan) = plan_opt {
-                        let mut new_envs = Vec::new();
-                        for env in envs {
+                        let mut new_result_set = ResultSet::new();
+                        for i in 0..result_set.rows {
+                            let env = result_set.get_row(i);
                             let matches = self.execute_plan_and_bind_paths(
                                 &plan,
                                 &paths,
                                 &env,
                                 &mut profile_out,
                             );
-                            new_envs.extend(matches);
+                            for m in matches {
+                                if let Some(cond) = &condition_opt {
+                                    if !self.evaluate_condition(cond, &m) { continue; }
+                                }
+                                new_result_set.push_row(&m);
+                            }
                         }
-                        envs = new_envs;
-                        if envs.is_empty() {
+                        result_set = new_result_set;
+                        if result_set.is_empty() {
                             break;
-                        }
-                        if let Some(cond) = condition_opt {
-                            envs.retain(|env| self.evaluate_condition(&cond, env));
                         }
                     }
                 }
                 ExecutionStep::Merge(planned_paths) => {
-                    for (plan_opt, path) in planned_paths {
-                        let mut new_envs = Vec::new();
-                        for env in envs {
-                            if let Some(plan) = &plan_opt {
+                    let mut new_result_set = ResultSet::new();
+                    for i in 0..result_set.rows {
+                        let env = result_set.get_row(i);
+                        for (plan_opt, path) in &planned_paths {
+                            if let Some(plan) = plan_opt {
                                 let matches = self.execute_plan_and_bind_paths(
                                     plan,
                                     &[path.clone()],
@@ -705,24 +767,27 @@ impl Graph {
                                     &mut profile_out,
                                 );
                                 if !matches.is_empty() {
-                                    new_envs.extend(matches);
+                                    for m in matches {
+                                        new_result_set.push_row(&m);
+                                    }
                                 } else {
                                     let mut create_env = env.clone();
                                     self.execute_create_path(path.clone(), &mut create_env);
-                                    new_envs.push(create_env);
+                                    new_result_set.push_row(&create_env);
                                 }
                             } else {
                                 let mut create_env = env.clone();
                                 self.execute_create_path(path.clone(), &mut create_env);
-                                new_envs.push(create_env);
+                                new_result_set.push_row(&create_env);
                             }
                         }
-                        envs = new_envs;
                     }
+                    result_set = new_result_set;
                 }
                 ExecutionStep::Set(var, key, value) => {
                     let mut updated_nodes = std::collections::HashSet::new();
-                    for env in &envs {
+                    for i in 0..result_set.rows {
+                        let env = result_set.get_row(i);
                         if let Some(GraphElement::Node(node_id)) = env.get(&var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
@@ -764,7 +829,8 @@ impl Graph {
                     let mut nodes_to_delete = Vec::new();
                     let mut edges_to_delete = Vec::new();
                     for var in &vars {
-                        for env in &envs {
+                        for i in 0..result_set.rows {
+                            let env = result_set.get_row(i);
                             if let Some(GraphElement::Node(node_id)) = env.get(var) {
                                 if !nodes_to_delete.contains(node_id) {
                                     nodes_to_delete.push(*node_id);
@@ -801,8 +867,9 @@ impl Graph {
                     }
                 }
                 ExecutionStep::Unwind(ref items) => {
-                    let mut final_envs: Vec<Environment> = Vec::new();
-                    for env in &envs {
+                    let mut new_result_set = ResultSet::new();
+                    for i in 0..result_set.rows {
+                        let env = result_set.get_row(i);
                         for item in items.iter() {
                             match item {
                                 ProjectionItem::Variable(var) => {
@@ -812,7 +879,7 @@ impl Graph {
                                                 for x in v {
                                                     let mut new_env = env.clone();
                                                     new_env.insert(var.clone(), x.clone());
-                                                    final_envs.push(new_env);
+                                                    new_result_set.push_row(&new_env);
                                                 }
                                             }
                                             _ => {}
@@ -823,7 +890,7 @@ impl Graph {
                             }
                         }
                     }
-                    envs = final_envs;
+                    result_set = new_result_set;
                 }
                 ExecutionStep::With(ref items, ref order_by_opt) | ExecutionStep::Return(ref items, ref order_by_opt, _) => {
                     let mut is_return = false;
@@ -831,6 +898,14 @@ impl Graph {
                     if let ExecutionStep::Return(_, _, l) = &step {
                         is_return = true;
                         limit = *l;
+                    }
+
+                    // Construct envs from result_set to avoid changing the complex Return grouping block for now
+                    // Wait, we need to completely avoid creating `Vec<Environment>` across pipeline boundaries.
+                    // But inside this specific terminal block it's okay. Still better to just collect it.
+                    let mut envs = Vec::with_capacity(result_set.rows);
+                    for i in 0..result_set.rows {
+                        envs.push(result_set.get_row(i));
                     }
 
                     // Handle Star conversion
@@ -1057,7 +1132,11 @@ impl Graph {
                         }
                     } else {
                         // WITH clause
-                        envs = final_envs;
+                        let mut next_result_set = ResultSet::new();
+                        for env in final_envs {
+                            next_result_set.push_row(&env);
+                        }
+                        result_set = next_result_set;
                     }
                 }
                 ExecutionStep::CreateIndex { label, property } => {
@@ -1698,6 +1777,9 @@ impl Graph {
                 if let Some(element) = env.get(var) {
                     match element {
                         GraphElement::Number(n) => EvalValue::Number(n.clone()),
+            GraphElement::String(ref s) => EvalValue::String(s.clone()),
+            GraphElement::Boolean(b) => EvalValue::Boolean(b.clone()),
+            GraphElement::Null => EvalValue::Null,
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
                             EvalValue::String(self.format_element(element))
                         }
