@@ -22,7 +22,6 @@ clap = { version = "4.6.1", features = ["derive"], optional = true }
 env_logger = { version = "0.11.10", optional = true }
 dhat = "0.3.3"
 uuid = { version = "1.23", features = ["v4"] }
-axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
@@ -30,6 +29,7 @@ dhat-heap = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = "0.6"
+axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
