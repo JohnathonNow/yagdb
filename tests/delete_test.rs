@@ -10,12 +10,14 @@ fn test_delete_nodes_and_edges() {
 
     {
         let mut g = Graph::load_or_create(snapshot_path, wal_path);
-        g.execute("CREATE (a:User {name: 'Alice'})-[r:KNOWS]->(b:User {name: 'Bob'})").unwrap();
+        g.execute("CREATE (a:User {name: 'Alice'})-[r:KNOWS]->(b:User {name: 'Bob'})")
+            .unwrap();
         let r1 = g.execute("MATCH (n:User) RETURN n").unwrap();
         assert!(r1.contains("Alice"));
         assert!(r1.contains("Bob"));
 
-        g.execute("MATCH (n:User {name: 'Alice'})-[r]->() DELETE n, r").unwrap();
+        g.execute("MATCH (n:User {name: 'Alice'})-[r]->() DELETE n, r")
+            .unwrap();
         let r2 = g.execute("MATCH (n:User) RETURN n").unwrap();
         assert!(!r2.contains("Alice"));
         assert!(r2.contains("Bob"));

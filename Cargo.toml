@@ -16,20 +16,20 @@ futures = "0.3"
 openraft = { version = "0.9.16", optional = true, features = ["serde", "compat"] }
 async-trait = { version = "0.1.89", optional = true }
 openraft-memstore = { version = "0.9.16", optional = true }
-reqwest = { version = "0.13.4", features = ["json", "rustls"], optional = true }
+reqwest = { version = "0.13.4", features = ["json"], optional = true }
 tower = { version = "0.5.3", features = ["util"], optional = true }
 clap = { version = "4.6.1", features = ["derive"], optional = true }
-env_logger = { version = "0.11.10", optional = true }
+log = "0.4"
 dhat = "0.3.3"
 uuid = { version = "1.23", features = ["v4"] }
 
 [features]
-cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
+cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:openraft-memstore"]
 dhat-heap = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11.10"
 axum = "0.6"
-axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

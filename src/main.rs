@@ -36,6 +36,7 @@ async fn main() {
     if std::env::var("YAGDB_DISK_STORAGE").is_ok() {
         g.enable_disk_storage("nodes.bin", "edges.bin");
     }
+    env_logger::init();
     let graph = Arc::new(Mutex::new(g));
 
     let app = Router::new()
@@ -45,36 +46,13 @@ async fn main() {
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Listening on {}", addr);
+    log::info!("Listening on {}", addr);
 
-    let cert = std::env::var("YAGDB_CERT").ok();
-    let key = std::env::var("YAGDB_KEY").ok();
-
-    if let (Some(cert_path), Some(key_path)) = (cert, key) {
-        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path)
-            .await
-            .unwrap();
-
-        let handle = axum_server::Handle::new();
-        let shutdown_handle = handle.clone();
-
-        tokio::spawn(async move {
-            shutdown_signal().await;
-            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
-        });
-
-        axum_server::bind_rustls(addr, config)
-            .handle(handle)
-            .serve(app.into_make_service())
-            .await
-            .unwrap();
-    } else {
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
-            .with_graceful_shutdown(_shutdown_signal())
-            .await
-            .unwrap();
-    }
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,27 +84,13 @@ async fn main() {
 
     let router = yagdb::raft::server::create_router().with_state(app.clone());
 
-    println!("Listening on {}", args.addr);
+    log::info!("Listening on {}", args.addr);
 
     let addr: std::net::SocketAddr = args.addr.parse().unwrap();
-    let cert = std::env::var("YAGDB_CERT").ok();
-    let key = std::env::var("YAGDB_KEY").ok();
-
-    if let (Some(cert_path), Some(key_path)) = (cert, key) {
-        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path)
-            .await
-            .unwrap();
-
-        axum_server::bind_rustls(addr, config)
-            .serve(router.into_make_service())
-            .await
-            .unwrap();
-    } else {
-        axum::Server::bind(&addr)
-            .serve(router.into_make_service())
-            .await
-            .unwrap();
-    }
+    axum::Server::bind(&addr)
+        .serve(router.into_make_service())
+        .await
+        .unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -146,8 +110,14 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
     match g.backup() {
         Ok(bytes) => {
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/octet-stream"));
-            headers.insert(axum::http::header::CONTENT_DISPOSITION, axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""));
+            headers.insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/octet-stream"),
+            );
+            headers.insert(
+                axum::http::header::CONTENT_DISPOSITION,
+                axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""),
+            );
             (StatusCode::OK, headers, bytes).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response(),
@@ -161,21 +131,24 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
     match g.execute(&body) {
         Ok(result) => {
             if result.trim().is_empty() {
-                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+                return Sse::new(futures::stream::empty::<
+                    Result<Event, std::convert::Infallible>,
+                >())
+                .into_response();
             }
 
             match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
                 Ok(arr) => {
                     let stream = futures::stream::iter(arr.into_iter().map(|val| {
                         Ok::<_, std::convert::Infallible>(
-                            Event::default().data(serde_json::to_string(&val).unwrap())
+                            Event::default().data(serde_json::to_string(&val).unwrap()),
                         )
                     }));
                     Sse::new(stream).into_response()
                 }
                 Err(_) => {
                     let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
-                        Event::default().data(result)
+                        Event::default().data(result),
                     )]);
                     Sse::new(stream).into_response()
                 }
@@ -183,22 +156,6 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
         }
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
-}
-
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn _shutdown_signal() {
-    // Wait for the Ctrl+C signal
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-    tokio::select! {
-        _ = ctrl_c => {},
-    }
-
-    println!("Signal received, starting graceful shutdown...");
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -264,4 +221,19 @@ mod tests {
             serde_json::from_str(&result_limit_large).unwrap();
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn shutdown_signal() {
+    // Wait for the Ctrl+C signal
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    tokio::select! {
+        _ = ctrl_c => {},
+    }
+
+    log::info!("Signal received, starting graceful shutdown...");
 }
