@@ -16,7 +16,7 @@ pub struct Network {
 
 impl Default for Network {
     fn default() -> Self {
-        Self::new()
+        Self::new("http".into())
     }
 }
 

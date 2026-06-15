@@ -71,7 +71,7 @@ async fn main() {
     } else {
         axum::Server::bind(&addr)
             .serve(app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(_shutdown_signal())
             .await
             .unwrap();
     }
@@ -187,7 +187,7 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
 
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn shutdown_signal() {
+async fn _shutdown_signal() {
     // Wait for the Ctrl+C signal
     let ctrl_c = async {
         signal::ctrl_c()
