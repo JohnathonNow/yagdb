@@ -36,6 +36,7 @@ async fn main() {
     if std::env::var("YAGDB_DISK_STORAGE").is_ok() {
         g.enable_disk_storage("nodes.bin", "edges.bin");
     }
+    env_logger::init();
     let graph = Arc::new(Mutex::new(g));
 
     let app = Router::new()
@@ -45,7 +46,7 @@ async fn main() {
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Listening on {}", addr);
+    log::info!("Listening on {}", addr);
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -83,7 +84,7 @@ async fn main() {
 
     let router = yagdb::raft::server::create_router().with_state(app.clone());
 
-    println!("Listening on {}", args.addr);
+    log::info!("Listening on {}", args.addr);
 
     let addr: std::net::SocketAddr = args.addr.parse().unwrap();
     axum::Server::bind(&addr)
@@ -226,5 +227,5 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
     }
 
-    println!("Signal received, starting graceful shutdown...");
+    log::info!("Signal received, starting graceful shutdown...");
 }
