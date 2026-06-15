@@ -966,6 +966,31 @@ impl Graph {
                                         }
                                     }
                                 }
+                                ProjectionItem::Property(var, prop) => {
+                                    if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
+                                        match val {
+                                            GraphElement::List(v) => {
+                                                for x in v {
+                                                    let key = format!("{}.{}", var, prop);
+                                                    new_result_set.push_row_from(&result_set, i, &[(key.as_str(), x.clone())] as &[(&str, GraphElement)]);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                    if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
+                                        match val {
+                                            GraphElement::List(v) => {
+                                                for x in v {
+                                                    new_result_set.push_row_from(&result_set, i, &[(alias.as_str(), x.clone())] as &[(&str, GraphElement)]);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -993,14 +1018,17 @@ impl Graph {
                         };
 
                     let mut has_aggregate = false;
-                    let mut grouping_keys = Vec::new();
+                    let mut grouping_items = Vec::new();
 
                     for item in &items {
                         match item {
                             ProjectionItem::Aggregate { .. } => has_aggregate = true,
-                            ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
+                            ProjectionItem::Variable(var) => grouping_items.push(item.clone()),
                             ProjectionItem::AliasedVariable(var, _) => {
-                                grouping_keys.push(var.clone())
+                                grouping_items.push(item.clone())
+                            }
+                            ProjectionItem::Property(_, _) | ProjectionItem::AliasedProperty(_, _, _) => {
+                                grouping_items.push(item.clone())
                             }
                             ProjectionItem::Function { .. } => {
                                 // Function without aggregate isn't an aggregate grouping key directly
@@ -1016,7 +1044,17 @@ impl Graph {
 
                         for i in 0..result_set.rows {
                             let key: Vec<Option<GraphElement>> =
-                                grouping_keys.iter().map(|k| result_set.get(i, k).cloned()).collect();
+                                grouping_items.iter().map(|item| {
+                                    match item {
+                                        ProjectionItem::Variable(var) | ProjectionItem::AliasedVariable(var, _) => {
+                                            result_set.get(i, var).cloned()
+                                        }
+                                        ProjectionItem::Property(var, prop) | ProjectionItem::AliasedProperty(var, prop, _) => {
+                                            self.get_property_as_element(&result_set, i, var, prop)
+                                        }
+                                        _ => None
+                                    }
+                                }).collect();
 
                             if let Some((_, group_rows)) =
                                 groups.iter_mut().find(|(k, _)| *k == key)
@@ -1043,6 +1081,20 @@ impl Graph {
                                         if let Some(first_idx) = group_rows.first() {
                                             if let Some(val) = result_set.get(*first_idx, var) {
                                                 bindings.push((alias.clone(), val.clone()));
+                                            }
+                                        }
+                                    }
+                                    ProjectionItem::Property(var, prop) => {
+                                        if let Some(first_idx) = group_rows.first() {
+                                            if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
+                                                bindings.push((format!("{}.{}", var, prop), val));
+                                            }
+                                        }
+                                    }
+                                    ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                        if let Some(first_idx) = group_rows.first() {
+                                            if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
+                                                bindings.push((alias.clone(), val));
                                             }
                                         }
                                     }
@@ -1117,6 +1169,16 @@ impl Graph {
                                             bindings.push((alias.clone(), val));
                                         }
                                     }
+                                    ProjectionItem::Property(var, prop) => {
+                                        if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
+                                            bindings.push((format!("{}.{}", var, prop), val));
+                                        }
+                                    }
+                                    ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                        if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
+                                            bindings.push((alias.clone(), val));
+                                        }
+                                    }
                                     ProjectionItem::Function { func, args: _, alias } => {
                                         let out_key = alias
                                             .clone()
@@ -1177,6 +1239,8 @@ impl Graph {
                                 let key = match item {
                                     ProjectionItem::Variable(var) => var.clone(),
                                     ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
+                                    ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
+                                    ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
                                     ProjectionItem::Aggregate { func, var, alias } => alias
                                         .clone()
                                         .unwrap_or_else(|| format!("{}({})", func, var)),
@@ -1881,6 +1945,24 @@ impl Graph {
                 let r_val = self.evaluate_expression(right, in_res, row_idx);
                 l_val.compare(&r_val, op)
             }
+        }
+    }
+
+    fn get_property_as_element(&self, in_res: &ResultSet, row_idx: usize, var: &str, prop: &str) -> Option<GraphElement> {
+        if let Some(element) = in_res.get(row_idx, var) {
+            let prop_val = match element {
+                GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
+                GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                _ => None,
+            };
+            match prop_val {
+                Some(crate::property::PropertyValue::String(s)) => Some(GraphElement::String(s)),
+                Some(crate::property::PropertyValue::Number(n)) => Some(GraphElement::Number(n)),
+                Some(crate::property::PropertyValue::Boolean(b)) => Some(GraphElement::Boolean(b)),
+                None => None,
+            }
+        } else {
+            None
         }
     }
 
