@@ -63,6 +63,27 @@ pub enum GraphElement {
 
 pub type Environment = HashMap<String, GraphElement>;
 
+#[derive(Clone, Debug)]
+pub struct DfsFrame {
+    pub edge_idx: usize,
+    pub current_node_id: usize,
+    pub in_res: ResultSet,
+    pub row_idx: usize,
+    pub current_depth: usize,
+    pub path_edges: Vec<usize>,
+    pub start_node_edges: Vec<usize>,
+    pub current_edge_idx: usize,
+}
+
+pub struct QueryExecution<'a> {
+    pub graph: &'a mut Graph,
+    pub plan_steps: Vec<ExecutionStep>,
+    pub step_inputs: Vec<Vec<ResultSet>>, // One queue of chunks per step
+    pub global_limit: Option<usize>,
+    pub rows_yielded: usize,
+    pub output_strings: Vec<String>,
+}
+
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct ResultSet {
     pub columns: HashMap<String, Vec<GraphElement>>,
@@ -772,445 +793,535 @@ impl Graph {
     pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
-        let mut output = String::new();
-        let mut profile_out = if query.profile {
-            Some(String::new())
-        } else {
-            None
+        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+        let profile = plan.profile;
+        let mut profile_out = if profile { Some(String::new()) } else { None };
+
+        let mut global_limit = None;
+        if let Some(ExecutionStep::Return(_, _, Some(l))) = plan.steps.last() {
+            global_limit = Some(*l);
+        }
+
+        let mut exec = QueryExecution {
+            graph: self,
+            plan_steps: plan.steps,
+            step_inputs: Vec::new(),
+            global_limit,
+            rows_yielded: 0,
+            output_strings: Vec::new(),
         };
 
-        // A single environment initially, representing the "root" row.
-        let mut result_set = ResultSet::new();
-        result_set.push_row(&HashMap::new());
+        // Initialize queue
+        for _ in 0..=exec.plan_steps.len() {
+            exec.step_inputs.push(Vec::new());
+        }
 
-        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+        let mut initial_res = ResultSet::new();
+        initial_res.push_row(&HashMap::new());
+        exec.step_inputs[0].push(initial_res);
 
-        for step in plan.steps {
-            match step {
-                ExecutionStep::Create(paths) => {
-                    let mut new_result_set = ResultSet::new();
-                    for i in 0..result_set.rows {
-                        let mut bindings = Vec::new();
-                        for path in &paths {
-                            self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+        // Run the pipeline by continuously pulling results to the last step until exhausted.
+        // We pull backwards from the end. If the last queue is empty, we execute the step that feeds it.
+        let final_step = exec.plan_steps.len();
+
+        loop {
+            // Find the deepest step that has input ready but hasn't filled its output yet.
+            // In a pull model, we start from the last step and work backwards.
+            let mut made_progress = false;
+
+            for step_idx in (0..final_step).rev() {
+                // If this step has input, process ONE chunk and break so the downstream can consume it.
+                if !exec.step_inputs[step_idx].is_empty() {
+                    let mut result_set = exec.step_inputs[step_idx].remove(0);
+                    let step = exec.plan_steps[step_idx].clone();
+
+                    let mut is_global = false;
+                    if let ExecutionStep::With(ref items, ref order_by_opt, _) | ExecutionStep::Return(ref items, ref order_by_opt, _) = step {
+                        if order_by_opt.is_some() { is_global = true; }
+                        for item in items {
+                            if let ProjectionItem::Aggregate { .. } = item { is_global = true; break; }
                         }
-                        new_result_set.push_row_from(&result_set, i, &bindings);
                     }
-                    result_set = new_result_set;
-                }
-                ExecutionStep::Match(plan_opt, paths, condition_opt, limit_opt) => {
-                    if let Some(plan) = plan_opt {
-                        let mut new_result_set = ResultSet::new();
-                        let limit_for_plan = if condition_opt.is_none() { limit_opt.clone() } else { None };
-                        self.execute_plan_and_bind_paths(
-                            &plan,
-                            &paths,
-                            &result_set,
-                            &mut new_result_set,
-                            &mut profile_out,
-                            limit_for_plan,
-                        );
 
-                        if let Some(cond) = &condition_opt {
-                            let mut filtered = ResultSet::new();
-                            for i in 0..new_result_set.rows {
-                                if self.evaluate_condition(cond, &new_result_set, i) {
-                                    filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
-                                    if let Some(limit) = limit_opt {
-                                        if filtered.rows >= limit {
-                                            break;
+                    if is_global {
+                        // Gather ALL upstream inputs before processing.
+                        let mut upstream_exhausted = true;
+                        for i in 0..step_idx {
+                            if !exec.step_inputs[i].is_empty() { upstream_exhausted = false; break; }
+                        }
+
+                        if !upstream_exhausted {
+                            // Put it back and process upstream first
+                            exec.step_inputs[step_idx].insert(0, result_set);
+                            continue;
+                        }
+
+                        // Now it's fully exhausted, drain everything
+                        let mut combined = result_set;
+                        for r in exec.step_inputs[step_idx].drain(..) {
+                            for i in 0..r.rows {
+                                combined.push_row_from(&r, i, &[] as &[(&str, GraphElement)]);
+                            }
+                        }
+                        result_set = combined;
+                    }
+
+                    match step {
+                        ExecutionStep::Create(ref paths) => {
+                            let mut new_result_set = ResultSet::new();
+                            for i in 0..result_set.rows {
+                                let mut bindings = Vec::new();
+                                for path in paths.iter() {
+                                    exec.graph.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                                }
+                                new_result_set.push_row_from(&result_set, i, &bindings);
+                            }
+                            exec.step_inputs[step_idx + 1].push(new_result_set);
+                        }
+                        ExecutionStep::Match(ref plan_opt, ref paths, ref condition_opt, ref limit_opt) => {
+                            if let Some(plan) = plan_opt {
+                                let mut new_result_set = ResultSet::new();
+                                let limit_for_plan = if condition_opt.is_none() { limit_opt.clone() } else { None };
+                                exec.graph.execute_plan_and_bind_paths(
+                                    &plan,
+                                    &paths,
+                                    &result_set,
+                                    &mut new_result_set,
+                                    &mut profile_out,
+                                    limit_for_plan,
+                                );
+
+                                if let Some(cond) = condition_opt {
+                                    let mut filtered = ResultSet::new();
+                                    for i in 0..new_result_set.rows {
+                                        if exec.graph.evaluate_condition(cond, &new_result_set, i) {
+                                            filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
+                                            if let Some(limit) = limit_opt {
+                                                if filtered.rows >= *limit {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    new_result_set = filtered;
+                                } else if let Some(limit) = limit_opt {
+                                    new_result_set.truncate(*limit);
+                                }
+
+                                if !new_result_set.is_empty() {
+                                    // Chunk the output so we truly yield lazily, giving downstream steps
+                                    // a chance to process chunks instead of receiving one massive payload.
+                                    let chunk_size = 1000;
+                                    let mut start = 0;
+                                    while start < new_result_set.rows {
+                                        let end = std::cmp::min(start + chunk_size, new_result_set.rows);
+                                        let mut chunk = ResultSet::new();
+                                        for i in start..end {
+                                            chunk.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
+                                        }
+                                        exec.step_inputs[step_idx + 1].push(chunk);
+                                        start = end;
+                                    }
+                                }
+                            } else {
+                                if !result_set.is_empty() {
+                                    exec.step_inputs[step_idx + 1].push(result_set);
+                                }
+                            }
+                        }
+                        ExecutionStep::Merge(ref planned_paths) => {
+                            let mut new_result_set = ResultSet::new();
+                            for i in 0..result_set.rows {
+                                for (plan_opt, path) in planned_paths.iter() {
+                                    if let Some(plan) = plan_opt {
+                                        let mut single_res = ResultSet::new();
+                                        single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+
+                                        let mut matches = ResultSet::new();
+                                        exec.graph.execute_plan_and_bind_paths(
+                                            plan,
+                                            &[path.clone()],
+                                            &single_res,
+                                            &mut matches,
+                                            &mut profile_out,
+                                            None,
+                                        );
+                                        if !matches.is_empty() {
+                                            for m_idx in 0..matches.rows {
+                                                new_result_set.push_row_from(&matches, m_idx, &[] as &[(&str, GraphElement)]);
+                                            }
+                                        } else {
+                                            let mut bindings = Vec::new();
+                                            exec.graph.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                                            new_result_set.push_row_from(&result_set, i, &bindings);
+                                        }
+                                    } else {
+                                        let mut bindings = Vec::new();
+                                        exec.graph.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                                        new_result_set.push_row_from(&result_set, i, &bindings);
+                                    }
+                                }
+                            }
+                            exec.step_inputs[step_idx + 1].push(new_result_set);
+                        }
+                        ExecutionStep::Set(ref var, ref key, ref value) => {
+                            let mut updated_nodes = std::collections::HashSet::new();
+                            for i in 0..result_set.rows {
+                                if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
+                                    let node_id = *node_id;
+                                    if updated_nodes.insert(node_id) {
+                                        let mut __node = exec.graph.nodes.get_item(node_id).unwrap();
+                                        let old_value = __node.properties.insert(key.clone(), value.clone());
+                                        exec.graph.nodes.update_item(node_id, __node);
+
+                                        for (label_id, label_indices) in exec.graph.indices.iter_mut() {
+                                            if exec.graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                                if let Some(prop_index) = label_indices.get_mut(key) {
+                                                    if let Some(old_val) = &old_value {
+                                                        if let Some(vec) = prop_index.get_mut(old_val) {
+                                                            vec.retain(|&id| id != node_id);
+                                                        }
+                                                    }
+                                                    let entry_vec = prop_index
+                                                        .entry(value.clone())
+                                                        .or_insert_with(Vec::new);
+                                                    if !entry_vec.contains(&node_id) {
+                                                        entry_vec.push(node_id);
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        exec.graph.log_wal(&WalEntry::SetNodeProperty {
+                                            node_id,
+                                            key: key.clone(),
+                                            value: value.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                            exec.step_inputs[step_idx + 1].push(result_set);
+                        }
+                        ExecutionStep::Delete(ref vars) => {
+                            let mut nodes_to_delete = Vec::new();
+                            let mut edges_to_delete = Vec::new();
+                            for var in vars.iter() {
+                                for i in 0..result_set.rows {
+                                    if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
+                                        if !nodes_to_delete.contains(node_id) {
+                                            nodes_to_delete.push(*node_id);
+                                        }
+                                    } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var) {
+                                        if !edges_to_delete.contains(edge_id) {
+                                            edges_to_delete.push(*edge_id);
                                         }
                                     }
                                 }
                             }
-                            new_result_set = filtered;
-                        } else if let Some(limit) = limit_opt {
-                            new_result_set.truncate(limit);
-                        }
 
-                        result_set = new_result_set;
-                        if result_set.is_empty() {
-                            break;
-                        }
-                    }
-                }
-                ExecutionStep::Merge(planned_paths) => {
-                    let mut new_result_set = ResultSet::new();
-                    for i in 0..result_set.rows {
-                        for (plan_opt, path) in &planned_paths {
-                            if let Some(plan) = plan_opt {
-                                let mut single_res = ResultSet::new();
-                                single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
-
-                                let mut matches = ResultSet::new();
-                                self.execute_plan_and_bind_paths(
-                                    plan,
-                                    &[path.clone()],
-                                    &single_res,
-                                    &mut matches,
-                                    &mut profile_out,
-                                    None,
-                                );
-                                if !matches.is_empty() {
-                                    for m_idx in 0..matches.rows {
-                                        new_result_set.push_row_from(&matches, m_idx, &[] as &[(&str, GraphElement)]);
-                                    }
-                                } else {
-                                    let mut bindings = Vec::new();
-                                    self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
-                                    new_result_set.push_row_from(&result_set, i, &bindings);
+                            for &edge_id in &edges_to_delete {
+                                if !exec.graph.edges.get_item(edge_id).unwrap().deleted {
+                                    { let mut e = exec.graph.edges.get_item(edge_id).unwrap(); e.deleted = true; exec.graph.edges.update_item(edge_id, e); }
+                                    exec.graph.log_wal(&WalEntry::DeleteEdge { edge_id });
                                 }
-                            } else {
-                                let mut bindings = Vec::new();
-                                self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
-                                new_result_set.push_row_from(&result_set, i, &bindings);
                             }
-                        }
-                    }
-                    result_set = new_result_set;
-                }
-                ExecutionStep::Set(var, key, value) => {
-                    let mut updated_nodes = std::collections::HashSet::new();
-                    for i in 0..result_set.rows {
-                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, &var) {
-                            let node_id = *node_id;
-                            if updated_nodes.insert(node_id) {
-                                let mut __node = self.nodes.get_item(node_id).unwrap();
-                                let old_value = __node.properties.insert(key.clone(), value.clone());
-                                self.nodes.update_item(node_id, __node);
 
-                                // Update indices if necessary
-                                for (label_id, label_indices) in self.indices.iter_mut() {
-                                    if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
-                                        if let Some(prop_index) = label_indices.get_mut(&key) {
-                                            // Remove from old index
-                                            if let Some(old_val) = &old_value {
-                                                if let Some(vec) = prop_index.get_mut(old_val) {
+                            for &node_id in &nodes_to_delete {
+                                if !exec.graph.nodes.get_item(node_id).unwrap().deleted {
+                                    { let mut n = exec.graph.nodes.get_item(node_id).unwrap(); n.deleted = true; exec.graph.nodes.update_item(node_id, n); }
+                                    for (label_id, label_indices) in exec.graph.indices.iter_mut() {
+                                        if exec.graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                            for (_, prop_index) in label_indices.iter_mut() {
+                                                for (_, vec) in prop_index.iter_mut() {
                                                     vec.retain(|&id| id != node_id);
                                                 }
                                             }
-                                            // Add to new index
-                                            let entry_vec = prop_index
-                                                .entry(value.clone())
-                                                .or_insert_with(Vec::new);
-                                            if !entry_vec.contains(&node_id) {
-                                                entry_vec.push(node_id);
-                                            }
                                         }
                                     }
-                                }
-
-                                self.log_wal(&WalEntry::SetNodeProperty {
-                                    node_id,
-                                    key: key.clone(),
-                                    value: value.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-                ExecutionStep::Delete(vars) => {
-                    let mut nodes_to_delete = Vec::new();
-                    let mut edges_to_delete = Vec::new();
-                    for var in &vars {
-                        for i in 0..result_set.rows {
-                            if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
-                                if !nodes_to_delete.contains(node_id) {
-                                    nodes_to_delete.push(*node_id);
-                                }
-                            } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var) {
-                                if !edges_to_delete.contains(edge_id) {
-                                    edges_to_delete.push(*edge_id);
+                                    exec.graph.log_wal(&WalEntry::DeleteNode { node_id });
                                 }
                             }
+                            exec.step_inputs[step_idx + 1].push(result_set);
                         }
-                    }
-
-                    for &edge_id in &edges_to_delete {
-                        if !self.edges.get_item(edge_id).unwrap().deleted {
-                            { let mut e = self.edges.get_item(edge_id).unwrap(); e.deleted = true; self.edges.update_item(edge_id, e); }
-                            self.log_wal(&WalEntry::DeleteEdge { edge_id });
-                        }
-                    }
-
-                    for &node_id in &nodes_to_delete {
-                        if !self.nodes.get_item(node_id).unwrap().deleted {
-                            { let mut n = self.nodes.get_item(node_id).unwrap(); n.deleted = true; self.nodes.update_item(node_id, n); }
-                            for (label_id, label_indices) in self.indices.iter_mut() {
-                                if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
-                                    for (_, prop_index) in label_indices.iter_mut() {
-                                        for (_, vec) in prop_index.iter_mut() {
-                                            vec.retain(|&id| id != node_id);
-                                        }
-                                    }
-                                }
-                            }
-                            self.log_wal(&WalEntry::DeleteNode { node_id });
-                        }
-                    }
-                }
-                ExecutionStep::Unwind(ref items) => {
-                    let mut new_result_set = ResultSet::new();
-                    for i in 0..result_set.rows {
-                        for item in items.iter() {
-                            match item {
-                                ProjectionItem::Variable(var) => {
-                                    if let Some(val) = result_set.get(i, var) {
-                                        match val {
-                                            GraphElement::List(v) => {
+                        ExecutionStep::Unwind(ref items) => {
+                            let mut new_result_set = ResultSet::new();
+                            for i in 0..result_set.rows {
+                                for item in items.iter() {
+                                    if let ProjectionItem::Variable(var) = item {
+                                        if let Some(val) = result_set.get(i, var) {
+                                            if let GraphElement::List(v) = val {
                                                 for x in v {
                                                     new_result_set.push_row_from(&result_set, i, &[(var.as_str(), x.clone())] as &[(&str, GraphElement)]);
                                                 }
                                             }
-                                            _ => {}
                                         }
                                     }
                                 }
-                                _ => {}
                             }
+                            exec.step_inputs[step_idx + 1].push(new_result_set);
                         }
-                    }
-                    result_set = new_result_set;
-                }
-                ExecutionStep::With(ref items, ref order_by_opt, ref l) | ExecutionStep::Return(ref items, ref order_by_opt, ref l) => {
-                    let mut is_return = false;
-                    let limit = *l;
-                    if let ExecutionStep::Return(..) = &step {
-                        is_return = true;
-                    }
+                        ExecutionStep::With(ref items, ref order_by_opt, ref l) | ExecutionStep::Return(ref items, ref order_by_opt, ref l) => {
+                            let is_return = matches!(step, ExecutionStep::Return(..));
+                            let limit = *l;
 
-                    // Handle Star conversion
-                    let items: Vec<ProjectionItem> =
-                        if items.len() == 1 && matches!(items[0], ProjectionItem::Star) {
-                            let mut keys: Vec<String> = result_set.columns.keys()
-                                .filter(|k| !k.starts_with("_anon_"))
-                                .cloned()
-                                .collect();
-                            keys.sort();
-                            keys.into_iter().map(ProjectionItem::Variable).collect()
-                        } else {
-                            items.clone()
-                        };
+                            // Initialize logic for With/Return processing
+                            // Handle Star conversion
+                            let items: Vec<ProjectionItem> =
+                                if items.len() == 1 && matches!(items[0], ProjectionItem::Star) {
+                                    let mut keys: Vec<String> = result_set.columns.keys()
+                                        .filter(|k| !k.starts_with("_anon_"))
+                                        .cloned()
+                                        .collect();
+                                    keys.sort();
+                                    keys.into_iter().map(ProjectionItem::Variable).collect()
+                                } else {
+                                    items.clone()
+                                };
 
-                    let mut has_aggregate = false;
-                    let mut grouping_keys = Vec::new();
+                            let mut has_aggregate = false;
+                            let mut grouping_keys = Vec::new();
 
-                    for item in &items {
-                        match item {
-                            ProjectionItem::Aggregate { .. } => has_aggregate = true,
-                            ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
-                            ProjectionItem::AliasedVariable(var, _) => {
-                                grouping_keys.push(var.clone())
-                            }
-                            ProjectionItem::Function { .. } => {
-                                // Function without aggregate isn't an aggregate grouping key directly
-                            }
-                            ProjectionItem::Star => {} // Already handled above
-                        }
-                    }
-
-                    let mut final_res = ResultSet::new();
-
-                    if has_aggregate {
-                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<usize>)> = Vec::new();
-
-                        for i in 0..result_set.rows {
-                            let key: Vec<Option<GraphElement>> =
-                                grouping_keys.iter().map(|k| result_set.get(i, k).cloned()).collect();
-
-                            if let Some((_, group_rows)) =
-                                groups.iter_mut().find(|(k, _)| *k == key)
-                            {
-                                group_rows.push(i);
-                            } else {
-                                groups.push((key, vec![i]));
-                            }
-                        }
-
-                        // Compute aggregates per group
-                        for (_idx_group, (_group_key, group_rows)) in groups.into_iter().enumerate() {
-                            let mut bindings = Vec::new();
                             for item in &items {
                                 match item {
-                                    ProjectionItem::Variable(var) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = result_set.get(*first_idx, var) {
-                                                bindings.push((var.clone(), val.clone()));
-                                            }
-                                        }
+                                    ProjectionItem::Aggregate { .. } => has_aggregate = true,
+                                    ProjectionItem::Variable(var) => grouping_keys.push(var.clone()),
+                                    ProjectionItem::AliasedVariable(var, _) => {
+                                        grouping_keys.push(var.clone())
                                     }
-                                    ProjectionItem::AliasedVariable(var, alias) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = result_set.get(*first_idx, var) {
-                                                bindings.push((alias.clone(), val.clone()));
-                                            }
-                                        }
-                                    }
-                                    ProjectionItem::Aggregate { func, var, alias } => {
-                                        let out_key = alias
-                                            .clone()
-                                            .unwrap_or_else(|| format!("{}({})", func, var));
-
-                                        match func.as_str() {
-                                            "COUNT" => {
-                                                let count = if var == "*" {
-                                                    group_rows.len()
-                                                } else {
-                                                    group_rows
-                                                        .iter()
-                                                        .filter(|&&i| result_set.get(i, var).is_some())
-                                                        .count()
-                                                };
-                                                bindings.push((out_key, GraphElement::Number(count as f64)));
-                                            }
-                                            "COLLECT" => {
-                                                let mut elements = Vec::new();
-                                                for &i in &group_rows {
-                                                    if let Some(val) = result_set.get(i, var) {
-                                                        elements.push(val.clone());
-                                                    }
-                                                }
-                                                bindings.push((out_key, GraphElement::List(elements)));
-                                            }
-                                            "UNIQUE" => {
-                                                let mut elements = Vec::new();
-                                                for &i in &group_rows {
-                                                    if let Some(val) = result_set.get(i, var) {
-                                                        if !elements.contains(val) {
-                                                            elements.push(val.clone());
-                                                        }
-                                                    }
-                                                }
-                                                bindings.push((out_key, GraphElement::List(elements)));
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    ProjectionItem::Function { func, args: _, alias } => {
-                                        let out_key = alias
-                                            .clone()
-                                            .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
-                                        }
-                                    }
+                                    ProjectionItem::Function { .. } => {}
                                     ProjectionItem::Star => {}
                                 }
                             }
-                            let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            let empty_res = ResultSet::new();
-                            final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
-                        }
-                    } else {
-                        // Simple projection without aggregation
-                        for i in 0..result_set.rows {
-                            let mut bindings = Vec::new();
-                            for item in &items {
-                                match item {
-                                    ProjectionItem::Variable(var) => {
-                                        if let Some(val) = result_set.get(i, var).cloned() {
-                                            bindings.push((var.clone(), val));
+
+                            let mut final_res = ResultSet::new();
+
+                            if has_aggregate {
+                                let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<usize>)> = Vec::new();
+
+                                for i in 0..result_set.rows {
+                                    let key: Vec<Option<GraphElement>> =
+                                        grouping_keys.iter().map(|k| result_set.get(i, k).cloned()).collect();
+
+                                    if let Some((_, group_rows)) =
+                                        groups.iter_mut().find(|(k, _)| *k == key)
+                                    {
+                                        group_rows.push(i);
+                                    } else {
+                                        groups.push((key, vec![i]));
+                                    }
+                                }
+
+                                for (_group_key, group_rows) in groups.into_iter() {
+                                    let mut bindings = Vec::new();
+                                    for item in &items {
+                                        match item {
+                                            ProjectionItem::Variable(var) => {
+                                                if let Some(first_idx) = group_rows.first() {
+                                                    if let Some(val) = result_set.get(*first_idx, var) {
+                                                        bindings.push((var.clone(), val.clone()));
+                                                    }
+                                                }
+                                            }
+                                            ProjectionItem::AliasedVariable(var, alias) => {
+                                                if let Some(first_idx) = group_rows.first() {
+                                                    if let Some(val) = result_set.get(*first_idx, var) {
+                                                        bindings.push((alias.clone(), val.clone()));
+                                                    }
+                                                }
+                                            }
+                                            ProjectionItem::Aggregate { func, var, alias } => {
+                                                let out_key = alias
+                                                    .clone()
+                                                    .unwrap_or_else(|| format!("{}({})", func, var));
+
+                                                match func.as_str() {
+                                                    "COUNT" => {
+                                                        let count = if var == "*" {
+                                                            group_rows.len()
+                                                        } else {
+                                                            group_rows
+                                                                .iter()
+                                                                .filter(|&&i| result_set.get(i, var).is_some())
+                                                                .count()
+                                                        };
+                                                        bindings.push((out_key, GraphElement::Number(count as f64)));
+                                                    }
+                                                    "COLLECT" => {
+                                                        let mut elements = Vec::new();
+                                                        for &i in &group_rows {
+                                                            if let Some(val) = result_set.get(i, var) {
+                                                                elements.push(val.clone());
+                                                            }
+                                                        }
+                                                        bindings.push((out_key, GraphElement::List(elements)));
+                                                    }
+                                                    "UNIQUE" => {
+                                                        let mut elements = Vec::new();
+                                                        for &i in &group_rows {
+                                                            if let Some(val) = result_set.get(i, var) {
+                                                                if !elements.contains(val) {
+                                                                    elements.push(val.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                        bindings.push((out_key, GraphElement::List(elements)));
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            ProjectionItem::Function { func, args: _, alias } => {
+                                                let out_key = alias
+                                                    .clone()
+                                                    .unwrap_or_else(|| format!("{}()", func));
+                                                if func.eq_ignore_ascii_case("rand") {
+                                                    bindings.push((out_key, GraphElement::Number(0f64)));
+                                                }
+                                            }
+                                            ProjectionItem::Star => {}
                                         }
                                     }
-                                    ProjectionItem::AliasedVariable(var, alias) => {
-                                        if let Some(val) = result_set.get(i, var).cloned() {
-                                            bindings.push((alias.clone(), val));
+                                    let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                                    let empty_res = ResultSet::new();
+                                    final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
+                                }
+                            } else {
+                                for i in 0..result_set.rows {
+                                    let mut bindings = Vec::new();
+                                    for item in items.iter() {
+                                        match item {
+                                            ProjectionItem::Variable(var) => {
+                                                if let Some(val) = result_set.get(i, var).cloned() {
+                                                    bindings.push((var.clone(), val));
+                                                }
+                                            }
+                                            ProjectionItem::AliasedVariable(var, alias) => {
+                                                if let Some(val) = result_set.get(i, var).cloned() {
+                                                    bindings.push((alias.clone(), val));
+                                                }
+                                            }
+                                            ProjectionItem::Function { func, args: _, alias } => {
+                                                let out_key = alias
+                                                    .clone()
+                                                    .unwrap_or_else(|| format!("{}()", func));
+                                                if func.eq_ignore_ascii_case("rand") {
+                                                    bindings.push((out_key, GraphElement::Number(0f64)));
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
-                                    ProjectionItem::Function { func, args: _, alias } => {
-                                        let out_key = alias
-                                            .clone()
-                                            .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
-                                        }
-                                    }
-                                    _ => {}
+                                    let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                                    let empty_res = ResultSet::new();
+                                    final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
                                 }
                             }
-                            let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            let empty_res = ResultSet::new();
-                            final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
-                        }
-                    }
 
-                    if let Some(order_items) = order_by_opt {
-                        let mut env_with_keys: Vec<(Vec<EvalValue>, usize)> = (0..final_res.rows).map(|i| {
-                            let keys = order_items.iter().map(|item| {
-                                self.evaluate_expression(&item.expr, &final_res, i)
-                            }).collect();
-                            (keys, i)
-                        }).collect();
+                            if let Some(order_items) = order_by_opt {
+                                let mut env_with_keys: Vec<(Vec<EvalValue>, usize)> = (0..final_res.rows).map(|i| {
+                                    let keys = order_items.iter().map(|item| {
+                                        exec.graph.evaluate_expression(&item.expr, &final_res, i)
+                                    }).collect();
+                                    (keys, i)
+                                }).collect();
 
-                        env_with_keys.sort_by(|a, b| {
-                            for (idx, item) in order_items.iter().enumerate() {
-                                let key_a = &a.0[idx];
-                                let key_b = &b.0[idx];
-                                let mut cmp = key_a.partial_cmp(key_b).unwrap_or(std::cmp::Ordering::Equal);
-                                if !item.asc {
-                                    cmp = cmp.reverse();
+                                env_with_keys.sort_by(|a, b| {
+                                    for (idx, item) in order_items.iter().enumerate() {
+                                        let key_a = &a.0[idx];
+                                        let key_b = &b.0[idx];
+                                        let mut cmp = key_a.partial_cmp(key_b).unwrap_or(std::cmp::Ordering::Equal);
+                                        if !item.asc {
+                                            cmp = cmp.reverse();
+                                        }
+                                        if cmp != std::cmp::Ordering::Equal {
+                                            return cmp;
+                                        }
+                                    }
+                                    std::cmp::Ordering::Equal
+                                });
+
+                                let mut sorted_res = ResultSet::new();
+                                for (_, original_idx) in env_with_keys {
+                                    sorted_res.push_row_from(&final_res, original_idx, &[] as &[(&str, GraphElement)]);
                                 }
-                                if cmp != std::cmp::Ordering::Equal {
-                                    return cmp;
-                                }
+                                final_res = sorted_res;
                             }
-                            std::cmp::Ordering::Equal
-                        });
 
-                        let mut sorted_res = ResultSet::new();
-                        for (_, original_idx) in env_with_keys {
-                            sorted_res.push_row_from(&final_res, original_idx, &[] as &[(&str, GraphElement)]);
-                        }
-                        final_res = sorted_res;
-                    }
-
-                    if is_return {
-                        let len = final_res.rows;
-                        let iter = match limit {
-                            Some(l) => 0..std::cmp::min(l, len),
-                            None => 0..len,
-                        };
-                        let mut results_json = Vec::new();
-                        for i in iter {
-                            let mut row = serde_json::Map::new();
-                            for item in &items {
-                                let key = match item {
-                                    ProjectionItem::Variable(var) => var.clone(),
-                                    ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
-                                    ProjectionItem::Aggregate { func, var, alias } => alias
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{}({})", func, var)),
-                                    ProjectionItem::Function { func, args: _, alias } => alias
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{}()", func)),
-                                    ProjectionItem::Star => continue,
-                                };
-                                if let Some(element) = final_res.get(i, &key) {
-                                    row.insert(key, self.element_to_json(element));
+                            if is_return {
+                                let len = final_res.rows;
+                                let remaining_limit = if let Some(global_lim) = exec.global_limit {
+                                    global_lim.saturating_sub(exec.rows_yielded)
                                 } else {
-                                    row.insert(key, Value::Null);
+                                    usize::MAX
+                                };
+
+                                let iter_range = match limit {
+                                    Some(l) => 0..std::cmp::min(std::cmp::min(l, len), remaining_limit),
+                                    None => 0..std::cmp::min(len, remaining_limit),
+                                };
+
+                                let mut results_json = Vec::new();
+                                for i in iter_range.clone() {
+                                    let mut row = serde_json::Map::new();
+                                    for item in &items {
+                                        let key = match item {
+                                            ProjectionItem::Variable(var) => var.clone(),
+                                            ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
+                                            ProjectionItem::Aggregate { func, var, alias } => alias
+                                                .clone()
+                                                .unwrap_or_else(|| format!("{}({})", func, var)),
+                                            ProjectionItem::Function { func, args: _, alias } => alias
+                                                .clone()
+                                                .unwrap_or_else(|| format!("{}()", func)),
+                                            ProjectionItem::Star => continue,
+                                        };
+                                        if let Some(element) = final_res.get(i, &key) {
+                                            row.insert(key, exec.graph.element_to_json(element));
+                                        } else {
+                                            row.insert(key, Value::Null);
+                                        }
+                                    }
+                                    if !row.is_empty() {
+                                        results_json.push(Value::Object(row));
+                                    }
                                 }
-                            }
-                            if !row.is_empty() {
-                                results_json.push(Value::Object(row));
+                                exec.rows_yielded += iter_range.end.saturating_sub(iter_range.start);
+
+                                if !results_json.is_empty() {
+                                    let mut inner_str = serde_json::to_string_pretty(&results_json).unwrap();
+                                    inner_str = inner_str.trim().trim_matches('[').trim_matches(']').trim().to_string();
+                                    if !inner_str.is_empty() {
+                                        exec.output_strings.push(inner_str);
+                                    }
+                                }
+                            } else {
+                                let mut res = final_res;
+                                if let Some(l) = limit {
+                                    res.truncate(l);
+                                }
+                                exec.step_inputs[step_idx + 1].push(res);
                             }
                         }
-                        if !results_json.is_empty() {
-                            output = serde_json::to_string_pretty(&results_json).unwrap();
-                        }
-                    } else {
-                        // WITH clause
-                        result_set = final_res;
-                        if let Some(l) = limit {
-                            result_set.truncate(l);
+                        ExecutionStep::CreateIndex { ref label, ref property } => {
+                            let label_id = exec.graph.get_or_add_label(label);
+                            exec.graph.create_index(label_id, property.clone());
+                            exec.step_inputs[step_idx + 1].push(result_set);
                         }
                     }
-                }
-                ExecutionStep::CreateIndex { label, property } => {
-                    let label_id = self.get_or_add_label(&label);
-                    self.create_index(label_id, property);
+
+                    made_progress = true;
+                    break;
                 }
             }
+
+            if !made_progress {
+                // If no upstream input was found, we are completely done executing!
+                break;
+            }
+        }
+
+        let mut output = String::new();
+        if !exec.output_strings.is_empty() {
+            output = format!("[\n  {}\n]", exec.output_strings.join(",\n  "));
         }
 
         if let Some(prof) = profile_out {
