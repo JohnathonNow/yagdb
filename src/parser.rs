@@ -1,10 +1,10 @@
 use nom::{
-    multi::{many0, separated_list1},
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
     combinator::{all_consuming, map, opt, recognize},
     error::Error,
+    multi::{many0, separated_list1},
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
@@ -507,7 +507,10 @@ fn unwind_clause(input: &str) -> IResult<&str, Clause> {
 fn delete_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("DELETE"), tag("delete"))))(input)?;
     let (input, vars) = separated_list1(ws(char(',')), ws(identifier))(input)?;
-    Ok((input, Clause::Delete(vars.into_iter().map(|s| s.to_string()).collect())))
+    Ok((
+        input,
+        Clause::Delete(vars.into_iter().map(|s| s.to_string()).collect()),
+    ))
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {

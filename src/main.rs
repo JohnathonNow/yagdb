@@ -110,8 +110,14 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
     match g.backup() {
         Ok(bytes) => {
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/octet-stream"));
-            headers.insert(axum::http::header::CONTENT_DISPOSITION, axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""));
+            headers.insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/octet-stream"),
+            );
+            headers.insert(
+                axum::http::header::CONTENT_DISPOSITION,
+                axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""),
+            );
             (StatusCode::OK, headers, bytes).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response(),
@@ -125,21 +131,24 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
     match g.execute(&body) {
         Ok(result) => {
             if result.trim().is_empty() {
-                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+                return Sse::new(futures::stream::empty::<
+                    Result<Event, std::convert::Infallible>,
+                >())
+                .into_response();
             }
 
             match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
                 Ok(arr) => {
                     let stream = futures::stream::iter(arr.into_iter().map(|val| {
                         Ok::<_, std::convert::Infallible>(
-                            Event::default().data(serde_json::to_string(&val).unwrap())
+                            Event::default().data(serde_json::to_string(&val).unwrap()),
                         )
                     }));
                     Sse::new(stream).into_response()
                 }
                 Err(_) => {
                     let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
-                        Event::default().data(result)
+                        Event::default().data(result),
                     )]);
                     Sse::new(stream).into_response()
                 }
@@ -213,7 +222,6 @@ mod tests {
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
 }
-
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn shutdown_signal() {

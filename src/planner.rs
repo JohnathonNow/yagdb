@@ -1,6 +1,6 @@
-use crate::parser::{Clause, Condition, ProjectionItem, Query, OrderItem};
-use crate::property::{PropertyValue};
+use crate::parser::{Clause, Condition, OrderItem, ProjectionItem, Query};
 use crate::parser::{NodePattern, Path, RelPattern};
+use crate::property::PropertyValue;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,10 +145,18 @@ impl QueryPlanner {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStep {
     Create(Vec<Path>),
-    Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>),
+    Match(
+        Option<PlanNode>,
+        Vec<Path>,
+        Option<Condition>,
+        Option<usize>,
+    ),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, PropertyValue),
-    CreateIndex { label: String, property: String },
+    CreateIndex {
+        label: String,
+        property: String,
+    },
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     Unwind(Vec<ProjectionItem>),
@@ -184,7 +192,9 @@ impl QueryPlanner {
                     ExecutionStep::Merge(planned_paths)
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
-                Clause::CreateIndex { label, property } => ExecutionStep::CreateIndex { label, property },
+                Clause::CreateIndex { label, property } => {
+                    ExecutionStep::CreateIndex { label, property }
+                }
                 Clause::Return(items, order, limit) => ExecutionStep::Return(items, order, limit),
                 Clause::With(items, order, limit) => ExecutionStep::With(items, order, limit),
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
