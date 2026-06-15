@@ -175,6 +175,7 @@ impl QueryPlanner {
         labels: &HashMap<String, usize>,
         indices: &HashMap<usize, HashMap<String, HashMap<PropertyValue, Vec<usize>>>>,
     ) -> QueryPlan {
+        log::debug!("Planning query: {:?}", query);
         let mut steps = Vec::new();
         for clause in query.clauses {
             let step = match clause {

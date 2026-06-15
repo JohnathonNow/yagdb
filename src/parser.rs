@@ -528,6 +528,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
+    log::debug!("Parsing query: {}", input);
     let (input, profile_opt) = opt(ws(alt((tag("PROFILE"), tag("profile")))))(input)?;
     let (input, clauses) = all_consuming(many0(ws(clause)))(input)?;
     Ok((

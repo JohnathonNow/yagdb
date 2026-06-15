@@ -848,6 +848,7 @@ impl Graph {
     }
 
     pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
+        log::debug!("Executing query: {}", query_str);
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut output = String::new();
