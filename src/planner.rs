@@ -48,7 +48,6 @@ impl QueryPlanner {
             usize,
             HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
-        extracted_props: &HashMap<String, HashMap<String, PropertyValue>>,
     ) -> PlanNode {
         // Ensure the start node has a variable for chaining.
         let mut start_pattern = path.start.clone();
@@ -57,7 +56,7 @@ impl QueryPlanner {
         }
 
         // Build the start node plan
-        let mut plan = Self::plan_node_lookup(&start_pattern, labels, indices, extracted_props);
+        let mut plan = Self::plan_node_lookup(&start_pattern, labels, indices);
 
         let mut prev_node_pattern = start_pattern.clone();
         // Chain PathExpand for each edge
@@ -91,16 +90,15 @@ impl QueryPlanner {
             usize,
             HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
-        extracted_props: &HashMap<String, HashMap<String, PropertyValue>>,
     ) -> Option<PlanNode> {
         if paths.is_empty() {
             return None;
         }
-        let mut plan = Self::plan_match_path(&paths[0], labels, indices, extracted_props);
+        let mut plan = Self::plan_match_path(&paths[0], labels, indices);
         for path in paths.iter().skip(1) {
             plan = PlanNode::CrossProduct {
                 left: Box::new(plan),
-                right: Box::new(Self::plan_match_path(path, labels, indices, extracted_props)),
+                right: Box::new(Self::plan_match_path(path, labels, indices)),
             };
         }
         Some(plan)
@@ -113,7 +111,6 @@ impl QueryPlanner {
             usize,
             HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
-        extracted_props: &HashMap<String, HashMap<String, PropertyValue>>,
     ) -> PlanNode {
         if let Some(label_name) = &pattern.label {
             if let Some(label_id) = labels.get(label_name) {
@@ -127,21 +124,6 @@ impl QueryPlanner {
                                 value: prop_value.clone(),
                                 pattern: pattern.clone(),
                             };
-                        }
-                    }
-                    if let Some(var) = &pattern.variable {
-                        if let Some(props) = extracted_props.get(var) {
-                            for (prop_name, prop_value) in props {
-                                if label_indices.contains_key(prop_name) {
-                                    // We have an index for this property from WHERE clause!
-                                    return PlanNode::NodeIndexLookup {
-                                        label: label_name.clone(),
-                                        property: prop_name.clone(),
-                                        value: prop_value.clone(),
-                                        pattern: pattern.clone(),
-                                    };
-                                }
-                            }
                         }
                     }
                 }
@@ -190,18 +172,13 @@ impl QueryPlanner {
             let step = match clause {
                 Clause::Create(paths) => ExecutionStep::Create(paths),
                 Clause::Match(paths, condition, limit) => {
-                    let mut extracted_props = HashMap::new();
-                    if let Some(cond) = &condition {
-                        Self::extract_equalities(cond, &mut extracted_props);
-                    }
-                    let plan = Self::plan_match_paths(&paths, labels, indices, &extracted_props);
+                    let plan = Self::plan_match_paths(&paths, labels, indices);
                     ExecutionStep::Match(plan, paths, condition, limit)
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();
-                    let extracted_props = HashMap::new();
                     for path in paths {
-                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices, &extracted_props);
+                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices);
                         planned_paths.push((plan, path));
                     }
                     ExecutionStep::Merge(planned_paths)
@@ -218,51 +195,6 @@ impl QueryPlanner {
         QueryPlan {
             profile: query.profile,
             steps,
-        }
-    }
-}
-
-impl QueryPlanner {
-    fn extract_equalities(
-        condition: &Condition,
-        props: &mut HashMap<String, HashMap<String, PropertyValue>>,
-    ) {
-        use crate::parser::{Expression, CompareOp};
-        match condition {
-            Condition::And(left, right) => {
-                Self::extract_equalities(left, props);
-                Self::extract_equalities(right, props);
-            }
-            Condition::Compare { left, op: CompareOp::Eq, right } => {
-                if let Expression::Property(var, prop) = left {
-                    match right {
-                        Expression::StringLiteral(s) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::String(s.clone()));
-                        }
-                        Expression::NumberLiteral(n) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::Number(*n));
-                        }
-                        Expression::BooleanLiteral(b) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::Boolean(*b));
-                        }
-                        _ => {}
-                    }
-                } else if let Expression::Property(var, prop) = right {
-                    match left {
-                        Expression::StringLiteral(s) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::String(s.clone()));
-                        }
-                        Expression::NumberLiteral(n) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::Number(*n));
-                        }
-                        Expression::BooleanLiteral(b) => {
-                            props.entry(var.clone()).or_default().insert(prop.clone(), PropertyValue::Boolean(*b));
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
         }
     }
 }
