@@ -13,6 +13,12 @@ pub struct Network {
     client: Client,
 }
 
+impl Default for Network {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Network {
     pub fn new() -> Self {
         Self {

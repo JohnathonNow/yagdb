@@ -148,6 +148,22 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
     }
 }
 
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn shutdown_signal() {
+    // Wait for the Ctrl+C signal
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    tokio::select! {
+        _ = ctrl_c => {},
+    }
+
+    println!("Signal received, starting graceful shutdown...");
+}
+
 #[cfg(target_arch = "wasm32")]
 fn main() {}
 
@@ -211,20 +227,4 @@ mod tests {
             serde_json::from_str(&result_limit_large).unwrap();
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
-}
-
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn shutdown_signal() {
-    // Wait for the Ctrl+C signal
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-    tokio::select! {
-        _ = ctrl_c => {},
-    }
-
-    println!("Signal received, starting graceful shutdown...");
 }
