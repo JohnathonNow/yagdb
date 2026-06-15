@@ -238,13 +238,13 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
         drop(offsets);
 
         let mut cache = self.cache.borrow_mut();
-        if !cache.contains_key(&index) {
+        let item = cache.entry(index).or_insert_with(|| {
             let mut file = self.file.borrow_mut();
             file.seek(std::io::SeekFrom::Start(offset)).unwrap();
             let item: T = bincode::deserialize_from(&mut *file).unwrap();
-            cache.insert(index, item);
-        }
-        cache.get(&index).cloned()
+            item
+        });
+        Some(item.clone())
     }
 
     pub fn push(&mut self, item: T) {
@@ -343,6 +343,12 @@ pub struct Graph {
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Graph {
     #[cfg(not(target_arch = "wasm32"))]
@@ -716,14 +722,8 @@ impl Graph {
     }
 
     fn create_index_internal(&mut self, label: usize, property: String) {
-        if !self.indices.contains_key(&label) {
-            self.indices.insert(label, HashMap::new());
-        }
-        let label_indices = self.indices.get_mut(&label).unwrap();
-        if !label_indices.contains_key(&property) {
-            label_indices.insert(property.clone(), HashMap::new());
-        }
-        let property_index = label_indices.get_mut(&property).unwrap();
+        let label_indices = self.indices.entry(label).or_default();
+        let property_index = label_indices.entry(property.clone()).or_default();
 
         // Populate index with existing nodes
 
@@ -733,7 +733,7 @@ impl Graph {
                 if let Some(value) = node.properties.get(&property) {
                     property_index
                         .entry(value.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(node_id);
                 }
             }
@@ -801,7 +801,7 @@ impl Graph {
                 ExecutionStep::Match(plan_opt, paths, condition_opt, limit_opt) => {
                     if let Some(plan) = plan_opt {
                         let mut new_result_set = ResultSet::new();
-                        let limit_for_plan = if condition_opt.is_none() { limit_opt.clone() } else { None };
+                        let limit_for_plan = if condition_opt.is_none() { limit_opt } else { None };
                         self.execute_plan_and_bind_paths(
                             &plan,
                             &paths,
@@ -953,45 +953,14 @@ impl Graph {
                     let mut new_result_set = ResultSet::new();
                     for i in 0..result_set.rows {
                         for item in items.iter() {
-                            match item {
-                                ProjectionItem::Variable(var) => {
-                                    if let Some(val) = result_set.get(i, var) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, &[(var.as_str(), x.clone())] as &[(&str, GraphElement)]);
-                                                }
-                                            }
-                                            _ => {}
+                            if let ProjectionItem::Variable(var) = item {
+                                if let Some(val) = result_set.get(i, var) {
+                                    if let GraphElement::List(v) = val {
+                                        for x in v {
+                                            new_result_set.push_row_from(&result_set, i, &[(var.as_str(), x.clone())] as &[(&str, GraphElement)]);
                                         }
                                     }
                                 }
-                                ProjectionItem::Property(var, prop) => {
-                                    if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    let key = format!("{}.{}", var, prop);
-                                                    new_result_set.push_row_from(&result_set, i, &[(key.as_str(), x.clone())] as &[(&str, GraphElement)]);
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                                ProjectionItem::AliasedProperty(var, prop, alias) => {
-                                    if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, &[(alias.as_str(), x.clone())] as &[(&str, GraphElement)]);
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
                     }
@@ -1066,7 +1035,7 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
-                        for (_idx_group, (_group_key, group_rows)) in groups.into_iter().enumerate() {
+                        for (_group_key, group_rows) in groups.into_iter() {
                             let mut bindings = Vec::new();
                             for item in &items {
                                 match item {
@@ -1969,14 +1938,14 @@ impl Graph {
     fn evaluate_expression(&self, expr: &Expression, in_res: &ResultSet, row_idx: usize) -> EvalValue {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(s.clone()),
-            Expression::NumberLiteral(n) => EvalValue::Number(n.clone()),
-            Expression::BooleanLiteral(b) => EvalValue::Boolean(b.clone()),
+            Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
             Expression::Variable(var) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     match element {
-                        GraphElement::Number(n) => EvalValue::Number(n.clone()),
+                        GraphElement::Number(n) => EvalValue::Number(*n),
             GraphElement::String(ref s) => EvalValue::String(s.clone()),
-            GraphElement::Boolean(b) => EvalValue::Boolean(b.clone()),
+            GraphElement::Boolean(b) => EvalValue::Boolean(*b),
             GraphElement::Null => EvalValue::Null,
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
                             EvalValue::String(self.format_element(element))
@@ -2004,8 +1973,8 @@ impl Graph {
                         Some(crate::property::PropertyValue::String(s)) => {
                             EvalValue::String(s.clone())
                         }
-                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n.clone()),
-                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b.clone()),
+                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n),
+                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b),
                         None => EvalValue::Null,
                     }
                 } else {

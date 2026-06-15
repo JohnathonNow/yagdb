@@ -47,11 +47,34 @@ async fn main() {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("Listening on {}", addr);
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .unwrap();
+    let cert = std::env::var("YAGDB_CERT").ok();
+    let key = std::env::var("YAGDB_KEY").ok();
+
+    if let (Some(cert_path), Some(key_path)) = (cert, key) {
+        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path)
+            .await
+            .unwrap();
+
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
+        });
+
+        axum_server::bind_rustls(addr, config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    } else {
+        axum::Server::bind(&addr)
+            .serve(app.into_make_service())
+            .with_graceful_shutdown(_shutdown_signal())
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -86,10 +109,24 @@ async fn main() {
     println!("Listening on {}", args.addr);
 
     let addr: std::net::SocketAddr = args.addr.parse().unwrap();
-    axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .await
-        .unwrap();
+    let cert = std::env::var("YAGDB_CERT").ok();
+    let key = std::env::var("YAGDB_KEY").ok();
+
+    if let (Some(cert_path), Some(key_path)) = (cert, key) {
+        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path)
+            .await
+            .unwrap();
+
+        axum_server::bind_rustls(addr, config)
+            .serve(router.into_make_service())
+            .await
+            .unwrap();
+    } else {
+        axum::Server::bind(&addr)
+            .serve(router.into_make_service())
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -146,6 +183,22 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
         }
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
+}
+
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn _shutdown_signal() {
+    // Wait for the Ctrl+C signal
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    tokio::select! {
+        _ = ctrl_c => {},
+    }
+
+    println!("Signal received, starting graceful shutdown...");
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -211,20 +264,4 @@ mod tests {
             serde_json::from_str(&result_limit_large).unwrap();
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
-}
-
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn shutdown_signal() {
-    // Wait for the Ctrl+C signal
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-    tokio::select! {
-        _ = ctrl_c => {},
-    }
-
-    println!("Signal received, starting graceful shutdown...");
 }

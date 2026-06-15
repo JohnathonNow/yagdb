@@ -70,8 +70,12 @@ async fn handle_query(
                         // Forward the request to the leader if we know it
                         if let Some(leader_node_id) = fwd.leader_id {
                             // Find leader node address from id (convention: port is 3000 + id)
-                            let url = format!("http://127.0.0.1:{}/query", 3000 + leader_node_id);
-                            let client = reqwest::Client::new();
+                            let url = format!("{}://127.0.0.1:{}/query", app.scheme, 3000 + leader_node_id);
+                            let mut builder = reqwest::Client::builder();
+                            if std::env::var("YAGDB_CLUSTER_DANGER_ACCEPT_INVALID_CERTS").unwrap_or_default() == "true" {
+                                builder = builder.danger_accept_invalid_certs(true);
+                            }
+                            let client = builder.build().unwrap_or_default();
                             let resp = client.post(&url).body(body).send().await.map_err(|e| {
                                 (
                                     axum::http::StatusCode::BAD_GATEWAY,
@@ -140,8 +144,12 @@ async fn handle_query_stream(
                     )) => {
                         if let Some(leader_node_id) = fwd.leader_id {
                             // Find leader node address from id (convention: port is 3000 + id)
-                            let url = format!("http://127.0.0.1:{}/query", 3000 + leader_node_id);
-                            let client = reqwest::Client::new();
+                            let url = format!("{}://127.0.0.1:{}/query", app.scheme, 3000 + leader_node_id);
+                            let mut builder = reqwest::Client::builder();
+                            if std::env::var("YAGDB_CLUSTER_DANGER_ACCEPT_INVALID_CERTS").unwrap_or_default() == "true" {
+                                builder = builder.danger_accept_invalid_certs(true);
+                            }
+                            let client = builder.build().unwrap_or_default();
                             match client.post(&url).body(body).send().await {
                                 Ok(resp) => {
                                     match resp.json::<QueryRes>().await {
