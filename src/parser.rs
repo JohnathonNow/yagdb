@@ -75,6 +75,8 @@ pub enum ProjectionItem {
     Star,
     Variable(String),
     AliasedVariable(String, String),
+    Property(String, String),
+    AliasedProperty(String, String, String),
     Aggregate {
         func: String,
         var: String,
@@ -433,14 +435,28 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
         },
         |i| {
             let (i, var) = ws(identifier)(i)?;
+            let (i, prop) = opt(preceded(ws(char('.')), ws(identifier)))(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
-            if let Some(a) = alias {
-                Ok((
-                    i,
-                    ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
-                ))
-            } else {
-                Ok((i, ProjectionItem::Variable(var.to_string())))
+
+            match (prop, alias) {
+                (Some(p), Some(a)) => {
+                    Ok((
+                        i,
+                        ProjectionItem::AliasedProperty(var.to_string(), p.to_string(), a.to_string()),
+                    ))
+                }
+                (Some(p), None) => {
+                    Ok((i, ProjectionItem::Property(var.to_string(), p.to_string())))
+                }
+                (None, Some(a)) => {
+                    Ok((
+                        i,
+                        ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
+                    ))
+                }
+                (None, None) => {
+                    Ok((i, ProjectionItem::Variable(var.to_string())))
+                }
             }
         },
     ))(input)

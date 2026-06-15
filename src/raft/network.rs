@@ -11,32 +11,18 @@ use super::store::TypeConfig;
 
 pub struct Network {
     client: Client,
-    scheme: String,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Self::new("http".into())
-    }
 }
 
 impl Network {
-    pub fn new(scheme: String) -> Self {
-        let mut builder = Client::builder();
-        if std::env::var("YAGDB_CLUSTER_DANGER_ACCEPT_INVALID_CERTS").unwrap_or_default() == "true" {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-
+    pub fn new() -> Self {
         Self {
-            client: builder.build().unwrap_or_default(),
-            scheme,
+            client: Client::new(),
         }
     }
 }
 
 pub struct NetworkConnection {
     client: Client,
-    scheme: String,
     target_id: u64,
 }
 
@@ -50,8 +36,7 @@ impl RaftNetworkFactory<TypeConfig> for Network {
         _node: &(),
     ) -> impl Future<Output = Self::Network> + Send {
         let client = self.client.clone();
-        let scheme = self.scheme.clone();
-        async move { NetworkConnection { client, scheme, target_id } }
+        async move { NetworkConnection { client, target_id } }
     }
 }
 
@@ -63,10 +48,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
     ) -> impl Future<Output = Result<AppendEntriesResponse<u64>, RPCError<u64, (), RaftError<u64>>>> + Send
     {
         let client = self.client.clone();
-        let scheme = self.scheme.clone();
         let target_id = self.target_id;
         async move {
-            let url = format!("{}://127.0.0.1:{}/raft/append", scheme, 3000 + target_id);
+            let url = format!("http://127.0.0.1:{}/raft/append", 3000 + target_id);
             let resp = client
                 .post(&url)
                 .json(&req)
@@ -92,10 +76,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         >,
     > + Send {
         let client = self.client.clone();
-        let scheme = self.scheme.clone();
         let target_id = self.target_id;
         async move {
-            let url = format!("{}://127.0.0.1:{}/raft/snapshot", scheme, 3000 + target_id);
+            let url = format!("http://127.0.0.1:{}/raft/snapshot", 3000 + target_id);
             let resp = client
                 .post(&url)
                 .json(&req)
@@ -117,10 +100,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
     ) -> impl Future<Output = Result<VoteResponse<u64>, RPCError<u64, (), RaftError<u64>>>> + Send
     {
         let client = self.client.clone();
-        let scheme = self.scheme.clone();
         let target_id = self.target_id;
         async move {
-            let url = format!("{}://127.0.0.1:{}/raft/vote", scheme, 3000 + target_id);
+            let url = format!("http://127.0.0.1:{}/raft/vote", 3000 + target_id);
             let resp = client
                 .post(&url)
                 .json(&req)
