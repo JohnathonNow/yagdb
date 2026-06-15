@@ -14,6 +14,12 @@ pub struct Network {
     scheme: String,
 }
 
+impl Default for Network {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Network {
     pub fn new(scheme: String) -> Self {
         let mut builder = Client::builder();
