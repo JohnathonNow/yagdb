@@ -8,6 +8,8 @@ use std::io::Seek;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 
+use std::borrow::Cow;
+
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
     edge::Edge,
@@ -1966,20 +1968,20 @@ impl Graph {
         }
     }
 
-    fn evaluate_expression(&self, expr: &Expression, in_res: &ResultSet, row_idx: usize) -> EvalValue {
+    fn evaluate_expression<'a>(&'a self, expr: &'a Expression, in_res: &'a ResultSet, row_idx: usize) -> EvalValue<'a> {
         match expr {
-            Expression::StringLiteral(s) => EvalValue::String(s.clone()),
-            Expression::NumberLiteral(n) => EvalValue::Number(n.clone()),
-            Expression::BooleanLiteral(b) => EvalValue::Boolean(b.clone()),
+            Expression::StringLiteral(s) => EvalValue::String(Cow::Borrowed(s.as_str())),
+            Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
             Expression::Variable(var) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     match element {
-                        GraphElement::Number(n) => EvalValue::Number(n.clone()),
-            GraphElement::String(ref s) => EvalValue::String(s.clone()),
-            GraphElement::Boolean(b) => EvalValue::Boolean(b.clone()),
+                        GraphElement::Number(n) => EvalValue::Number(*n),
+            GraphElement::String(ref s) => EvalValue::String(Cow::Borrowed(s.as_str())),
+            GraphElement::Boolean(b) => EvalValue::Boolean(*b),
             GraphElement::Null => EvalValue::Null,
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
-                            EvalValue::String(self.format_element(element))
+                            EvalValue::String(Cow::Owned(self.format_element(element)))
                         }
                     }
                 } else {
@@ -2002,10 +2004,10 @@ impl Graph {
                     };
                     match prop_val {
                         Some(crate::property::PropertyValue::String(s)) => {
-                            EvalValue::String(s.clone())
+                            EvalValue::String(Cow::Owned(s))
                         }
-                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n.clone()),
-                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b.clone()),
+                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n),
+                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b),
                         None => EvalValue::Null,
                     }
                 } else {
@@ -2017,14 +2019,14 @@ impl Graph {
 }
 
 #[derive(Clone, Debug)]
-enum EvalValue {
-    String(String),
+enum EvalValue<'a> {
+    String(Cow<'a, str>),
     Number(f64),
     Boolean(bool),
     Null,
 }
 
-impl EvalValue {
+impl<'a> EvalValue<'a> {
     fn partial_cmp(&self, other: &EvalValue) -> Option<std::cmp::Ordering> {
         if let (EvalValue::Null, EvalValue::Null) = (self, other) {
             return Some(std::cmp::Ordering::Equal);
