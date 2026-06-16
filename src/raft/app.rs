@@ -12,7 +12,6 @@ pub type AppRaft = Raft<TypeConfig>;
 pub struct App {
     pub id: u64,
     pub addr: String,
-    pub scheme: String,
     pub raft: AppRaft,
     pub config: Arc<Config>,
     pub graph: Arc<Mutex<Graph>>,
@@ -36,9 +35,8 @@ impl App {
         };
 
         let (log_store, state_machine) = openraft::storage::Adaptor::new(graph_store);
-        let scheme = if std::env::var("YAGDB_CERT").is_ok() { "https".to_string() } else { "http".to_string() };
 
-        let network = Network::new(scheme.clone());
+        let network = Network::new();
 
         let raft = Raft::new(id, config.clone(), network, log_store, state_machine)
             .await
@@ -47,7 +45,6 @@ impl App {
         Self {
             id,
             addr,
-            scheme,
             raft,
             config,
             graph,
