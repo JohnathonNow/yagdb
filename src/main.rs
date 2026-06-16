@@ -59,7 +59,7 @@ async fn main() {
         let shutdown_handle = handle.clone();
 
         tokio::spawn(async move {
-            shutdown_signal().await;
+            _shutdown_signal().await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
         });
 
