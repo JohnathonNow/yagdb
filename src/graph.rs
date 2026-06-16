@@ -336,8 +336,9 @@ pub struct Graph {
     pub nodes: ItemStorage<Node>,
     pub edges: ItemStorage<Edge>,
     pub labels: HashMap<String, usize>,
+    pub string_pool: crate::string_pool::StringPool,
     pub indices:
-        HashMap<usize, HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
+        HashMap<usize, HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
@@ -383,14 +384,19 @@ impl Graph {
                         graph.labels.insert(label, id);
                     }
                     WalEntry::AddNode { id, label, properties } => {
-                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+                        let mut interned_properties = HashMap::new();
+                        for (k, v) in properties.iter() {
+                            let key_id = graph.string_pool.intern(k);
+                            interned_properties.insert(key_id, v.clone());
+                        }
+                        let node = Node::new(id.clone(), vec![label], vec![], interned_properties.clone());
                         graph.nodes.push_item(node);
                         let node_id = graph.nodes.len_items() - 1;
 
                         // Update indices if any apply
                         if let Some(label_indices) = graph.indices.get_mut(&label) {
-                            for (prop_key, prop_index) in label_indices.iter_mut() {
-                                if let Some(prop_val) = properties.get(prop_key) {
+                            for (prop_key_id, prop_index) in label_indices.iter_mut() {
+                                if let Some(prop_val) = interned_properties.get(prop_key_id) {
                                     prop_index
                                         .entry(prop_val.clone())
                                         .or_insert_with(Vec::new)
@@ -406,7 +412,12 @@ impl Graph {
                         labels,
                         properties,
                     } => {
-                        let edge = Edge::new(id.clone(), labels, start, end, properties);
+                        let mut interned_properties = HashMap::new();
+                        for (k, v) in properties.iter() {
+                            let key_id = graph.string_pool.intern(k);
+                            interned_properties.insert(key_id, v.clone());
+                        }
+                        let edge = Edge::new(id.clone(), labels, start, end, interned_properties);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
                         { let mut n = graph.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(start, n); }
@@ -420,12 +431,13 @@ impl Graph {
                         key,
                         value,
                     } => {
+                        let key_id = graph.string_pool.intern(&key);
                         let mut __node = graph.nodes.get_item(node_id).unwrap();
-                        let old_value = __node.properties.insert(key.clone(), value.clone());
+                        let old_value = __node.properties.insert(key_id, value.clone());
                         graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
-                                if let Some(prop_index) = label_indices.get_mut(&key) {
+                                if let Some(prop_index) = label_indices.get_mut(&key_id) {
                                     // Remove from old index
                                     if let Some(old_val) = &old_value {
                                         if let Some(vec) = prop_index.get_mut(old_val) {
@@ -515,7 +527,8 @@ impl Graph {
                 );
                 let mut props = serde_json::Map::new();
                 for (k, v) in &node.properties {
-                    props.insert(k.clone(), v.to_json_value());
+                    let key_str = self.string_pool.resolve(*k).unwrap_or("".to_string());
+                    props.insert(key_str, v.to_json_value());
                 }
                 map.insert("properties".to_string(), Value::Object(props));
                 Value::Object(map)
@@ -534,7 +547,8 @@ impl Graph {
                 map.insert("end".to_string(), serde_json::to_value(edge.end).unwrap());
                 let mut props = serde_json::Map::new();
                 for (k, v) in &edge.properties {
-                    props.insert(k.clone(), v.to_json_value());
+                    let key_str = self.string_pool.resolve(*k).unwrap_or("".to_string());
+                    props.insert(key_str, v.to_json_value());
                 }
                 map.insert("properties".to_string(), Value::Object(props));
                 Value::Object(map)
@@ -641,6 +655,7 @@ impl Graph {
             nodes: ItemStorage::Memory(Vec::new()),
             edges: ItemStorage::Memory(Vec::new()),
             labels: HashMap::new(),
+            string_pool: crate::string_pool::StringPool::new(),
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
@@ -651,6 +666,7 @@ impl Graph {
         self.nodes.clear_items();
         self.edges.clear_items();
         self.labels.clear();
+        self.string_pool.clear();
         self.indices.clear();
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(file) = &mut self.wal_file {
@@ -691,15 +707,21 @@ impl Graph {
         label: usize,
         properties: HashMap<String, crate::property::PropertyValue>,
     ) -> usize {
+        let mut interned_properties = HashMap::new();
+        for (k, v) in properties.iter() {
+            let key_id = self.string_pool.intern(k);
+            interned_properties.insert(key_id, v.clone());
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
-        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+        let node = Node::new(id.clone(), vec![label], vec![], interned_properties.clone());
         self.nodes.push_item(node);
         let node_id = self.nodes.len_items() - 1;
 
         // Update indices if any apply
         if let Some(label_indices) = self.indices.get_mut(&label) {
-            for (prop_key, prop_index) in label_indices.iter_mut() {
-                if let Some(prop_val) = properties.get(prop_key) {
+            for (prop_key_id, prop_index) in label_indices.iter_mut() {
+                if let Some(prop_val) = interned_properties.get(prop_key_id) {
                     prop_index
                         .entry(prop_val.clone())
                         .or_insert_with(Vec::new)
@@ -718,21 +740,22 @@ impl Graph {
     }
 
     fn create_index_internal(&mut self, label: usize, property: String) {
+        let property_id = self.string_pool.intern(&property);
         if !self.indices.contains_key(&label) {
             self.indices.insert(label, HashMap::new());
         }
         let label_indices = self.indices.get_mut(&label).unwrap();
-        if !label_indices.contains_key(&property) {
-            label_indices.insert(property.clone(), HashMap::new());
+        if !label_indices.contains_key(&property_id) {
+            label_indices.insert(property_id, HashMap::new());
         }
-        let property_index = label_indices.get_mut(&property).unwrap();
+        let property_index = label_indices.get_mut(&property_id).unwrap();
 
         // Populate index with existing nodes
 
         for node_id in 0..self.nodes.len_items() {
             let node = self.nodes.get_item(node_id).unwrap();
             if node.labels.contains(&label) {
-                if let Some(value) = node.properties.get(&property) {
+                if let Some(value) = node.properties.get(&property_id) {
                     property_index
                         .entry(value.clone())
                         .or_insert_with(Vec::new)
@@ -749,8 +772,14 @@ impl Graph {
         labels: Vec<usize>,
         properties: HashMap<String, crate::property::PropertyValue>,
     ) -> usize {
+        let mut interned_properties = HashMap::new();
+        for (k, v) in properties.iter() {
+            let key_id = self.string_pool.intern(k);
+            interned_properties.insert(key_id, v.clone());
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
-        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
+        let edge = Edge::new(id.clone(), labels.clone(), start, end, interned_properties);
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
         { let mut n = self.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(start, n); }
@@ -785,7 +814,7 @@ impl Graph {
         let mut result_set = ResultSet::new();
         result_set.push_row(&HashMap::new());
 
-        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices, &mut self.string_pool);
 
         for step in plan.steps {
             match step {
@@ -872,19 +901,20 @@ impl Graph {
                     result_set = new_result_set;
                 }
                 ExecutionStep::Set(var, key, value) => {
+                    let key_id = self.string_pool.intern(&key);
                     let mut updated_nodes = std::collections::HashSet::new();
                     for i in 0..result_set.rows {
                         if let Some(GraphElement::Node(node_id)) = result_set.get(i, &var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
                                 let mut __node = self.nodes.get_item(node_id).unwrap();
-                                let old_value = __node.properties.insert(key.clone(), value.clone());
+                                let old_value = __node.properties.insert(key_id, value.clone());
                                 self.nodes.update_item(node_id, __node);
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
                                     if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
-                                        if let Some(prop_index) = label_indices.get_mut(&key) {
+                                        if let Some(prop_index) = label_indices.get_mut(&key_id) {
                                             // Remove from old index
                                             if let Some(old_val) = &old_value {
                                                 if let Some(vec) = prop_index.get_mut(old_val) {
@@ -1423,7 +1453,8 @@ impl Graph {
                 let mut candidate_ids = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     if let Some(label_indices) = self.indices.get(label_id) {
-                        if let Some(prop_index) = label_indices.get(property) {
+                        let prop_id = self.string_pool.intern(property);
+                        if let Some(prop_index) = label_indices.get(&prop_id) {
                             if let Some(node_ids) = prop_index.get(value) {
                                 candidate_ids.extend(node_ids.iter().copied());
                             }
@@ -1789,7 +1820,8 @@ impl Graph {
             if let Some(label_id) = self.labels.get(label_name) {
                 if let Some(label_indices) = self.indices.get(label_id) {
                     for (prop_name, prop_value) in &pattern.properties {
-                        if let Some(prop_index) = label_indices.get(prop_name) {
+                        let prop_id = self.string_pool.intern(prop_name);
+                        if let Some(prop_index) = label_indices.get(&prop_id) {
                             if let Some(node_ids) = prop_index.get(prop_value) {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
@@ -1839,7 +1871,8 @@ impl Graph {
         }
 
         for (k, v) in &pattern.properties {
-            if node.properties.get(k) != Some(v) {
+            let key_id = self.string_pool.intern(k);
+            if node.properties.get(&key_id) != Some(v) {
                 return false;
             }
         }
@@ -1925,7 +1958,8 @@ impl Graph {
         }
 
         for (k, v) in &pattern.properties {
-            if edge.properties.get(k) != Some(v) {
+            let key_id = self.string_pool.intern(k);
+            if edge.properties.get(&key_id) != Some(v) {
                 return false;
             }
         }
@@ -1951,10 +1985,11 @@ impl Graph {
     }
 
     fn get_property_as_element(&self, in_res: &ResultSet, row_idx: usize, var: &str, prop: &str) -> Option<GraphElement> {
+        let prop_id = self.string_pool.intern(prop);
         if let Some(element) = in_res.get(row_idx, var) {
             let prop_val = match element {
-                GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(&prop_id).cloned(),
+                GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(&prop_id).cloned(),
                 _ => None,
             };
             match prop_val {
@@ -1996,10 +2031,11 @@ impl Graph {
                 }
             }
             Expression::Property(var, prop) => {
+                let prop_id = self.string_pool.intern(prop);
                 if let Some(element) = in_res.get(row_idx, var) {
                     let prop_val = match element {
-                        GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                        GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                        GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(&prop_id).cloned(),
+                        GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(&prop_id).cloned(),
                         _ => None,
                     };
                     match prop_val {

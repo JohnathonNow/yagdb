@@ -46,8 +46,9 @@ impl QueryPlanner {
         labels: &HashMap<String, usize>,
         indices: &HashMap<
             usize,
-            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
+        string_pool: &mut crate::string_pool::StringPool,
     ) -> PlanNode {
         // Ensure the start node has a variable for chaining.
         let mut start_pattern = path.start.clone();
@@ -56,7 +57,7 @@ impl QueryPlanner {
         }
 
         // Build the start node plan
-        let mut plan = Self::plan_node_lookup(&start_pattern, labels, indices);
+        let mut plan = Self::plan_node_lookup(&start_pattern, labels, indices, string_pool);
 
         let mut prev_node_pattern = start_pattern.clone();
         // Chain PathExpand for each edge
@@ -88,17 +89,18 @@ impl QueryPlanner {
         labels: &HashMap<String, usize>,
         indices: &HashMap<
             usize,
-            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
+        string_pool: &mut crate::string_pool::StringPool,
     ) -> Option<PlanNode> {
         if paths.is_empty() {
             return None;
         }
-        let mut plan = Self::plan_match_path(&paths[0], labels, indices);
+        let mut plan = Self::plan_match_path(&paths[0], labels, indices, string_pool);
         for path in paths.iter().skip(1) {
             plan = PlanNode::CrossProduct {
                 left: Box::new(plan),
-                right: Box::new(Self::plan_match_path(path, labels, indices)),
+                right: Box::new(Self::plan_match_path(path, labels, indices, string_pool)),
             };
         }
         Some(plan)
@@ -109,14 +111,16 @@ impl QueryPlanner {
         labels: &HashMap<String, usize>,
         indices: &HashMap<
             usize,
-            HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>,
+            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
         >,
+        string_pool: &mut crate::string_pool::StringPool,
     ) -> PlanNode {
         if let Some(label_name) = &pattern.label {
             if let Some(label_id) = labels.get(label_name) {
                 if let Some(label_indices) = indices.get(label_id) {
                     for (prop_name, prop_value) in &pattern.properties {
-                        if label_indices.contains_key(prop_name) {
+                        let prop_id = string_pool.intern(prop_name);
+                        if label_indices.contains_key(&prop_id) {
                             // We have an index for this property!
                             return PlanNode::NodeIndexLookup {
                                 label: label_name.clone(),
@@ -165,20 +169,21 @@ impl QueryPlanner {
     pub fn plan_query(
         query: Query,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<String, HashMap<PropertyValue, Vec<usize>>>>,
+        indices: &HashMap<usize, HashMap<usize, HashMap<PropertyValue, Vec<usize>>>>,
+        string_pool: &mut crate::string_pool::StringPool,
     ) -> QueryPlan {
         let mut steps = Vec::new();
         for clause in query.clauses {
             let step = match clause {
                 Clause::Create(paths) => ExecutionStep::Create(paths),
                 Clause::Match(paths, condition, limit) => {
-                    let plan = Self::plan_match_paths(&paths, labels, indices);
+                    let plan = Self::plan_match_paths(&paths, labels, indices, string_pool);
                     ExecutionStep::Match(plan, paths, condition, limit)
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();
                     for path in paths {
-                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices);
+                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices, string_pool);
                         planned_paths.push((plan, path));
                     }
                     ExecutionStep::Merge(planned_paths)
