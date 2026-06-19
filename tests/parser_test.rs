@@ -218,3 +218,9 @@ fn test_with_and_aggregates_parse() {
         _ => panic!("Expected Return clause"),
     }
 }
+#[test]
+fn test_list_and_map_literals() {
+    let query_str = "RETURN [1, 2, 'three'], {name: 'Alice', age: 30}";
+    let (rest, _query) = yagdb::parser::parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+}

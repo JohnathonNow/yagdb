@@ -46,6 +46,8 @@ pub enum Expression {
     BooleanLiteral(bool),
     Variable(String),
     Function(String, Vec<Expression>),
+    List(Vec<Expression>),
+    Map(std::collections::HashMap<String, Expression>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -85,6 +87,10 @@ pub enum ProjectionItem {
     Function {
         func: String,
         args: Vec<Expression>,
+        alias: Option<String>,
+    },
+    Expression {
+        expr: Expression,
         alias: Option<String>,
     },
 }
@@ -301,6 +307,33 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             |(func, _, args, _)| Expression::Function(func.to_string(), args),
         ),
         map(ws(identifier), |var| Expression::Variable(var.to_string())),
+        |i| {
+            let (i, list) = delimited(
+                ws(char('[')),
+                nom::multi::separated_list0(ws(char(',')), expression),
+                ws(char(']')),
+            )(i)?;
+            Ok((i, Expression::List(list)))
+        },
+        |i| {
+            let (i, pairs) = delimited(
+                ws(char('{')),
+                nom::multi::separated_list0(ws(char(',')), tuple((
+                    ws(alt((
+                        map(identifier, |s| s.to_string()),
+                        map(string_literal, |s| s.to_string())
+                    ))),
+                    ws(char(':')),
+                    expression
+                ))),
+                ws(char('}')),
+            )(i)?;
+            let mut map = std::collections::HashMap::new();
+            for (k, _, v) in pairs {
+                map.insert(k.to_string(), v);
+            }
+            Ok((i, Expression::Map(map)))
+        },
     ))(input)
 }
 
@@ -458,6 +491,17 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                     Ok((i, ProjectionItem::Variable(var.to_string())))
                 }
             }
+        },
+        |i| {
+            let (i, expr) = expression(i)?;
+            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
+            Ok((
+                i,
+                ProjectionItem::Expression {
+                    expr,
+                    alias: alias.map(|s| s.to_string()),
+                },
+            ))
         },
     ))(input)
 }

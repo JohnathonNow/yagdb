@@ -57,6 +57,7 @@ pub enum GraphElement {
     EdgeArray(Vec<usize>),
     Path(Vec<GraphElement>),
     List(Vec<GraphElement>),
+    Map(HashMap<String, GraphElement>),
     Number(f64),
     String(String),
     Boolean(bool),
@@ -556,6 +557,13 @@ impl Graph {
                     elements.iter().map(|el| self.element_to_json(el)).collect();
                 serde_json::to_value(&list_out).unwrap()
             }
+            GraphElement::Map(map) => {
+                let mut map_out = serde_json::Map::new();
+                for (k, v) in map {
+                    map_out.insert(k.clone(), self.element_to_json(v));
+                }
+                Value::Object(map_out)
+            }
             GraphElement::Number(n) => json!(n),
             GraphElement::String(ref s) => json!(s),
             GraphElement::Boolean(b) => json!(b),
@@ -584,6 +592,13 @@ impl Graph {
                     list_out.push(self.format_element(el));
                 }
                 format!("[{}]", list_out.join(", "))
+            }
+            GraphElement::Map(map) => {
+                let mut map_out = Vec::new();
+                for (k, v) in map {
+                    map_out.push(format!("{}: {}", k, self.format_element(v)));
+                }
+                format!("{{{}}}", map_out.join(", "))
             }
             GraphElement::Number(n) => format!("{}", n),
             GraphElement::String(ref s) => format!("\"{}\"", s),
@@ -1035,6 +1050,9 @@ impl Graph {
                             ProjectionItem::Function { .. } => {
                                 // Function without aggregate isn't an aggregate grouping key directly
                             }
+                            ProjectionItem::Expression { expr: _, alias: _ } => {
+                                grouping_items.push(item.clone())
+                            }
                             ProjectionItem::Star => {} // Already handled above
                         }
                     }
@@ -1098,6 +1116,13 @@ impl Graph {
                                             if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
                                                 bindings.push((alias.clone(), val));
                                             }
+                                        }
+                                    }
+                                    ProjectionItem::Expression { expr, alias } => {
+                                        if let Some(first_idx) = group_rows.first() {
+                                            let val = self.evaluate_expression_to_element(expr, &result_set, *first_idx);
+                                            let out_key = alias.clone().unwrap_or_else(|| "expr".to_string());
+                                            bindings.push((out_key, val));
                                         }
                                     }
                                     ProjectionItem::Aggregate { func, var, alias } => {
@@ -1189,6 +1214,11 @@ impl Graph {
                                             bindings.push((out_key, GraphElement::Number(0f64)));
                                         }
                                     }
+                                    ProjectionItem::Expression { expr, alias } => {
+                                        let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                        let out_key = alias.clone().unwrap_or_else(|| "expr".to_string());
+                                        bindings.push((out_key, val));
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1250,6 +1280,9 @@ impl Graph {
                                         .clone()
                                         .unwrap_or_else(|| format!("{}()", func)),
                                     ProjectionItem::Star => continue,
+                                    ProjectionItem::Expression { alias, .. } => alias
+                                        .clone()
+                                        .unwrap_or_else(|| "expr".to_string()),
                                 };
                                 if let Some(element) = final_res.get(i, &key) {
                                     row.insert(key, self.element_to_json(element));
@@ -1968,6 +2001,38 @@ impl Graph {
         }
     }
 
+    fn evaluate_expression_to_element(&self, expr: &Expression, in_res: &ResultSet, row_idx: usize) -> GraphElement {
+        match expr {
+            Expression::StringLiteral(s) => GraphElement::String(s.clone()),
+            Expression::NumberLiteral(n) => GraphElement::Number(*n),
+            Expression::BooleanLiteral(b) => GraphElement::Boolean(*b),
+            Expression::Variable(var) => {
+                in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
+            }
+            Expression::Function(func, _args) => {
+                if func.eq_ignore_ascii_case("rand") {
+                    GraphElement::Number(0f64)
+                } else {
+                    GraphElement::Null
+                }
+            }
+            Expression::Property(var, prop) => {
+                self.get_property_as_element(in_res, row_idx, var, prop).unwrap_or(GraphElement::Null)
+            }
+            Expression::List(elements) => {
+                let lst: Vec<GraphElement> = elements.iter().map(|e| self.evaluate_expression_to_element(e, in_res, row_idx)).collect();
+                GraphElement::List(lst)
+            }
+            Expression::Map(map) => {
+                let mut result_map = HashMap::new();
+                for (k, v) in map {
+                    result_map.insert(k.clone(), self.evaluate_expression_to_element(v, in_res, row_idx));
+                }
+                GraphElement::Map(result_map)
+            }
+        }
+    }
+
     fn evaluate_expression<'a>(&'a self, expr: &'a Expression, in_res: &'a ResultSet, row_idx: usize) -> EvalValue<'a> {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(Cow::Borrowed(s.as_str())),
@@ -1980,7 +2045,7 @@ impl Graph {
             GraphElement::String(ref s) => EvalValue::String(Cow::Borrowed(s.as_str())),
             GraphElement::Boolean(b) => EvalValue::Boolean(*b),
             GraphElement::Null => EvalValue::Null,
-                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
+                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) | GraphElement::Map(_) => {
                             EvalValue::String(Cow::Owned(self.format_element(element)))
                         }
                     }
@@ -2014,6 +2079,8 @@ impl Graph {
                     EvalValue::Null
                 }
             }
+            Expression::List(_) => EvalValue::Null,
+            Expression::Map(_) => EvalValue::Null,
         }
     }
 }
