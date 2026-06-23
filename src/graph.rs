@@ -93,7 +93,13 @@ impl ResultSet {
     pub fn push_row(&mut self, env: &Environment) {
         let current_rows = self.rows;
         for (k, v) in env {
-            let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+            let col = match self.columns.get_mut(k) {
+                Some(c) => c,
+                None => {
+                    self.columns.insert(k.clone(), vec![GraphElement::Null; current_rows]);
+                    self.columns.get_mut(k).unwrap()
+                }
+            };
             col.push(v.clone());
         }
         self.rows += 1;
@@ -127,12 +133,25 @@ impl ResultSet {
         for (k, v) in &other.columns {
             let val = &v[row_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+                let col = match self.columns.get_mut(k) {
+                    Some(c) => c,
+                    None => {
+                        self.columns.insert(k.clone(), vec![GraphElement::Null; current_rows]);
+                        self.columns.get_mut(k).unwrap()
+                    }
+                };
                 col.push(val.clone());
             }
         }
         for (k, v) in bindings {
-            let col = self.columns.entry(k.as_ref().to_string()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+            let k_ref = k.as_ref();
+            let col = match self.columns.get_mut(k_ref) {
+                Some(c) => c,
+                None => {
+                    self.columns.insert(k_ref.to_string(), vec![GraphElement::Null; current_rows]);
+                    self.columns.get_mut(k_ref).unwrap()
+                }
+            };
             if col.len() > current_rows {
                 col[current_rows] = v.clone();
             } else {
@@ -152,14 +171,26 @@ impl ResultSet {
         for (k, v) in &left.columns {
             let val = &v[l_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+                let col = match self.columns.get_mut(k) {
+                    Some(c) => c,
+                    None => {
+                        self.columns.insert(k.clone(), vec![GraphElement::Null; current_rows]);
+                        self.columns.get_mut(k).unwrap()
+                    }
+                };
                 col.push(val.clone());
             }
         }
         for (k, v) in &right.columns {
             let val = &v[r_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+                let col = match self.columns.get_mut(k) {
+                    Some(c) => c,
+                    None => {
+                        self.columns.insert(k.clone(), vec![GraphElement::Null; current_rows]);
+                        self.columns.get_mut(k).unwrap()
+                    }
+                };
                 if col.len() > current_rows {
                     col[current_rows] = val.clone();
                 } else {
@@ -1611,7 +1642,13 @@ impl Graph {
                     }
 
                     let current_rows = out.rows;
-                    let col = out.columns.entry(bound_var.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
+                    let col = match out.columns.get_mut(bound_var) {
+                        Some(c) => c,
+                        None => {
+                            out.columns.insert(bound_var.clone(), vec![GraphElement::Null; current_rows]);
+                            out.columns.get_mut(bound_var).unwrap()
+                        }
+                    };
                     col[i] = GraphElement::Path(path_elements);
                 }
             }
