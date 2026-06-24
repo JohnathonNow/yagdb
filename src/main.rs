@@ -56,10 +56,10 @@ async fn main() {
             .await
             .unwrap();
 
-        //let handle = axum_server::Handle::new();
-        //let shutdown_handle = handle.clone();
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
 
-        /*
+
         tokio::spawn(async move {
             _shutdown_signal().await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
@@ -70,7 +70,7 @@ async fn main() {
             .serve(app.into_make_service())
             .await
             .unwrap();
-        */
+
     } else {
         axum::Server::bind(&addr)
             .serve(app.into_make_service())
