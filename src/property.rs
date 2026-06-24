@@ -39,6 +39,37 @@ impl PartialEq for PropertyValue {
 
 impl Eq for PropertyValue {}
 
+impl PartialOrd for PropertyValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (PropertyValue::String(a), PropertyValue::String(b)) => a.partial_cmp(b),
+            (PropertyValue::Number(a), PropertyValue::Number(b)) => {
+                if a.is_nan() && b.is_nan() {
+                    Some(std::cmp::Ordering::Equal)
+                } else if a.is_nan() {
+                    Some(std::cmp::Ordering::Less)
+                } else if b.is_nan() {
+                    Some(std::cmp::Ordering::Greater)
+                } else {
+                    a.partial_cmp(b)
+                }
+            }
+            (PropertyValue::Boolean(a), PropertyValue::Boolean(b)) => a.partial_cmp(b),
+            // Cross-type ordering: Boolean < Number < String
+            (PropertyValue::Boolean(_), _) => Some(std::cmp::Ordering::Less),
+            (_, PropertyValue::Boolean(_)) => Some(std::cmp::Ordering::Greater),
+            (PropertyValue::Number(_), PropertyValue::String(_)) => Some(std::cmp::Ordering::Less),
+            (PropertyValue::String(_), PropertyValue::Number(_)) => Some(std::cmp::Ordering::Greater),
+        }
+    }
+}
+
+impl Ord for PropertyValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 impl Hash for PropertyValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {

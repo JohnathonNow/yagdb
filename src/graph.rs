@@ -20,6 +20,18 @@ use crate::{
     },
 };
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum IndexType {
+    Hash,
+    BTree,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum IndexMap {
+    Hash(HashMap<crate::property::PropertyValue, Vec<usize>>),
+    BTree(std::collections::BTreeMap<crate::property::PropertyValue, Vec<usize>>),
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WalEntry {
     AddLabel {
@@ -40,6 +52,7 @@ pub enum WalEntry {
     CreateIndex {
         label: usize,
         property: String,
+        index_type: crate::graph::IndexType,
     },
     SetNodeProperty {
         node_id: usize,
@@ -336,8 +349,7 @@ pub struct Graph {
     pub nodes: ItemStorage<Node>,
     pub edges: ItemStorage<Edge>,
     pub labels: HashMap<String, usize>,
-    pub indices:
-        HashMap<usize, HashMap<String, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
+    pub indices: HashMap<usize, HashMap<String, IndexMap>>,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
@@ -391,10 +403,14 @@ impl Graph {
                         if let Some(label_indices) = graph.indices.get_mut(&label) {
                             for (prop_key, prop_index) in label_indices.iter_mut() {
                                 if let Some(prop_val) = properties.get(prop_key) {
-                                    prop_index
-                                        .entry(prop_val.clone())
-                                        .or_insert_with(Vec::new)
-                                        .push(node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                        }
+                                        IndexMap::BTree(map) => {
+                                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -412,8 +428,8 @@ impl Graph {
                         { let mut n = graph.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(start, n); }
                         { let mut n = graph.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(end, n); }
                     }
-                    WalEntry::CreateIndex { label, property } => {
-                        graph.create_index_internal(label, property);
+                    WalEntry::CreateIndex { label, property, index_type } => {
+                        graph.create_index_internal(label, property, index_type);
                     }
                     WalEntry::SetNodeProperty {
                         node_id,
@@ -426,17 +442,33 @@ impl Graph {
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
-                                    // Remove from old index
-                                    if let Some(old_val) = &old_value {
-                                        if let Some(vec) = prop_index.get_mut(old_val) {
-                                            vec.retain(|&id| id != node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            // Remove from old index
+                                            if let Some(old_val) = &old_value {
+                                                if let Some(vec) = map.get_mut(old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            // Add to new index if not already present
+                                            let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
+                                            if !entry_vec.contains(&node_id) {
+                                                entry_vec.push(node_id);
+                                            }
                                         }
-                                    }
-                                    // Add to new index if not already present
-                                    let entry_vec =
-                                        prop_index.entry(value.clone()).or_insert_with(Vec::new);
-                                    if !entry_vec.contains(&node_id) {
-                                        entry_vec.push(node_id);
+                                        IndexMap::BTree(map) => {
+                                            // Remove from old index
+                                            if let Some(old_val) = &old_value {
+                                                if let Some(vec) = map.get_mut(old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            // Add to new index if not already present
+                                            let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
+                                            if !entry_vec.contains(&node_id) {
+                                                entry_vec.push(node_id);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -447,8 +479,17 @@ impl Graph {
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
-                                    for (_, vec) in prop_index.iter_mut() {
-                                        vec.retain(|&id| id != node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            for (_, vec) in map.iter_mut() {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
+                                        IndexMap::BTree(map) => {
+                                            for (_, vec) in map.iter_mut() {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -700,10 +741,14 @@ impl Graph {
         if let Some(label_indices) = self.indices.get_mut(&label) {
             for (prop_key, prop_index) in label_indices.iter_mut() {
                 if let Some(prop_val) = properties.get(prop_key) {
-                    prop_index
-                        .entry(prop_val.clone())
-                        .or_insert_with(Vec::new)
-                        .push(node_id);
+                    match prop_index {
+                        IndexMap::Hash(map) => {
+                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                        }
+                        IndexMap::BTree(map) => {
+                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                        }
+                    }
                 }
             }
         }
@@ -712,18 +757,22 @@ impl Graph {
         node_id
     }
 
-    pub fn create_index(&mut self, label: usize, property: String) {
-        self.create_index_internal(label, property.clone());
-        self.log_wal(&WalEntry::CreateIndex { label, property });
+    pub fn create_index(&mut self, label: usize, property: String, index_type: IndexType) {
+        self.create_index_internal(label, property.clone(), index_type.clone());
+        self.log_wal(&WalEntry::CreateIndex { label, property, index_type });
     }
 
-    fn create_index_internal(&mut self, label: usize, property: String) {
+    fn create_index_internal(&mut self, label: usize, property: String, index_type: IndexType) {
         if !self.indices.contains_key(&label) {
             self.indices.insert(label, HashMap::new());
         }
         let label_indices = self.indices.get_mut(&label).unwrap();
         if !label_indices.contains_key(&property) {
-            label_indices.insert(property.clone(), HashMap::new());
+            let index_map = match index_type {
+                IndexType::Hash => IndexMap::Hash(HashMap::new()),
+                IndexType::BTree => IndexMap::BTree(std::collections::BTreeMap::new()),
+            };
+            label_indices.insert(property.clone(), index_map);
         }
         let property_index = label_indices.get_mut(&property).unwrap();
 
@@ -733,10 +782,14 @@ impl Graph {
             let node = self.nodes.get_item(node_id).unwrap();
             if node.labels.contains(&label) {
                 if let Some(value) = node.properties.get(&property) {
-                    property_index
-                        .entry(value.clone())
-                        .or_insert_with(Vec::new)
-                        .push(node_id);
+                    match property_index {
+                        IndexMap::Hash(map) => {
+                            map.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                        }
+                        IndexMap::BTree(map) => {
+                            map.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                        }
+                    }
                 }
             }
         }
@@ -885,18 +938,33 @@ impl Graph {
                                 for (label_id, label_indices) in self.indices.iter_mut() {
                                     if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
-                                            // Remove from old index
-                                            if let Some(old_val) = &old_value {
-                                                if let Some(vec) = prop_index.get_mut(old_val) {
-                                                    vec.retain(|&id| id != node_id);
+                                            match prop_index {
+                                                IndexMap::Hash(map) => {
+                                                    // Remove from old index
+                                                    if let Some(old_val) = &old_value {
+                                                        if let Some(vec) = map.get_mut(old_val) {
+                                                            vec.retain(|&id| id != node_id);
+                                                        }
+                                                    }
+                                                    // Add to new index
+                                                    let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
+                                                    if !entry_vec.contains(&node_id) {
+                                                        entry_vec.push(node_id);
+                                                    }
                                                 }
-                                            }
-                                            // Add to new index
-                                            let entry_vec = prop_index
-                                                .entry(value.clone())
-                                                .or_insert_with(Vec::new);
-                                            if !entry_vec.contains(&node_id) {
-                                                entry_vec.push(node_id);
+                                                IndexMap::BTree(map) => {
+                                                    // Remove from old index
+                                                    if let Some(old_val) = &old_value {
+                                                        if let Some(vec) = map.get_mut(old_val) {
+                                                            vec.retain(|&id| id != node_id);
+                                                        }
+                                                    }
+                                                    // Add to new index
+                                                    let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
+                                                    if !entry_vec.contains(&node_id) {
+                                                        entry_vec.push(node_id);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -941,8 +1009,17 @@ impl Graph {
                             for (label_id, label_indices) in self.indices.iter_mut() {
                                 if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
-                                        for (_, vec) in prop_index.iter_mut() {
-                                            vec.retain(|&id| id != node_id);
+                                        match prop_index {
+                                            IndexMap::Hash(map) => {
+                                                for (_, vec) in map.iter_mut() {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            IndexMap::BTree(map) => {
+                                                for (_, vec) in map.iter_mut() {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1272,9 +1349,9 @@ impl Graph {
                         }
                     }
                 }
-                ExecutionStep::CreateIndex { label, property } => {
+                ExecutionStep::CreateIndex { label, property, index_type } => {
                     let label_id = self.get_or_add_label(&label);
-                    self.create_index(label_id, property);
+                    self.create_index(label_id, property, index_type);
                 }
             }
         }
@@ -1424,7 +1501,11 @@ impl Graph {
                 if let Some(label_id) = self.labels.get(label) {
                     if let Some(label_indices) = self.indices.get(label_id) {
                         if let Some(prop_index) = label_indices.get(property) {
-                            if let Some(node_ids) = prop_index.get(value) {
+                            let node_ids_opt = match prop_index {
+                                IndexMap::Hash(map) => map.get(value),
+                                IndexMap::BTree(map) => map.get(value),
+                            };
+                            if let Some(node_ids) = node_ids_opt {
                                 candidate_ids.extend(node_ids.iter().copied());
                             }
                         }
@@ -1790,7 +1871,11 @@ impl Graph {
                 if let Some(label_indices) = self.indices.get(label_id) {
                     for (prop_name, prop_value) in &pattern.properties {
                         if let Some(prop_index) = label_indices.get(prop_name) {
-                            if let Some(node_ids) = prop_index.get(prop_value) {
+                            let node_ids_opt = match prop_index {
+                                IndexMap::Hash(map) => map.get(prop_value),
+                                IndexMap::BTree(map) => map.get(prop_value),
+                            };
+                            if let Some(node_ids) = node_ids_opt {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {

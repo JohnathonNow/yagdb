@@ -95,7 +95,7 @@ pub enum Clause {
     Match(Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, crate::property::PropertyValue),
-    CreateIndex { label: String, property: String },
+    CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
@@ -481,14 +481,29 @@ fn with_clause(input: &str) -> IResult<&str, Clause> {
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {
-    let (input, _) = ws(alt((tag("CREATE INDEX ON"), tag("create index on"))))(input)?;
+    let (input, _) = ws(alt((tag("CREATE"), tag("create"))))(input)?;
+
+    let (input, index_type_opt) = opt(ws(alt((
+        tag("BTREE"), tag("btree"),
+        tag("HASH"), tag("hash")
+    ))))(input)?;
+
+    let (input, _) = ws(alt((tag("INDEX ON"), tag("index on"))))(input)?;
+
     let (input, label) = preceded(ws(char(':')), ws(identifier))(input)?;
     let (input, property) = delimited(ws(char('(')), ws(identifier), ws(char(')')))(input)?;
+
+    let index_type = match index_type_opt {
+        Some(s) if s.eq_ignore_ascii_case("BTREE") => crate::graph::IndexType::BTree,
+        _ => crate::graph::IndexType::Hash,
+    };
+
     Ok((
         input,
         Clause::CreateIndex {
             label: label.to_string(),
             property: property.to_string(),
+            index_type,
         },
     ))
 }
