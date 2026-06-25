@@ -439,10 +439,18 @@ impl Graph {
                                 if let Some(prop_val) = properties.get(prop_key) {
                                     match prop_index {
                                         IndexMap::Hash(map) => {
-                                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
                                         }
                                         IndexMap::BTree(map) => {
-                                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
                                         }
                                     }
                                 }
@@ -485,9 +493,12 @@ impl Graph {
                                                 }
                                             }
                                             // Add to new index if not already present
-                                            let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
-                                            if !entry_vec.contains(&node_id) {
-                                                entry_vec.push(node_id);
+                                            if let Some(entry_vec) = map.get_mut(&value) {
+                                                if !entry_vec.contains(&node_id) {
+                                                    entry_vec.push(node_id);
+                                                }
+                                            } else {
+                                                map.insert(value.clone(), vec![node_id]);
                                             }
                                         }
                                         IndexMap::BTree(map) => {
@@ -498,9 +509,12 @@ impl Graph {
                                                 }
                                             }
                                             // Add to new index if not already present
-                                            let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
-                                            if !entry_vec.contains(&node_id) {
-                                                entry_vec.push(node_id);
+                                            if let Some(entry_vec) = map.get_mut(&value) {
+                                                if !entry_vec.contains(&node_id) {
+                                                    entry_vec.push(node_id);
+                                                }
+                                            } else {
+                                                map.insert(value.clone(), vec![node_id]);
                                             }
                                         }
                                     }
@@ -791,10 +805,18 @@ impl Graph {
                 if let Some(prop_val) = properties.get(prop_key) {
                     match prop_index {
                         IndexMap::Hash(map) => {
-                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
                         }
                         IndexMap::BTree(map) => {
-                            map.entry(prop_val.clone()).or_insert_with(Vec::new).push(node_id);
+                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
                         }
                     }
                 }
@@ -832,10 +854,18 @@ impl Graph {
                 if let Some(value) = node.properties.get(&property) {
                     match property_index {
                         IndexMap::Hash(map) => {
-                            map.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                            if let Some(vec) = map.get_mut(value) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(value.clone(), vec![node_id]);
+                                        }
                         }
                         IndexMap::BTree(map) => {
-                            map.entry(value.clone()).or_insert_with(Vec::new).push(node_id);
+                            if let Some(vec) = map.get_mut(value) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(value.clone(), vec![node_id]);
+                                        }
                         }
                     }
                 }
@@ -995,9 +1025,12 @@ impl Graph {
                                                         }
                                                     }
                                                     // Add to new index
-                                                    let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
-                                                    if !entry_vec.contains(&node_id) {
-                                                        entry_vec.push(node_id);
+                                                    if let Some(entry_vec) = map.get_mut(&value) {
+                                                        if !entry_vec.contains(&node_id) {
+                                                            entry_vec.push(node_id);
+                                                        }
+                                                    } else {
+                                                        map.insert(value.clone(), vec![node_id]);
                                                     }
                                                 }
                                                 IndexMap::BTree(map) => {
@@ -1008,9 +1041,12 @@ impl Graph {
                                                         }
                                                     }
                                                     // Add to new index
-                                                    let entry_vec = map.entry(value.clone()).or_insert_with(Vec::new);
-                                                    if !entry_vec.contains(&node_id) {
-                                                        entry_vec.push(node_id);
+                                                    if let Some(entry_vec) = map.get_mut(&value) {
+                                                        if !entry_vec.contains(&node_id) {
+                                                            entry_vec.push(node_id);
+                                                        }
+                                                    } else {
+                                                        map.insert(value.clone(), vec![node_id]);
                                                     }
                                                 }
                                             }
