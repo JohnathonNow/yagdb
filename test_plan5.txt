@@ -1,0 +1,54 @@
+In `src/raft/server.rs`:
+```rust
+async fn handle_query(...)
+...
+    } else {
+        // Read query, can be handled locally by any node because state is updated via Raft
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel_clone = cancel.clone();
+
+        struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for CancelGuard {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        let _guard = CancelGuard(cancel_clone);
+
+        let mut g = app.graph.clone().lock_owned().await;
+        g.cancel_flag = cancel;
+
+        let res = tokio::task::spawn_blocking(move || {
+            let result = g.execute(&body);
+            g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            result
+        }).await.unwrap_or(Err("Request cancelled".to_string()));
+
+        Ok(Json(QueryRes { result: res }))
+    }
+```
+Wait, we do `g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));` which sets it back. What if `spawn_blocking` panics or is cancelled? `g` will be dropped, returning it to the Mutex which is fine, but the flag would remain as `cancel`. That's okay because the request is over and the flag is set to `true`. Wait, if the flag is true, next time someone uses `g`, they will immediately see `Cancelled`.
+Oh! `g.cancel_flag` MUST be reset BEFORE being returned to the Mutex pool!
+But if it's dropped inside `spawn_blocking`, it goes back to the `Arc<Mutex<Graph>>`!
+Actually, `Mutex` guards revert to the Mutex when dropped. If it panics inside `spawn_blocking`, `g` is dropped and `cancel_flag` remains what it was.
+So we should wrap `g` in a struct that resets `cancel_flag` on drop.
+```rust
+struct GraphGuard {
+    g: tokio::sync::OwnedMutexGuard<yagdb::graph::Graph>,
+}
+impl Drop for GraphGuard {
+    fn drop(&mut self) {
+        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    }
+}
+```
+Then:
+```rust
+    let mut g = app.graph.clone().lock_owned().await;
+    g.cancel_flag = cancel;
+    let mut guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || {
+        guard.g.execute(&body)
+    }).await.unwrap_or(Err("Request cancelled".to_string()));
+```
+This is very robust! We will apply this wrapper.

@@ -13,6 +13,21 @@ use std::sync::Arc;
 
 pub type AppState = Arc<App>;
 
+struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+struct GraphGuard {
+    g: tokio::sync::OwnedMutexGuard<crate::graph::Graph>,
+}
+impl Drop for GraphGuard {
+    fn drop(&mut self) {
+        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct QueryReq {
     pub query: String,
@@ -101,8 +116,14 @@ async fn handle_query(
         }
     } else {
         // Read query, can be handled locally by any node because state is updated via Raft
-        let mut g = app.graph.lock().await;
-        let res = g.execute(&body);
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _guard = CancelGuard(cancel.clone());
+        let mut g = app.graph.clone().lock_owned().await;
+        g.cancel_flag = cancel;
+        let mut guard = GraphGuard { g };
+        let res = tokio::task::spawn_blocking(move || {
+            guard.g.execute(&body)
+        }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
         Ok(Json(QueryRes { result: res }))
     }
 }
@@ -160,8 +181,14 @@ async fn handle_query_stream(
             }
         }
     } else {
-        let mut g = app.graph.lock().await;
-        g.execute(&body)
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _guard = CancelGuard(cancel.clone());
+        let mut g = app.graph.clone().lock_owned().await;
+        g.cancel_flag = cancel;
+        let mut guard = GraphGuard { g };
+        tokio::task::spawn_blocking(move || {
+            guard.g.execute(&body)
+        }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()))
     };
 
     match result_to_stream {

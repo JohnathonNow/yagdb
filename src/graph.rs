@@ -9,6 +9,15 @@ use std::io::Seek;
 use std::io::Write;
 
 use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn default_cancel_flag() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
 
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
@@ -387,6 +396,10 @@ pub struct Graph {
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
+    #[serde(skip)]
+    #[serde(default = "default_cancel_flag")]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -747,6 +760,8 @@ impl Graph {
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -919,6 +934,10 @@ impl Graph {
         let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
 
         for step in plan.steps {
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.cancel_flag.load(Ordering::Relaxed) {
+                return Err("Query cancelled".to_string());
+            }
             match step {
                 ExecutionStep::Create(paths) => {
                     let mut new_result_set = ResultSet::new();
@@ -1547,6 +1566,9 @@ impl Graph {
         depth: usize,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         let indent = "  ".repeat(depth);
         let op_name;
 
@@ -1816,6 +1838,9 @@ impl Graph {
         out: &mut ResultSet,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
             out.push_row_from(in_res, row_idx, &[] as &[(&str, GraphElement)]);
@@ -1882,6 +1907,9 @@ impl Graph {
         path_edges: Vec<usize>,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 
