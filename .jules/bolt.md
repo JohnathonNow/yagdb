@@ -1,3 +1,5 @@
-## 2024-05-23 - Avoid redundant memory allocations in HashMap::entry
-**Learning:** In hot execution paths, using `HashMap::entry(k.clone())` causes an unconditional memory allocation (cloning the key string), even if the key already exists in the map. This leads to severe O(N*M) allocation overhead when accumulating query results into `ResultSet` columns.
-**Action:** Replace `HashMap::entry(k.clone())` with a two-step lookup/insert pattern: use `get_mut` or `contains_key` first to check for existence, and only clone the key when an insertion is actually needed.
+## 2024-05-18 - Avoid HashMap::entry with expensive owned keys
+
+**Learning:** When using `HashMap::entry(k.clone())` to update indices where the key `k` is an expensive or owned type (like `PropertyValue` in `yagdb` which holds potentially large strings or floats), it causes unconditional allocation/cloning even when the key already exists and only the underlying vector needs updating. The compiler may also struggle with dereferencing `&PropertyValue` correctly when using regex-based replacement scripts if not careful with the `&value` vs `value` types in `get_mut()`. Furthermore, applying `rustfmt` or `cargo fmt` to an entire large file (`src/graph.rs`) bloated the PR diff beyond the 50-line target constraint.
+
+**Action:** Replace `map.entry(k.clone()).or_insert_with(Vec::new).push(v)` with a two-step `if let Some(vec) = map.get_mut(k) { vec.push(v); } else { map.insert(k.clone(), vec![v]); }` to bypass the clone on cache hits. Do not format the entire file when making targeted code modifications.
