@@ -480,9 +480,10 @@ impl Graph {
                     } => {
                         let mut __node = graph.nodes.get_item(node_id).unwrap();
                         let old_value = __node.properties.insert(key.clone(), value.clone());
+                        let node_labels = __node.labels.clone();
                         graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if node_labels.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
                                     match prop_index {
                                         IndexMap::Hash(map) => {
@@ -523,9 +524,15 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteNode { node_id } => {
-                        { let mut n = graph.nodes.get_item(node_id).unwrap(); n.deleted = true; graph.nodes.update_item(node_id, n); }
+                        let node_labels = {
+                            let mut n = graph.nodes.get_item(node_id).unwrap();
+                            n.deleted = true;
+                            let labels = n.labels.clone();
+                            graph.nodes.update_item(node_id, n);
+                            labels
+                        };
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if node_labels.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
                                     match prop_index {
                                         IndexMap::Hash(map) => {
@@ -1010,11 +1017,12 @@ impl Graph {
                             if updated_nodes.insert(node_id) {
                                 let mut __node = self.nodes.get_item(node_id).unwrap();
                                 let old_value = __node.properties.insert(key.clone(), value.clone());
+                                let node_labels = __node.labels.clone();
                                 self.nodes.update_item(node_id, __node);
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
-                                    if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                    if node_labels.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
                                             match prop_index {
                                                 IndexMap::Hash(map) => {
@@ -1088,10 +1096,16 @@ impl Graph {
                     }
 
                     for &node_id in &nodes_to_delete {
-                        if !self.nodes.get_item(node_id).unwrap().deleted {
-                            { let mut n = self.nodes.get_item(node_id).unwrap(); n.deleted = true; self.nodes.update_item(node_id, n); }
+                        let mut n = self.nodes.get_item(node_id).unwrap();
+                        if !n.deleted {
+                            let node_labels = {
+                                n.deleted = true;
+                                let labels = n.labels.clone();
+                                self.nodes.update_item(node_id, n);
+                                labels
+                            };
                             for (label_id, label_indices) in self.indices.iter_mut() {
-                                if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                if node_labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
                                         match prop_index {
                                             IndexMap::Hash(map) => {
