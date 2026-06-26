@@ -121,8 +121,8 @@ async fn main() {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let mut g = graph.lock_owned().await;
+    match tokio::task::spawn_blocking(move || g.execute(&body)).await.unwrap() {
         Ok(result) => (StatusCode::OK, result).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
@@ -146,8 +146,8 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let mut g = graph.lock_owned().await;
+    match tokio::task::spawn_blocking(move || g.execute(&body)).await.unwrap() {
         Ok(result) => {
             if result.trim().is_empty() {
                 return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
