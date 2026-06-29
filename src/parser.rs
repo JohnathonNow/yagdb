@@ -610,3 +610,18 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
         },
     ))
 }
+
+impl Query {
+    pub fn is_read_only(&self) -> bool {
+        self.clauses.iter().all(|c| c.is_read_only())
+    }
+}
+
+impl Clause {
+    pub fn is_read_only(&self) -> bool {
+        match self {
+            Clause::Create(_) | Clause::Merge(_) | Clause::Set(_, _, _) | Clause::Delete(_) | Clause::CreateIndex { .. } => false,
+            Clause::Match(_, _, _) | Clause::Return(_, _, _) | Clause::With(_, _, _) | Clause::Unwind(_) => true,
+        }
+    }
+}

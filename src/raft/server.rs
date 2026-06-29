@@ -101,7 +101,7 @@ async fn handle_query(
         }
     } else {
         // Read query, can be handled locally by any node because state is updated via Raft
-        let mut g = app.graph.lock().await;
+        let mut g = app.graph.write().await;
         let res = g.execute(&body);
         Ok(Json(QueryRes { result: res }))
     }
@@ -160,7 +160,7 @@ async fn handle_query_stream(
             }
         }
     } else {
-        let mut g = app.graph.lock().await;
+        let mut g = app.graph.write().await;
         g.execute(&body)
     };
 

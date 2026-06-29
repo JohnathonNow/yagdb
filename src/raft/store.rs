@@ -10,7 +10,7 @@ use openraft_memstore::{
 use crate::graph::Graph;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 pub type TypeConfig = MemStoreTypeConfig;
 
@@ -19,7 +19,7 @@ pub type QueryResponse = MemStoreClientResponse;
 
 #[derive(Clone)]
 pub struct GraphStore {
-    pub graph: Arc<Mutex<Graph>>,
+    pub graph: Arc<RwLock<Graph>>,
     pub inner: Arc<MemStore>,
     pub current_snapshot: Arc<tokio::sync::RwLock<Option<(SnapshotMeta<u64, ()>, Vec<u8>)>>>,
 }
@@ -32,7 +32,7 @@ pub struct GraphSnapshotData {
 
 pub struct GraphSnapshotBuilder {
     pub inner: <Arc<MemStore> as RaftStorage<TypeConfig>>::SnapshotBuilder,
-    pub graph: Arc<Mutex<Graph>>,
+    pub graph: Arc<RwLock<Graph>>,
     pub current_snapshot: Arc<tokio::sync::RwLock<Option<(SnapshotMeta<u64, ()>, Vec<u8>)>>>,
 }
 
@@ -42,7 +42,7 @@ impl openraft::storage::RaftSnapshotBuilder<TypeConfig> for GraphSnapshotBuilder
         let memstore_data = (*inner_snap.snapshot).into_inner();
 
         let graph_data = {
-            let g = self.graph.lock().await;
+            let g = self.graph.read().await;
             bincode::serialize(&*g).map_err(|e| openraft::StorageError::IO {
                 source: openraft::StorageIOError::read_state_machine(&e),
             })?
@@ -126,7 +126,7 @@ impl RaftStorage<TypeConfig> for GraphStore {
         entries: &[Entry<TypeConfig>],
     ) -> Result<Vec<QueryResponse>, StorageError<u64>> {
         let mut res = Vec::with_capacity(entries.len());
-        let mut g = self.graph.lock().await;
+        let mut g = self.graph.write().await;
         for entry in entries {
             if let EntryPayload::Normal(ref req) = entry.payload {
                 let query_res = g.execute(&req.status);
@@ -166,7 +166,7 @@ impl RaftStorage<TypeConfig> for GraphStore {
             })?;
 
         {
-            let mut g = self.graph.lock().await;
+            let mut g = self.graph.write().await;
             let mut new_g: Graph = bincode::deserialize(&combined.graph_data).map_err(|e| {
                 openraft::StorageError::IO {
                     source: openraft::StorageIOError::read_state_machine(&e),

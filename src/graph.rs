@@ -225,7 +225,7 @@ impl ResultSet {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 pub enum ItemStorage<T: Serialize + serde::de::DeserializeOwned + Clone> {
     Memory(Vec<T>),
@@ -258,17 +258,17 @@ impl<'de, T: Serialize + serde::de::DeserializeOwned + Clone> Deserialize<'de> f
 
 #[cfg(not(target_arch = "wasm32"))]
 pub struct DiskStorage<T: Serialize + serde::de::DeserializeOwned + Clone> {
-    pub file: RefCell<File>,
-    pub cache: RefCell<HashMap<usize, T>>,
-    pub access_tracker: RefCell<Vec<usize>>,
-    pub offsets: RefCell<Vec<u64>>,
+    pub file: RwLock<File>,
+    pub cache: RwLock<HashMap<usize, T>>,
+    pub access_tracker: RwLock<Vec<usize>>,
+    pub offsets: RwLock<Vec<u64>>,
     pub capacity: usize,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
     pub fn to_vec(&self) -> Vec<T> {
-        let offsets = self.offsets.borrow();
+        let offsets = self.offsets.read().unwrap();
         let mut vec = Vec::with_capacity(offsets.len());
         for i in 0..offsets.len() {
             if let Some(item) = self.get(i) {
@@ -279,16 +279,16 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
     }
 
     pub fn get(&self, index: usize) -> Option<T> {
-        let offsets = self.offsets.borrow();
+        let offsets = self.offsets.read().unwrap();
         if index >= offsets.len() {
             return None;
         }
         let offset = offsets[index];
         drop(offsets);
 
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         if !cache.contains_key(&index) {
-            let mut file = self.file.borrow_mut();
+            let mut file = self.file.write().unwrap();
             file.seek(std::io::SeekFrom::Start(offset)).unwrap();
             let item: T = bincode::deserialize_from(&mut *file).unwrap();
             cache.insert(index, item);
@@ -297,37 +297,37 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
     }
 
     pub fn push(&mut self, item: T) {
-        let mut offsets = self.offsets.borrow_mut();
+        let mut offsets = self.offsets.write().unwrap();
         let index = offsets.len();
-        let mut file = self.file.borrow_mut();
+        let mut file = self.file.write().unwrap();
         let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
         bincode::serialize_into(&mut *file, &item).unwrap();
         file.sync_data().unwrap();
         offsets.push(offset);
-        self.cache.borrow_mut().insert(index, item);
+        self.cache.write().unwrap().insert(index, item);
     }
 
     pub fn update(&mut self, index: usize, item: T) {
-        let mut offsets = self.offsets.borrow_mut();
+        let mut offsets = self.offsets.write().unwrap();
         if index >= offsets.len() {
             return;
         }
-        let mut file = self.file.borrow_mut();
+        let mut file = self.file.write().unwrap();
         let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
         bincode::serialize_into(&mut *file, &item).unwrap();
         file.sync_data().unwrap();
         offsets[index] = offset;
-        self.cache.borrow_mut().insert(index, item);
+        self.cache.write().unwrap().insert(index, item);
     }
 
     pub fn len(&self) -> usize {
-        self.offsets.borrow().len()
+        self.offsets.read().unwrap().len()
     }
 
     pub fn clear(&mut self) {
-        self.cache.borrow_mut().clear();
-        self.offsets.borrow_mut().clear();
-        self.file.borrow_mut().set_len(0).unwrap();
+        self.cache.write().unwrap().clear();
+        self.offsets.write().unwrap().clear();
+        self.file.write().unwrap().set_len(0).unwrap();
     }
 }
 
@@ -699,16 +699,16 @@ impl Graph {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_disk_storage(&mut self, nodes_path: &str, edges_path: &str) {
         let mut nodes_disk = DiskStorage {
-            file: RefCell::new(std::fs::OpenOptions::new()
+            file: RwLock::new(std::fs::OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .truncate(true)
                 .open(nodes_path)
                 .unwrap()),
-            cache: RefCell::new(HashMap::new()),
-            access_tracker: RefCell::new(Vec::new()),
-            offsets: RefCell::new(Vec::new()),
+            cache: RwLock::new(HashMap::new()),
+            access_tracker: RwLock::new(Vec::new()),
+            offsets: RwLock::new(Vec::new()),
             capacity: 10000,
         };
         if let ItemStorage::Memory(vec) = &self.nodes {
@@ -719,16 +719,16 @@ impl Graph {
         self.nodes = ItemStorage::Disk(nodes_disk);
 
         let mut edges_disk = DiskStorage {
-            file: RefCell::new(std::fs::OpenOptions::new()
+            file: RwLock::new(std::fs::OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .truncate(true)
                 .open(edges_path)
                 .unwrap()),
-            cache: RefCell::new(HashMap::new()),
-            access_tracker: RefCell::new(Vec::new()),
-            offsets: RefCell::new(Vec::new()),
+            cache: RwLock::new(HashMap::new()),
+            access_tracker: RwLock::new(Vec::new()),
+            offsets: RwLock::new(Vec::new()),
             capacity: 10000,
         };
         if let ItemStorage::Memory(vec) = &self.edges {
