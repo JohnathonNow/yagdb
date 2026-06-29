@@ -1,7 +1,7 @@
 use openraft::{Config, Raft};
 use openraft_memstore::MemStore;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use super::network::Network;
 use super::store::TypeConfig;
@@ -14,11 +14,11 @@ pub struct App {
     pub addr: String,
     pub raft: AppRaft,
     pub config: Arc<Config>,
-    pub graph: Arc<Mutex<Graph>>,
+    pub graph: Arc<RwLock<Graph>>,
 }
 
 impl App {
-    pub async fn new(id: u64, addr: String, graph: Arc<Mutex<Graph>>) -> Self {
+    pub async fn new(id: u64, addr: String, graph: Arc<RwLock<Graph>>) -> Self {
         let config = Config {
             heartbeat_interval: 500,
             election_timeout_min: 1500,

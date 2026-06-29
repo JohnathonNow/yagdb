@@ -14,7 +14,7 @@ use axum::{
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
@@ -25,7 +25,7 @@ use tokio::signal;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-type SharedGraph = Arc<Mutex<Graph>>;
+type SharedGraph = Arc<RwLock<Graph>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
@@ -37,7 +37,7 @@ async fn main() {
     if std::env::var("YAGDB_DISK_STORAGE").is_ok() {
         g.enable_disk_storage("nodes.bin", "edges.bin");
     }
-    let graph = Arc::new(Mutex::new(g));
+    let graph = Arc::new(RwLock::new(g));
 
     let app = Router::new()
         .route("/query", post(handle_query))
@@ -99,7 +99,7 @@ async fn main() {
     let args = Args::parse();
     env_logger::init();
 
-    let graph = Arc::new(Mutex::new(Graph::load_or_create(
+    let graph = Arc::new(RwLock::new(Graph::load_or_create(
         &format!("graph_{}.bin", args.id),
         &format!("wal_{}.bin", args.id),
     )));
@@ -121,7 +121,7 @@ async fn main() {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
+    let mut g = graph.write().await;
     match g.execute(&body) {
         Ok(result) => (StatusCode::OK, result).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
@@ -131,7 +131,7 @@ async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl In
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
-    let g = graph.lock().await;
+    let g = graph.read().await;
     match g.backup() {
         Ok(bytes) => {
             let mut headers = axum::http::HeaderMap::new();
@@ -146,7 +146,7 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
+    let mut g = graph.write().await;
     match g.execute(&body) {
         Ok(result) => {
             if result.trim().is_empty() {
