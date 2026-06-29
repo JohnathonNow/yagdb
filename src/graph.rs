@@ -2011,8 +2011,8 @@ impl Graph {
     }
 
     fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
-        if self.nodes.get_item(node_id).unwrap().deleted { return false; }
         let node = self.nodes.get_item(node_id).unwrap();
+        if node.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -2097,8 +2097,8 @@ impl Graph {
     }
 
     fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
-        if self.edges.get_item(edge_id).unwrap().deleted { return false; }
         let edge = self.edges.get_item(edge_id).unwrap();
+        if edge.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
