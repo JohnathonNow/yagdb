@@ -29,6 +29,29 @@ type SharedGraph = Arc<Mutex<Graph>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
+struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+struct GraphGuard {
+    g: tokio::sync::OwnedMutexGuard<Graph>,
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+impl Drop for GraphGuard {
+    fn drop(&mut self) {
+        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
     #[cfg(feature = "dhat-heap")]
@@ -121,8 +144,16 @@ async fn main() {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelGuard(cancel.clone());
+    let mut g = graph.clone().lock_owned().await;
+    g.cancel_flag = cancel;
+    let mut guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || {
+        guard.g.execute(&body)
+    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+
+    match res {
         Ok(result) => (StatusCode::OK, result).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
@@ -146,8 +177,16 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelGuard(cancel.clone());
+    let mut g = graph.clone().lock_owned().await;
+    g.cancel_flag = cancel;
+    let mut guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || {
+        guard.g.execute(&body)
+    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+
+    match res {
         Ok(result) => {
             if result.trim().is_empty() {
                 return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
