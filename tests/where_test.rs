@@ -29,3 +29,23 @@ fn test_match_where_evaluation() {
     assert!(results2.contains("Bob"));
     assert!(!results2.contains("Charlie"));
 }
+
+
+
+
+
+
+
+#[test]
+fn test_where_pushdown() {
+    let mut graph = Graph::new();
+    graph.execute("CREATE HASH INDEX ON :Person(name)").unwrap();
+    graph.execute("CREATE (p:Person {name: 'Alice', age: 30})").unwrap();
+    graph.execute("CREATE (p:Person {name: 'Bob', age: 40})").unwrap();
+
+    let result = graph.execute("PROFILE MATCH (p:Person) WHERE p.name = 'Alice' RETURN p.age").unwrap();
+
+    assert!(result.contains("NodeIndexLookup"), "Expected NodeIndexLookup in profile, got: {}", result);
+    assert!(result.contains("Person.name"), "Expected Person.name in index lookup");
+    assert!(result.contains("Alice"), "Expected Alice in index lookup");
+}
