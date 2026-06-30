@@ -9,6 +9,15 @@ use std::io::Seek;
 use std::io::Write;
 
 use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn default_cancel_flag() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
 
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
@@ -387,6 +396,10 @@ pub struct Graph {
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
+    #[serde(skip)]
+    #[serde(default = "default_cancel_flag")]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -467,8 +480,8 @@ impl Graph {
                         let edge = Edge::new(id.clone(), labels, start, end, properties);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
-                        { let mut n = graph.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(start, n); }
-                        { let mut n = graph.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(end, n); }
+                        let mut start_n = graph.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); graph.nodes.update_item(start, start_n);
+                        let mut end_n = graph.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); graph.nodes.update_item(end, end_n);
                     }
                     WalEntry::CreateIndex { label, property, index_type } => {
                         graph.create_index_internal(label, property, index_type);
@@ -480,9 +493,10 @@ impl Graph {
                     } => {
                         let mut __node = graph.nodes.get_item(node_id).unwrap();
                         let old_value = __node.properties.insert(key.clone(), value.clone());
+                        let has_label = __node.labels.clone();
                         graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if has_label.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
                                     match prop_index {
                                         IndexMap::Hash(map) => {
@@ -523,9 +537,12 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteNode { node_id } => {
-                        { let mut n = graph.nodes.get_item(node_id).unwrap(); n.deleted = true; graph.nodes.update_item(node_id, n); }
+                        let mut n = graph.nodes.get_item(node_id).unwrap();
+                        n.deleted = true;
+                        let has_label = n.labels.clone();
+                        graph.nodes.update_item(node_id, n);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if has_label.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
                                     match prop_index {
                                         IndexMap::Hash(map) => {
@@ -544,7 +561,7 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteEdge { edge_id } => {
-                        { let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e); }
+                        let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e);
                     }
                 }
                 needs_snapshot = true;
@@ -747,6 +764,8 @@ impl Graph {
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -884,8 +903,8 @@ impl Graph {
         let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
-        { let mut n = self.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(start, n); }
-        { let mut n = self.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(end, n); }
+        let mut start_n = self.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); self.nodes.update_item(start, start_n);
+        let mut end_n = self.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); self.nodes.update_item(end, end_n);
         self.log_wal(&WalEntry::AddEdge {
             id,
             start,
@@ -919,6 +938,10 @@ impl Graph {
         let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
 
         for step in plan.steps {
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.cancel_flag.load(Ordering::Relaxed) {
+                return Err("Query cancelled".to_string());
+            }
             match step {
                 ExecutionStep::Create(paths) => {
                     let mut new_result_set = ResultSet::new();
@@ -1010,11 +1033,12 @@ impl Graph {
                             if updated_nodes.insert(node_id) {
                                 let mut __node = self.nodes.get_item(node_id).unwrap();
                                 let old_value = __node.properties.insert(key.clone(), value.clone());
+                                let has_label = __node.labels.clone();
                                 self.nodes.update_item(node_id, __node);
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
-                                    if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                    if has_label.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
                                             match prop_index {
                                                 IndexMap::Hash(map) => {
@@ -1081,17 +1105,20 @@ impl Graph {
                     }
 
                     for &edge_id in &edges_to_delete {
-                        if !self.edges.get_item(edge_id).unwrap().deleted {
-                            { let mut e = self.edges.get_item(edge_id).unwrap(); e.deleted = true; self.edges.update_item(edge_id, e); }
+                        let mut e = self.edges.get_item(edge_id).unwrap();
+                        if !e.deleted {
+                            e.deleted = true; self.edges.update_item(edge_id, e);
                             self.log_wal(&WalEntry::DeleteEdge { edge_id });
                         }
                     }
 
                     for &node_id in &nodes_to_delete {
-                        if !self.nodes.get_item(node_id).unwrap().deleted {
-                            { let mut n = self.nodes.get_item(node_id).unwrap(); n.deleted = true; self.nodes.update_item(node_id, n); }
+                        let mut n = self.nodes.get_item(node_id).unwrap();
+                        if !n.deleted {
+                            n.deleted = true;
+                            self.nodes.update_item(node_id, n.clone());
                             for (label_id, label_indices) in self.indices.iter_mut() {
-                                if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                if n.labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
                                         match prop_index {
                                             IndexMap::Hash(map) => {
@@ -1547,6 +1574,9 @@ impl Graph {
         depth: usize,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         let indent = "  ".repeat(depth);
         let op_name;
 
@@ -1816,6 +1846,9 @@ impl Graph {
         out: &mut ResultSet,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
             out.push_row_from(in_res, row_idx, &[] as &[(&str, GraphElement)]);
@@ -1882,6 +1915,9 @@ impl Graph {
         path_edges: Vec<usize>,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 

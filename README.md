@@ -5,12 +5,49 @@
 ## Features
 
 - **Cypher Query Support**: Implements a subset of Cypher using the `nom` parser combinator library.
-  - `CREATE` nodes and relationships.
-  - `MATCH` patterns, including variable-length path queries (`-[*1..3]->`).
-  - `RETURN` variables.
-  - `LIMIT` results.
-  - `CREATE INDEX` for fast node property lookups.
-  - `PROFILE` keyword prefix to inspect the execution plan and query metrics.
+  - **CREATE:** Creates new nodes and relationships.
+    - Nodes: `CREATE (n:Person {name: 'Alice', age: 30})`
+    - Relationships: `CREATE (a:User)-[:KNOWS]->(b:User)`
+    - Mixed: `CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})`
+  - **MATCH:** Matches patterns in the graph.
+    - Nodes: `MATCH (n:Person)`
+    - Relationships: `MATCH (a)-[r:KNOWS]->(b)`
+    - Variable Length Paths: `MATCH (a)-[*1..3]->(b)`
+    - Bound Variables to Paths: `MATCH p = (a)-[*1..3]->(b)`
+  - **WHERE:** Filters results based on conditions. Supports AND, OR, NOT, and comparison operators (`=`, `!=`, `<`, `>`, `<=`, `>=`).
+    - Property comparison: `MATCH (n:Person) WHERE n.age > 25`
+    - Boolean logic: `MATCH (n:Person) WHERE n.age > 25 AND NOT n.name = 'Bob'`
+  - **RETURN:** Specifies what to include in the query result. Supports aliasing.
+    - Variables: `RETURN n, r`
+    - Properties: `RETURN n.name, n.age`
+    - Aliasing: `RETURN n.name AS personName`
+    - All variables: `RETURN *`
+    - Aggregations: `RETURN COUNT(n), COLLECT(n.name), UNIQUE(n.age)`
+  - **WITH:** Chains query parts together, allowing you to manipulate the output before it is passed to the following clauses. Similar syntax to `RETURN`.
+    - `MATCH (n:Person) WITH n, n.age AS age WHERE age > 25 RETURN n.name`
+  - **ORDER BY:** Sorts the result set. Supports ASC and DESC.
+    - `MATCH (n:Person) RETURN n ORDER BY n.age DESC`
+  - **LIMIT:** Restricts the number of rows in the result set.
+    - `MATCH (n:Person) RETURN n LIMIT 10`
+  - **CREATE INDEX ON:** Creates an index on a specific node label and property for faster lookups.
+    - `CREATE INDEX ON :Person(name)`
+  - **SET:** Updates properties on existing nodes or relationships.
+    - `MATCH (n:Person {name: 'Alice'}) SET n.age = 31`
+  - **MERGE:** Matches an existing pattern or creates it if it doesn't exist.
+    - `MERGE (n:Person {name: 'Charlie'})`
+  - **DELETE:** Deletes nodes or relationships.
+    - `MATCH (n:Person {name: 'Alice'})-[r]-() DELETE n, r`
+  - **UNWIND:** Expands a list into a sequence of rows.
+    - `UNWIND [1, 2, 3] AS x RETURN x`
+  - **CALL:** Executes a subquery.
+    - `MATCH (n:Person) CALL { WITH n MATCH (n)-[:KNOWS]->(m) RETURN m } RETURN n, m`
+  - **Expressions:**
+    - Property Access: `n.name`
+    - Literals: Strings (`'Alice'`), Numbers (`42`, `3.14`), Booleans (`true`, `false`)
+    - Variables: `n`, `r`, `p`
+    - Functions: `rand()` is supported.
+  - **PROFILE:** Prefixing a query with `PROFILE` outputs the execution plan instead of executing the query.
+    - `PROFILE MATCH (n:Person) RETURN n`
 - **Graph Engine**: Native Rust graph execution engine utilizing Depth-First Search (DFS) for path finding.
 - **Persistence**: Fast binary serialization of the database state and Write-Ahead Log (WAL) entries using `bincode` and `serde`. Automatically recovers state upon startup.
 - **HTTP Server**: An asynchronous API server using `axum` and `tokio`. Exposes a POST endpoint to execute queries.

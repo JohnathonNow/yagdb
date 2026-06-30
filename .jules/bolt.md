@@ -7,3 +7,10 @@
 ## 2024-05-14 - Redundant ItemStorage deserialization
 **Learning:** `get_item` in `yagdb`'s `ItemStorage` architecture performs a full object clone or disk deserialization.
 **Action:** When repeatedly checking fields on the same item, fetch it once into a local variable instead of calling `get_item` in loops or consecutive checks.
+## 2024-05-19 - Cache get_item results to prevent redundant lookup overhead
+**Learning:** `yagdb`'s `ItemStorage` structure performs full clones (in memory) or deep deserialization (from disk) inside `get_item(id)`. Sequential calls to `get_item(id)` in tight loops (like checking `deleted` then using the item) introduce unnecessary N+1 overhead and potential allocations.
+**Action:** Always fetch the item into a local variable *once* using `get_item(id)` before checking properties like `deleted` to avoid repeated cache hits or deep copies.
+## 2024-05-18 - Caching get_item in loops to reduce cloning and I/O overhead
+
+**Learning:** In `yagdb`'s `ItemStorage` architecture, `get_item(id)` performs a full object clone (or disk deserialization). Calling it multiple times sequentially for the same `id` within logic blocks (e.g., retrieving an item once to check `.deleted` and then unwrapping it again to use its data, or fetching it multiple times in a loop) introduces severe N+1 performance bottlenecks.
+**Action:** When working with `nodes` and `edges`, store the result of `get_item(id).unwrap()` in a local variable before checking properties like `deleted` or using it in indexing loops. Clone only specific required fields (like `.labels.clone()`) if the loop consumes or borrows the outer node struct to satisfy the borrow checker while preventing full struct clones.
