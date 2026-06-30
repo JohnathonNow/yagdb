@@ -10,3 +10,7 @@
 
 **Learning:** In `yagdb`'s `ItemStorage` architecture, `get_item(id)` performs a full object clone (or disk deserialization). Calling it multiple times sequentially for the same `id` within logic blocks (e.g., retrieving an item once to check `.deleted` and then unwrapping it again to use its data, or fetching it multiple times in a loop) introduces severe N+1 performance bottlenecks.
 **Action:** When working with `nodes` and `edges`, store the result of `get_item(id).unwrap()` in a local variable before checking properties like `deleted` or using it in indexing loops. Clone only specific required fields (like `.labels.clone()`) if the loop consumes or borrows the outer node struct to satisfy the borrow checker while preventing full struct clones.
+
+## 2024-05-20 - Cache get_item results to prevent N+1 clones in query matcher
+**Learning:** Passing `usize` IDs to helper functions like `node_matches` and `edge_matches` forces them to call `get_item(id)` internally, causing N+1 cloning overhead when the caller already had the item or fetches it in a tight loop.
+**Action:** Pass `&Node` and `&Edge` references directly to matching functions to reuse the already fetched/cached objects and eliminate redundant memory allocations.
