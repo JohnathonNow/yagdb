@@ -1602,8 +1602,9 @@ impl Graph {
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     for id in 0..self.nodes.len_items() {
-                        if self.nodes.get_item(id).unwrap().labels.contains(label_id)
-                            && self.node_matches(id, pattern)
+                        let node = self.nodes.get_item(id).unwrap();
+                        if node.labels.contains(label_id)
+                            && self.node_matches(&node, pattern)
                         {
                             matched_nodes.push(id);
                         }
@@ -1644,7 +1645,9 @@ impl Graph {
                     }
                 }
                 for id in candidate_ids {
-                    if self.node_matches(id, pattern) {
+                    let node = self.nodes.get_item(id).unwrap();
+
+                    if self.node_matches(&node, pattern) {
                         matched_nodes.push(id);
                     }
                 }
@@ -1936,7 +1939,13 @@ impl Graph {
                 current_node_id == bound_id
             } else {
                 true
-            } && self.node_matches(current_node_id, target_node_pattern);
+            } && {
+
+                let node = self.nodes.get_item(current_node_id).unwrap();
+
+                self.node_matches(&node, target_node_pattern)
+
+            };
 
             if matches_target {
                 let mut single_res = ResultSet::new();
@@ -1969,7 +1978,7 @@ impl Graph {
                     continue;
                 }
 
-                if !self.edge_matches(edge_id, rel_pattern) {
+                if !self.edge_matches(&edge, rel_pattern) {
                     continue;
                 }
 
@@ -2000,7 +2009,8 @@ impl Graph {
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                if self.node_matches(*id, pattern) {
+                let node = self.nodes.get_item(*id).unwrap();
+                if self.node_matches(&node, pattern) {
                     return vec![*id];
                 } else {
                     return vec![];
@@ -2022,7 +2032,9 @@ impl Graph {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
-                                    if self.node_matches(id, pattern) {
+                                    let node = self.nodes.get_item(id).unwrap();
+
+                                    if self.node_matches(&node, pattern) {
                                         matched_nodes.push(id);
                                     }
                                 }
@@ -2039,15 +2051,17 @@ impl Graph {
 
         let mut matched_nodes = Vec::new();
         for id in 0..self.nodes.len_items() {
-            if self.node_matches(id, pattern) {
+            let node = self.nodes.get_item(id).unwrap();
+
+            if self.node_matches(&node, pattern) {
                 matched_nodes.push(id);
             }
         }
         matched_nodes
     }
 
-    fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
-        let node = self.nodes.get_item(node_id).unwrap();
+    fn node_matches(&self, node: &Node, pattern: &NodePattern) -> bool {
+
         if node.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
@@ -2111,7 +2125,7 @@ impl Graph {
                     }
                 }
 
-                if !self.edge_matches(edge_id, rel_pattern) {
+                if !self.edge_matches(&edge, rel_pattern) {
                     continue;
                 }
 
@@ -2123,7 +2137,8 @@ impl Graph {
                     }
                 }
 
-                if self.node_matches(end_node_id, target_node_pattern) {
+                let end_node = self.nodes.get_item(end_node_id).unwrap();
+                if self.node_matches(&end_node, target_node_pattern) {
                     matches.push((end_node_id, edge_id));
                 }
             }
@@ -2132,8 +2147,8 @@ impl Graph {
         matches
     }
 
-    fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
-        let edge = self.edges.get_item(edge_id).unwrap();
+    fn edge_matches(&self, edge: &Edge, pattern: &RelPattern) -> bool {
+
         if edge.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
