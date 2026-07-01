@@ -153,6 +153,10 @@ pub struct QueryPlan {
 }
 
 impl QueryPlanner {
+    pub fn optimize_plan(plan: QueryPlan) -> QueryPlan {
+        plan
+    }
+
     pub fn plan_query(
         query: Query,
         labels: &HashMap<String, usize>,
@@ -183,9 +187,9 @@ impl QueryPlanner {
             };
             steps.push(step);
         }
-        QueryPlan {
+        Self::optimize_plan(QueryPlan {
             profile: query.profile,
             steps,
-        }
+        })
     }
 }
