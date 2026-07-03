@@ -14,3 +14,7 @@
 ## 2024-05-20 - Cache get_item results to prevent N+1 clones in query matcher
 **Learning:** Passing `usize` IDs to helper functions like `node_matches` and `edge_matches` forces them to call `get_item(id)` internally, causing N+1 cloning overhead when the caller already had the item or fetches it in a tight loop.
 **Action:** Pass `&Node` and `&Edge` references directly to matching functions to reuse the already fetched/cached objects and eliminate redundant memory allocations.
+## 2024-05-20 - ItemStorage get_item cloning overhead and with_item fix
+
+**Learning:** In `yagdb`'s `ItemStorage` architecture, `get_item(id)` performs a full object clone or disk deserialization. When evaluating properties like `.deleted` or filtering objects in tight loops (e.g. full table scans or index lookups), cloning the entire struct purely to access a property leads to severe N+1 memory allocations and overhead.
+**Action:** Use the `with_item(id, |item| { ... })` method to securely borrow the underlying item from the `ItemStorage`'s memory vector or disk cache without invoking full clones. Replace `get_item(id).unwrap()` with `with_item(id, ...).unwrap()` in query execution loops to safely eliminate memory overhead.
