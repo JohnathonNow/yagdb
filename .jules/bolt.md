@@ -14,3 +14,8 @@
 ## 2024-05-20 - Cache get_item results to prevent N+1 clones in query matcher
 **Learning:** Passing `usize` IDs to helper functions like `node_matches` and `edge_matches` forces them to call `get_item(id)` internally, causing N+1 cloning overhead when the caller already had the item or fetches it in a tight loop.
 **Action:** Pass `&Node` and `&Edge` references directly to matching functions to reuse the already fetched/cached objects and eliminate redundant memory allocations.
+## 2024-07-06 - Avoid HashMap::entry allocation in query planner
+
+**Learning:** When using `HashMap::entry(k.clone())` in `QueryPlanner::extract_props_from_condition` (inside `src/planner.rs`), the key string is cloned unconditionally even on cache hits. This causes unnecessary memory allocation overhead during query planning.
+
+**Action:** Replace `HashMap::entry(k.clone())` with a two-step `get_mut()` and `insert()` pattern to bypass the `String` cloning on cache hits.
