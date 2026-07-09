@@ -287,6 +287,25 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
         vec
     }
 
+
+    pub fn with<R, F: FnOnce(&T) -> R>(&self, index: usize, f: F) -> Option<R> {
+        let offsets = self.offsets.borrow();
+        if index >= offsets.len() {
+            return None;
+        }
+        let offset = offsets[index];
+        drop(offsets);
+
+        let mut cache = self.cache.borrow_mut();
+        if !cache.contains_key(&index) {
+            let mut file = self.file.borrow_mut();
+            file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+            let item: T = bincode::deserialize_from(&mut *file).unwrap();
+            cache.insert(index, item);
+        }
+        cache.get(&index).map(f)
+    }
+
     pub fn get(&self, index: usize) -> Option<T> {
         let offsets = self.offsets.borrow();
         if index >= offsets.len() {
@@ -341,6 +360,15 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
 }
 
 impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
+
+    pub fn with_item<R, F: FnOnce(&T) -> R>(&self, index: usize, f: F) -> Option<R> {
+        match self {
+            ItemStorage::Memory(vec) => vec.get(index).map(f),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.with(index, f),
+        }
+    }
+
     pub fn get_item(&self, index: usize) -> Option<T> {
         match self {
             ItemStorage::Memory(vec) => vec.get(index).cloned(),
@@ -1645,9 +1673,7 @@ impl Graph {
                     }
                 }
                 for id in candidate_ids {
-                    let node = self.nodes.get_item(id).unwrap();
-
-                    if self.node_matches(&node, pattern) {
+                    if self.nodes.with_item(id, |node| self.node_matches(node, pattern)).unwrap() {
                         matched_nodes.push(id);
                     }
                 }
@@ -2032,9 +2058,7 @@ impl Graph {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
-                                    let node = self.nodes.get_item(id).unwrap();
-
-                                    if self.node_matches(&node, pattern) {
+                                    if self.nodes.with_item(id, |node| self.node_matches(node, pattern)).unwrap() {
                                         matched_nodes.push(id);
                                     }
                                 }
@@ -2051,9 +2075,7 @@ impl Graph {
 
         let mut matched_nodes = Vec::new();
         for id in 0..self.nodes.len_items() {
-            let node = self.nodes.get_item(id).unwrap();
-
-            if self.node_matches(&node, pattern) {
+            if self.nodes.with_item(id, |node| self.node_matches(node, pattern)).unwrap() {
                 matched_nodes.push(id);
             }
         }
