@@ -340,6 +340,14 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
         }
     }
 
+    pub fn with_item<R>(&self, index: usize, f: impl FnOnce(&T) -> R) -> Option<R> {
+        match self {
+            ItemStorage::Memory(vec) => vec.get(index).map(f),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => disk.get(index).map(|item| f(&item)),
+        }
+    }
+
     pub fn push_item(&mut self, item: T) {
         match self {
             ItemStorage::Memory(vec) => vec.push(item),
@@ -592,41 +600,43 @@ impl Graph {
     pub fn element_to_json(&self, element: &GraphElement) -> Value {
         match element {
             GraphElement::Node(node_id) => {
-                let node = self.nodes.get_item(*node_id).unwrap();
-                let mut map = serde_json::Map::new();
-                map.insert(
-                    "labels".to_string(),
-                    serde_json::to_value(&node.labels).unwrap(),
-                );
-                map.insert(
-                    "edges".to_string(),
-                    serde_json::to_value(&node.edges).unwrap(),
-                );
-                let mut props = serde_json::Map::new();
-                for (k, v) in &node.properties {
-                    props.insert(k.clone(), v.to_json_value());
-                }
-                map.insert("properties".to_string(), Value::Object(props));
-                Value::Object(map)
+                self.nodes.with_item(*node_id, |node| {
+                    let mut map = serde_json::Map::new();
+                    map.insert(
+                        "labels".to_string(),
+                        serde_json::to_value(&node.labels).unwrap(),
+                    );
+                    map.insert(
+                        "edges".to_string(),
+                        serde_json::to_value(&node.edges).unwrap(),
+                    );
+                    let mut props = serde_json::Map::new();
+                    for (k, v) in &node.properties {
+                        props.insert(k.clone(), v.to_json_value());
+                    }
+                    map.insert("properties".to_string(), Value::Object(props));
+                    Value::Object(map)
+                }).unwrap()
             }
             GraphElement::Edge(edge_id) => {
-                let edge = self.edges.get_item(*edge_id).unwrap();
-                let mut map = serde_json::Map::new();
-                map.insert(
-                    "labels".to_string(),
-                    serde_json::to_value(&edge.labels).unwrap(),
-                );
-                map.insert(
-                    "start".to_string(),
-                    serde_json::to_value(edge.start).unwrap(),
-                );
-                map.insert("end".to_string(), serde_json::to_value(edge.end).unwrap());
-                let mut props = serde_json::Map::new();
-                for (k, v) in &edge.properties {
-                    props.insert(k.clone(), v.to_json_value());
-                }
-                map.insert("properties".to_string(), Value::Object(props));
-                Value::Object(map)
+                self.edges.with_item(*edge_id, |edge| {
+                    let mut map = serde_json::Map::new();
+                    map.insert(
+                        "labels".to_string(),
+                        serde_json::to_value(&edge.labels).unwrap(),
+                    );
+                    map.insert(
+                        "start".to_string(),
+                        serde_json::to_value(edge.start).unwrap(),
+                    );
+                    map.insert("end".to_string(), serde_json::to_value(edge.end).unwrap());
+                    let mut props = serde_json::Map::new();
+                    for (k, v) in &edge.properties {
+                        props.insert(k.clone(), v.to_json_value());
+                    }
+                    map.insert("properties".to_string(), Value::Object(props));
+                    Value::Object(map)
+                }).unwrap()
             }
             GraphElement::EdgeArray(edge_ids) => {
                 let edges_val: Vec<_> = edge_ids
@@ -1572,11 +1582,13 @@ impl Graph {
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.get(label) {
                     for id in 0..self.nodes.len_items() {
-                        if self.nodes.get_item(id).unwrap().labels.contains(label_id)
-                            && self.node_matches(id, pattern)
-                        {
-                            matched_nodes.push(id);
-                        }
+                        self.nodes.with_item(id, |node| {
+                            if node.labels.contains(label_id)
+                                && self.node_matches(node, pattern)
+                            {
+                                matched_nodes.push(id);
+                            }
+                        }).unwrap();
                     }
                 }
 
@@ -1614,9 +1626,11 @@ impl Graph {
                     }
                 }
                 for id in candidate_ids {
-                    if self.node_matches(id, pattern) {
-                        matched_nodes.push(id);
-                    }
+                    self.nodes.with_item(id, |node| {
+                        if self.node_matches(node, pattern) {
+                            matched_nodes.push(id);
+                        }
+                    }).unwrap();
                 }
 
                 for i in 0..in_res.rows {
@@ -1900,7 +1914,13 @@ impl Graph {
                 current_node_id == bound_id
             } else {
                 true
-            } && self.node_matches(current_node_id, target_node_pattern);
+            } && {
+
+                let node = self.nodes.get_item(current_node_id).unwrap();
+
+                self.node_matches(&node, target_node_pattern)
+
+            };
 
             if matches_target {
                 let mut single_res = ResultSet::new();
@@ -1933,7 +1953,7 @@ impl Graph {
                     continue;
                 }
 
-                if !self.edge_matches(edge_id, rel_pattern) {
+                if !self.edge_matches(&edge, rel_pattern) {
                     continue;
                 }
 
@@ -1964,7 +1984,8 @@ impl Graph {
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                if self.node_matches(*id, pattern) {
+                let node = self.nodes.get_item(*id).unwrap();
+                if self.node_matches(&node, pattern) {
                     return vec![*id];
                 } else {
                     return vec![];
@@ -1986,9 +2007,11 @@ impl Graph {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
-                                    if self.node_matches(id, pattern) {
-                                        matched_nodes.push(id);
-                                    }
+                                    self.nodes.with_item(id, |node| {
+                                        if self.node_matches(node, pattern) {
+                                            matched_nodes.push(id);
+                                        }
+                                    }).unwrap();
                                 }
                                 return matched_nodes;
                             } else {
@@ -2003,16 +2026,20 @@ impl Graph {
 
         let mut matched_nodes = Vec::new();
         for id in 0..self.nodes.len_items() {
-            if self.node_matches(id, pattern) {
-                matched_nodes.push(id);
-            }
+            self.nodes.with_item(id, |node| {
+                if self.node_matches(node, pattern) {
+                    matched_nodes.push(id);
+                }
+            }).unwrap();
         }
         matched_nodes
     }
 
-    fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
-        if self.nodes.get_item(node_id).unwrap().deleted { return false; }
-        let node = self.nodes.get_item(node_id).unwrap();
+
+    fn node_matches(&self, node: &Node, pattern: &NodePattern) -> bool {
+
+        if node.deleted { return false; }
+
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -2075,7 +2102,7 @@ impl Graph {
                     }
                 }
 
-                if !self.edge_matches(edge_id, rel_pattern) {
+                if !self.edge_matches(&edge, rel_pattern) {
                     continue;
                 }
 
@@ -2087,18 +2114,22 @@ impl Graph {
                     }
                 }
 
-                if self.node_matches(end_node_id, target_node_pattern) {
-                    matches.push((end_node_id, edge_id));
-                }
+                self.nodes.with_item(end_node_id, |end_node| {
+                    if self.node_matches(end_node, target_node_pattern) {
+                        matches.push((end_node_id, edge_id));
+                    }
+                }).unwrap();
             }
         }
 
         matches
     }
 
-    fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
-        if self.edges.get_item(edge_id).unwrap().deleted { return false; }
-        let edge = self.edges.get_item(edge_id).unwrap();
+
+    fn edge_matches(&self, edge: &Edge, pattern: &RelPattern) -> bool {
+
+        if edge.deleted { return false; }
+
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
