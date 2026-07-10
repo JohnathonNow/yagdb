@@ -4,6 +4,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
+use tower_http::services::ServeFile;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -66,6 +67,7 @@ async fn main() {
         .route("/query", post(handle_query))
         .route("/query_stream", post(handle_query_stream))
         .route("/backup", axum::routing::get(handle_backup))
+        .route("/console", axum::routing::get_service(ServeFile::new("console.html")))
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
