@@ -20,3 +20,9 @@
 
 **Action:** Replace `HashMap::entry(k.clone())` with a two-step `get_mut()` and `insert()` pattern to bypass the `String` cloning on cache hits.
 **Action:** Whenever retrieving potentially large objects from a generalized storage abstraction inside a hot loop, avoid returning owned clones. Implement zero-copy `with_...` methods accepting closures to allow temporary read-only access to avoid unnecessary deep copying, especially during property-checking and filtering.
+
+## 2024-05-23 - Zero-copy nested traversal optimization
+
+**Learning:** When refactoring `get_item` to `with_item` closures in `yagdb`'s graph execution engine to avoid cloning entire nodes/edges, nested accesses across different collections (like iterating `self.nodes.with_item` and then calling `self.edges.with_item` inside) can cause Rust borrow checker lifetime conflicts due to concurrent borrows of `self`.
+
+**Action:** Resolve nested collection borrowing conflicts by extracting and cloning only lightweight fields first. For instance, `let node_edges = self.nodes.with_item(id, |n| n.edges.clone()).unwrap();` extracts the edge IDs vector, closing the `nodes` borrow, which then safely allows iterating through those IDs using `self.edges.with_item(...)` without conflicts.

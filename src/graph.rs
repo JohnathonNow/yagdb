@@ -688,10 +688,10 @@ impl Graph {
 
     pub fn format_element(&self, element: &GraphElement) -> String {
         match element {
-            GraphElement::Node(node_id) => format!("{:?}", self.nodes.get_item(*node_id).unwrap()),
-            GraphElement::Edge(edge_id) => format!("{:?}", self.edges.get_item(*edge_id).unwrap()),
+            GraphElement::Node(node_id) => self.nodes.with_item(*node_id, |n| format!("{:?}", n)).unwrap(),
+            GraphElement::Edge(edge_id) => self.edges.with_item(*edge_id, |e| format!("{:?}", e)).unwrap(),
             GraphElement::EdgeArray(edge_ids) => {
-                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.get_item(id).unwrap()).collect();
+                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.with_item(id, |e| e.clone()).unwrap()).collect();
                 format!("{:?}", edges)
             }
             GraphElement::Path(elements) => {
@@ -1951,11 +1951,7 @@ impl Graph {
             } else {
                 true
             } && {
-
-                let node = self.nodes.get_item(current_node_id).unwrap();
-
-                self.node_matches(&node, target_node_pattern)
-
+                self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern)).unwrap()
             };
 
             if matches_target {
@@ -1979,22 +1975,23 @@ impl Graph {
             }
         }
 
-        let start_node = self.nodes.get_item(current_node_id).unwrap();
+        let start_node_edges = self.nodes.with_item(current_node_id, |n| n.edges.clone()).unwrap();
 
-        for &edge_id in &start_node.edges {
-            let edge = self.edges.get_item(edge_id).unwrap();
-
-            if edge.start == current_node_id {
+        for &edge_id in &start_node_edges {
+            let (edge_matches, end_node_id) = self.edges.with_item(edge_id, |edge| {
+                if edge.start != current_node_id {
+                    return (false, 0);
+                }
                 if path_edges.contains(&edge_id) {
-                    continue;
+                    return (false, 0);
                 }
-
-                if !self.edge_matches(&edge, rel_pattern) {
-                    continue;
+                if !self.edge_matches(edge, rel_pattern) {
+                    return (false, 0);
                 }
+                (true, edge.end)
+            }).unwrap();
 
-                let end_node_id = edge.end;
-
+            if edge_matches {
                 let mut new_path_edges = path_edges.clone();
                 new_path_edges.push(edge_id);
 
@@ -2020,8 +2017,8 @@ impl Graph {
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                let node = self.nodes.get_item(*id).unwrap();
-                if self.node_matches(&node, pattern) {
+                let is_match = self.nodes.with_item(*id, |node| self.node_matches(node, pattern)).unwrap();
+                if is_match {
                     return vec![*id];
                 } else {
                     return vec![];
@@ -2109,7 +2106,6 @@ impl Graph {
         row_idx: usize,
     ) -> Vec<(usize, usize)> {
         let mut matches = Vec::new();
-        let start_node = self.nodes.get_item(start_id).unwrap();
 
         // Pre-check if target is bound
         let target_bound_id = if let Some(var) = &target_node_pattern.variable {
@@ -2122,26 +2118,28 @@ impl Graph {
             None
         };
 
-        for &edge_id in &start_node.edges {
-            let edge = self.edges.get_item(edge_id).unwrap();
+        let start_node_edges = self.nodes.with_item(start_id, |n| n.edges.clone()).unwrap();
 
-            // Only consider outgoing edges from start_id
-            if edge.start == start_id {
-                // If edge variable is bound, ensure it's the same edge
+        for &edge_id in &start_node_edges {
+            let (edge_matches, end_node_id) = self.edges.with_item(edge_id, |edge| {
+                if edge.start != start_id {
+                    return (false, 0);
+                }
                 if let Some(var) = &rel_pattern.variable {
                     if let Some(GraphElement::Edge(eid)) = in_res.get(row_idx, var) {
                         if *eid != edge_id {
-                            continue;
+                            return (false, 0);
                         }
                     }
                 }
-
-                if !self.edge_matches(&edge, rel_pattern) {
-                    continue;
+                if !self.edge_matches(edge, rel_pattern) {
+                    return (false, 0);
                 }
+                (true, edge.end)
+            }).unwrap();
 
-                let end_node_id = edge.end;
-
+            // Only consider outgoing edges from start_id
+            if edge_matches {
                 if let Some(bound_target) = target_bound_id {
                     if end_node_id != bound_target {
                         continue;
@@ -2208,8 +2206,8 @@ impl Graph {
     fn get_property_as_element(&self, in_res: &ResultSet, row_idx: usize, var: &str, prop: &str) -> Option<GraphElement> {
         if let Some(element) = in_res.get(row_idx, var) {
             let prop_val = match element {
-                GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                GraphElement::Node(id) => self.nodes.with_item(*id, |n| n.properties.get(prop).cloned()).unwrap(),
+                GraphElement::Edge(id) => self.edges.with_item(*id, |e| e.properties.get(prop).cloned()).unwrap(),
                 _ => None,
             };
             match prop_val {
@@ -2285,8 +2283,8 @@ impl Graph {
             Expression::Property(var, prop) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     let prop_val = match element {
-                        GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                        GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                        GraphElement::Node(id) => self.nodes.with_item(*id, |n| n.properties.get(prop).cloned()).unwrap(),
+                        GraphElement::Edge(id) => self.edges.with_item(*id, |e| e.properties.get(prop).cloned()).unwrap(),
                         _ => None,
                     };
                     match prop_val {
