@@ -8,6 +8,17 @@ use std::io::Seek;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 
+use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn default_cancel_flag() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
 use crate::{
     edge::Edge,
@@ -17,6 +28,18 @@ use crate::{
         RelPattern,
     },
 };
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum IndexType {
+    Hash,
+    BTree,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum IndexMap {
+    Hash(HashMap<crate::property::PropertyValue, Vec<usize>>),
+    BTree(std::collections::BTreeMap<crate::property::PropertyValue, Vec<usize>>),
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WalEntry {
@@ -38,6 +61,7 @@ pub enum WalEntry {
     CreateIndex {
         label: usize,
         property: String,
+        index_type: crate::graph::IndexType,
     },
     SetNodeProperty {
         node_id: usize,
@@ -55,6 +79,7 @@ pub enum GraphElement {
     EdgeArray(Vec<usize>),
     Path(Vec<GraphElement>),
     List(Vec<GraphElement>),
+    Map(HashMap<String, GraphElement>),
     Number(f64),
     String(String),
     Boolean(bool),
@@ -91,8 +116,13 @@ impl ResultSet {
     pub fn push_row(&mut self, env: &Environment) {
         let current_rows = self.rows;
         for (k, v) in env {
-            let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-            col.push(v.clone());
+            if let Some(col) = self.columns.get_mut(k) {
+                col.push(v.clone());
+            } else {
+                let mut col = vec![GraphElement::Null; current_rows];
+                col.push(v.clone());
+                self.columns.insert(k.clone(), col);
+            }
         }
         self.rows += 1;
         for (_k, col) in self.columns.iter_mut() {
@@ -125,16 +155,30 @@ impl ResultSet {
         for (k, v) in &other.columns {
             let val = &v[row_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-                col.push(val.clone());
+                if let Some(col) = self.columns.get_mut(k) {
+                    col.push(val.clone());
+                } else {
+                    let mut col = vec![GraphElement::Null; current_rows];
+                    col.push(val.clone());
+                    self.columns.insert(k.clone(), col);
+                }
             }
         }
         for (k, v) in bindings {
-            let col = self.columns.entry(k.as_ref().to_string()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-            if col.len() > current_rows {
-                col[current_rows] = v.clone();
+            if let Some(col) = self.columns.get_mut(k.as_ref()) {
+                if col.len() > current_rows {
+                    col[current_rows] = v.clone();
+                } else {
+                    col.push(v.clone());
+                }
             } else {
-                col.push(v.clone());
+                let mut col = vec![GraphElement::Null; current_rows];
+                if col.len() > current_rows {
+                    col[current_rows] = v.clone();
+                } else {
+                    col.push(v.clone());
+                }
+                self.columns.insert(k.as_ref().to_string(), col);
             }
         }
         self.rows += 1;
@@ -150,18 +194,32 @@ impl ResultSet {
         for (k, v) in &left.columns {
             let val = &v[l_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-                col.push(val.clone());
+                if let Some(col) = self.columns.get_mut(k) {
+                    col.push(val.clone());
+                } else {
+                    let mut col = vec![GraphElement::Null; current_rows];
+                    col.push(val.clone());
+                    self.columns.insert(k.clone(), col);
+                }
             }
         }
         for (k, v) in &right.columns {
             let val = &v[r_idx];
             if !matches!(val, GraphElement::Null) {
-                let col = self.columns.entry(k.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-                if col.len() > current_rows {
-                    col[current_rows] = val.clone();
+                if let Some(col) = self.columns.get_mut(k) {
+                    if col.len() > current_rows {
+                        col[current_rows] = val.clone();
+                    } else {
+                        col.push(val.clone());
+                    }
                 } else {
-                    col.push(val.clone());
+                    let mut col = vec![GraphElement::Null; current_rows];
+                    if col.len() > current_rows {
+                        col[current_rows] = val.clone();
+                    } else {
+                        col.push(val.clone());
+                    }
+                    self.columns.insert(k.clone(), col);
                 }
             }
         }
@@ -335,11 +393,14 @@ pub struct Graph {
     pub edges: ItemStorage<Edge>,
     pub labels: HashMap<String, usize>,
     pub string_pool: crate::string_pool::StringPool,
-    pub indices:
-        HashMap<usize, HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>>,
+    pub indices: HashMap<usize, HashMap<usize, IndexMap>>,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
+    #[serde(skip)]
+    #[serde(default = "default_cancel_flag")]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -395,10 +456,22 @@ impl Graph {
                         if let Some(label_indices) = graph.indices.get_mut(&label) {
                             for (prop_key_id, prop_index) in label_indices.iter_mut() {
                                 if let Some(prop_val) = interned_properties.get(prop_key_id) {
-                                    prop_index
-                                        .entry(prop_val.clone())
-                                        .or_insert_with(Vec::new)
-                                        .push(node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
+                                        }
+                                        IndexMap::BTree(map) => {
+                                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -418,11 +491,11 @@ impl Graph {
                         let edge = Edge::new(id.clone(), labels, start, end, interned_properties);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
-                        { let mut n = graph.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(start, n); }
-                        { let mut n = graph.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); graph.nodes.update_item(end, n); }
+                        let mut start_n = graph.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); graph.nodes.update_item(start, start_n);
+                        let mut end_n = graph.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); graph.nodes.update_item(end, end_n);
                     }
-                    WalEntry::CreateIndex { label, property } => {
-                        graph.create_index_internal(label, property);
+                    WalEntry::CreateIndex { label, property, index_type } => {
+                        graph.create_index_internal(label, property, index_type);
                     }
                     WalEntry::SetNodeProperty {
                         node_id,
@@ -432,40 +505,75 @@ impl Graph {
                         let key_id = graph.string_pool.intern(&key);
                         let mut __node = graph.nodes.get_item(node_id).unwrap();
                         let old_value = __node.properties.insert(key_id, value.clone());
+                        let has_label = __node.labels.clone();
                         graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if has_label.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key_id) {
-                                    // Remove from old index
-                                    if let Some(old_val) = &old_value {
-                                        if let Some(vec) = prop_index.get_mut(old_val) {
-                                            vec.retain(|&id| id != node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            // Remove from old index
+                                            if let Some(old_val) = &old_value {
+                                                if let Some(vec) = map.get_mut(old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            // Add to new index if not already present
+                                            if let Some(entry_vec) = map.get_mut(&value) {
+                                                if !entry_vec.contains(&node_id) {
+                                                    entry_vec.push(node_id);
+                                                }
+                                            } else {
+                                                map.insert(value.clone(), vec![node_id]);
+                                            }
                                         }
-                                    }
-                                    // Add to new index if not already present
-                                    let entry_vec =
-                                        prop_index.entry(value.clone()).or_insert_with(Vec::new);
-                                    if !entry_vec.contains(&node_id) {
-                                        entry_vec.push(node_id);
+                                        IndexMap::BTree(map) => {
+                                            // Remove from old index
+                                            if let Some(old_val) = &old_value {
+                                                if let Some(vec) = map.get_mut(old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            // Add to new index if not already present
+                                            if let Some(entry_vec) = map.get_mut(&value) {
+                                                if !entry_vec.contains(&node_id) {
+                                                    entry_vec.push(node_id);
+                                                }
+                                            } else {
+                                                map.insert(value.clone(), vec![node_id]);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     WalEntry::DeleteNode { node_id } => {
-                        { let mut n = graph.nodes.get_item(node_id).unwrap(); n.deleted = true; graph.nodes.update_item(node_id, n); }
+                        let mut n = graph.nodes.get_item(node_id).unwrap();
+                        n.deleted = true;
+                        let has_label = n.labels.clone();
+                        graph.nodes.update_item(node_id, n);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
-                            if graph.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                            if has_label.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
-                                    for (_, vec) in prop_index.iter_mut() {
-                                        vec.retain(|&id| id != node_id);
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            for (_, vec) in map.iter_mut() {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
+                                        IndexMap::BTree(map) => {
+                                            for (_, vec) in map.iter_mut() {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     WalEntry::DeleteEdge { edge_id } => {
-                        { let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e); }
+                        let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e);
                     }
                 }
                 needs_snapshot = true;
@@ -568,6 +676,13 @@ impl Graph {
                     elements.iter().map(|el| self.element_to_json(el)).collect();
                 serde_json::to_value(&list_out).unwrap()
             }
+            GraphElement::Map(map) => {
+                let mut map_out = serde_json::Map::new();
+                for (k, v) in map {
+                    map_out.insert(k.clone(), self.element_to_json(v));
+                }
+                Value::Object(map_out)
+            }
             GraphElement::Number(n) => json!(n),
             GraphElement::String(ref s) => json!(s),
             GraphElement::Boolean(b) => json!(b),
@@ -596,6 +711,13 @@ impl Graph {
                     list_out.push(self.format_element(el));
                 }
                 format!("[{}]", list_out.join(", "))
+            }
+            GraphElement::Map(map) => {
+                let mut map_out = Vec::new();
+                for (k, v) in map {
+                    map_out.push(format!("{}: {}", k, self.format_element(v)));
+                }
+                format!("{{{}}}", map_out.join(", "))
             }
             GraphElement::Number(n) => format!("{}", n),
             GraphElement::String(ref s) => format!("\"{}\"", s),
@@ -657,6 +779,8 @@ impl Graph {
             indices: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -720,10 +844,22 @@ impl Graph {
         if let Some(label_indices) = self.indices.get_mut(&label) {
             for (prop_key_id, prop_index) in label_indices.iter_mut() {
                 if let Some(prop_val) = interned_properties.get(prop_key_id) {
-                    prop_index
-                        .entry(prop_val.clone())
-                        .or_insert_with(Vec::new)
-                        .push(node_id);
+                    match prop_index {
+                        IndexMap::Hash(map) => {
+                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
+                        }
+                        IndexMap::BTree(map) => {
+                            if let Some(vec) = map.get_mut(prop_val) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(prop_val.clone(), vec![node_id]);
+                                        }
+                        }
+                    }
                 }
             }
         }
@@ -732,19 +868,23 @@ impl Graph {
         node_id
     }
 
-    pub fn create_index(&mut self, label: usize, property: String) {
-        self.create_index_internal(label, property.clone());
-        self.log_wal(&WalEntry::CreateIndex { label, property });
+    pub fn create_index(&mut self, label: usize, property: String, index_type: IndexType) {
+        self.create_index_internal(label, property.clone(), index_type.clone());
+        self.log_wal(&WalEntry::CreateIndex { label, property, index_type });
     }
 
-    fn create_index_internal(&mut self, label: usize, property: String) {
+    fn create_index_internal(&mut self, label: usize, property: String, index_type: IndexType) {
         let property_id = self.string_pool.intern(&property);
         if !self.indices.contains_key(&label) {
             self.indices.insert(label, HashMap::new());
         }
         let label_indices = self.indices.get_mut(&label).unwrap();
         if !label_indices.contains_key(&property_id) {
-            label_indices.insert(property_id, HashMap::new());
+            let index_map = match index_type {
+                IndexType::Hash => IndexMap::Hash(HashMap::new()),
+                IndexType::BTree => IndexMap::BTree(std::collections::BTreeMap::new()),
+            };
+            label_indices.insert(property_id, index_map);
         }
         let property_index = label_indices.get_mut(&property_id).unwrap();
 
@@ -754,10 +894,22 @@ impl Graph {
             let node = self.nodes.get_item(node_id).unwrap();
             if node.labels.contains(&label) {
                 if let Some(value) = node.properties.get(&property_id) {
-                    property_index
-                        .entry(value.clone())
-                        .or_insert_with(Vec::new)
-                        .push(node_id);
+                    match property_index {
+                        IndexMap::Hash(map) => {
+                            if let Some(vec) = map.get_mut(value) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(value.clone(), vec![node_id]);
+                                        }
+                        }
+                        IndexMap::BTree(map) => {
+                            if let Some(vec) = map.get_mut(value) {
+                                            vec.push(node_id);
+                                        } else {
+                                            map.insert(value.clone(), vec![node_id]);
+                                        }
+                        }
+                    }
                 }
             }
         }
@@ -780,8 +932,8 @@ impl Graph {
         let edge = Edge::new(id.clone(), labels.clone(), start, end, interned_properties);
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
-        { let mut n = self.nodes.get_item(start).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(start, n); }
-        { let mut n = self.nodes.get_item(end).unwrap(); n.edges.push(edge_idx); self.nodes.update_item(end, n); }
+        let mut start_n = self.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); self.nodes.update_item(start, start_n);
+        let mut end_n = self.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); self.nodes.update_item(end, end_n);
         self.log_wal(&WalEntry::AddEdge {
             id,
             start,
@@ -812,9 +964,13 @@ impl Graph {
         let mut result_set = ResultSet::new();
         result_set.push_row(&HashMap::new());
 
-        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices, &mut self.string_pool);
+        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices, &self.string_pool);
 
         for step in plan.steps {
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.cancel_flag.load(Ordering::Relaxed) {
+                return Err("Query cancelled".to_string());
+            }
             match step {
                 ExecutionStep::Create(paths) => {
                     let mut new_result_set = ResultSet::new();
@@ -907,24 +1063,46 @@ impl Graph {
                             if updated_nodes.insert(node_id) {
                                 let mut __node = self.nodes.get_item(node_id).unwrap();
                                 let old_value = __node.properties.insert(key_id, value.clone());
+                                let has_label = __node.labels.clone();
                                 self.nodes.update_item(node_id, __node);
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
-                                    if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                    if has_label.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key_id) {
-                                            // Remove from old index
-                                            if let Some(old_val) = &old_value {
-                                                if let Some(vec) = prop_index.get_mut(old_val) {
-                                                    vec.retain(|&id| id != node_id);
+                                            match prop_index {
+                                                IndexMap::Hash(map) => {
+                                                    // Remove from old index
+                                                    if let Some(old_val) = &old_value {
+                                                        if let Some(vec) = map.get_mut(old_val) {
+                                                            vec.retain(|&id| id != node_id);
+                                                        }
+                                                    }
+                                                    // Add to new index
+                                                    if let Some(entry_vec) = map.get_mut(&value) {
+                                                        if !entry_vec.contains(&node_id) {
+                                                            entry_vec.push(node_id);
+                                                        }
+                                                    } else {
+                                                        map.insert(value.clone(), vec![node_id]);
+                                                    }
                                                 }
-                                            }
-                                            // Add to new index
-                                            let entry_vec = prop_index
-                                                .entry(value.clone())
-                                                .or_insert_with(Vec::new);
-                                            if !entry_vec.contains(&node_id) {
-                                                entry_vec.push(node_id);
+                                                IndexMap::BTree(map) => {
+                                                    // Remove from old index
+                                                    if let Some(old_val) = &old_value {
+                                                        if let Some(vec) = map.get_mut(old_val) {
+                                                            vec.retain(|&id| id != node_id);
+                                                        }
+                                                    }
+                                                    // Add to new index
+                                                    if let Some(entry_vec) = map.get_mut(&value) {
+                                                        if !entry_vec.contains(&node_id) {
+                                                            entry_vec.push(node_id);
+                                                        }
+                                                    } else {
+                                                        map.insert(value.clone(), vec![node_id]);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -957,20 +1135,32 @@ impl Graph {
                     }
 
                     for &edge_id in &edges_to_delete {
-                        if !self.edges.get_item(edge_id).unwrap().deleted {
-                            { let mut e = self.edges.get_item(edge_id).unwrap(); e.deleted = true; self.edges.update_item(edge_id, e); }
+                        let mut e = self.edges.get_item(edge_id).unwrap();
+                        if !e.deleted {
+                            e.deleted = true; self.edges.update_item(edge_id, e);
                             self.log_wal(&WalEntry::DeleteEdge { edge_id });
                         }
                     }
 
                     for &node_id in &nodes_to_delete {
-                        if !self.nodes.get_item(node_id).unwrap().deleted {
-                            { let mut n = self.nodes.get_item(node_id).unwrap(); n.deleted = true; self.nodes.update_item(node_id, n); }
+                        let mut n = self.nodes.get_item(node_id).unwrap();
+                        if !n.deleted {
+                            n.deleted = true;
+                            self.nodes.update_item(node_id, n.clone());
                             for (label_id, label_indices) in self.indices.iter_mut() {
-                                if self.nodes.get_item(node_id).unwrap().labels.contains(label_id) {
+                                if n.labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
-                                        for (_, vec) in prop_index.iter_mut() {
-                                            vec.retain(|&id| id != node_id);
+                                        match prop_index {
+                                            IndexMap::Hash(map) => {
+                                                for (_, vec) in map.iter_mut() {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            IndexMap::BTree(map) => {
+                                                for (_, vec) in map.iter_mut() {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1063,6 +1253,9 @@ impl Graph {
                             ProjectionItem::Function { .. } => {
                                 // Function without aggregate isn't an aggregate grouping key directly
                             }
+                            ProjectionItem::Expression { expr: _, alias: _ } => {
+                                grouping_items.push(item.clone())
+                            }
                             ProjectionItem::Star => {} // Already handled above
                         }
                     }
@@ -1126,6 +1319,13 @@ impl Graph {
                                             if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
                                                 bindings.push((alias.clone(), val));
                                             }
+                                        }
+                                    }
+                                    ProjectionItem::Expression { expr, alias } => {
+                                        if let Some(first_idx) = group_rows.first() {
+                                            let val = self.evaluate_expression_to_element(expr, &result_set, *first_idx);
+                                            let out_key = alias.clone().unwrap_or_else(|| "expr".to_string());
+                                            bindings.push((out_key, val));
                                         }
                                     }
                                     ProjectionItem::Aggregate { func, var, alias } => {
@@ -1217,6 +1417,11 @@ impl Graph {
                                             bindings.push((out_key, GraphElement::Number(0f64)));
                                         }
                                     }
+                                    ProjectionItem::Expression { expr, alias } => {
+                                        let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                        let out_key = alias.clone().unwrap_or_else(|| "expr".to_string());
+                                        bindings.push((out_key, val));
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1278,6 +1483,9 @@ impl Graph {
                                         .clone()
                                         .unwrap_or_else(|| format!("{}()", func)),
                                     ProjectionItem::Star => continue,
+                                    ProjectionItem::Expression { alias, .. } => alias
+                                        .clone()
+                                        .unwrap_or_else(|| "expr".to_string()),
                                 };
                                 if let Some(element) = final_res.get(i, &key) {
                                     row.insert(key, self.element_to_json(element));
@@ -1300,9 +1508,9 @@ impl Graph {
                         }
                     }
                 }
-                ExecutionStep::CreateIndex { label, property } => {
+                ExecutionStep::CreateIndex { label, property, index_type } => {
                     let label_id = self.get_or_add_label(&label);
-                    self.create_index(label_id, property);
+                    self.create_index(label_id, property, index_type);
                 }
             }
         }
@@ -1396,6 +1604,9 @@ impl Graph {
         depth: usize,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         let indent = "  ".repeat(depth);
         let op_name;
 
@@ -1453,7 +1664,11 @@ impl Graph {
                     if let Some(label_indices) = self.indices.get(label_id) {
                         let prop_id = self.string_pool.intern(property);
                         if let Some(prop_index) = label_indices.get(&prop_id) {
-                            if let Some(node_ids) = prop_index.get(value) {
+                            let node_ids_opt = match prop_index {
+                                IndexMap::Hash(map) => map.get(value),
+                                IndexMap::BTree(map) => map.get(value),
+                            };
+                            if let Some(node_ids) = node_ids_opt {
                                 candidate_ids.extend(node_ids.iter().copied());
                             }
                         }
@@ -1640,8 +1855,13 @@ impl Graph {
                     }
 
                     let current_rows = out.rows;
-                    let col = out.columns.entry(bound_var.clone()).or_insert_with(|| vec![GraphElement::Null; current_rows]);
-                    col[i] = GraphElement::Path(path_elements);
+                    if let Some(col) = out.columns.get_mut(bound_var) {
+                        col[i] = GraphElement::Path(path_elements);
+                    } else {
+                        let mut col = vec![GraphElement::Null; current_rows];
+                        col[i] = GraphElement::Path(path_elements);
+                        out.columns.insert(bound_var.clone(), col);
+                    }
                 }
             }
         }
@@ -1657,6 +1877,9 @@ impl Graph {
         out: &mut ResultSet,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
             out.push_row_from(in_res, row_idx, &[] as &[(&str, GraphElement)]);
@@ -1723,6 +1946,9 @@ impl Graph {
         path_edges: Vec<usize>,
         limit: Option<usize>,
     ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+
         if limit.is_some_and(|l| out.rows >= l) { return; }
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 
@@ -1820,7 +2046,11 @@ impl Graph {
                     for (prop_name, prop_value) in &pattern.properties {
                         let prop_id = self.string_pool.intern(prop_name);
                         if let Some(prop_index) = label_indices.get(&prop_id) {
-                            if let Some(node_ids) = prop_index.get(prop_value) {
+                            let node_ids_opt = match prop_index {
+                                IndexMap::Hash(map) => map.get(prop_value),
+                                IndexMap::BTree(map) => map.get(prop_value),
+                            };
+                            if let Some(node_ids) = node_ids_opt {
                                 // We found an index match! Filter the indexed nodes just in case there are other constraints
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
@@ -1849,8 +2079,8 @@ impl Graph {
     }
 
     fn node_matches(&self, node_id: usize, pattern: &NodePattern) -> bool {
-        if self.nodes.get_item(node_id).unwrap().deleted { return false; }
         let node = self.nodes.get_item(node_id).unwrap();
+        if node.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -1936,8 +2166,8 @@ impl Graph {
     }
 
     fn edge_matches(&self, edge_id: usize, pattern: &RelPattern) -> bool {
-        if self.edges.get_item(edge_id).unwrap().deleted { return false; }
         let edge = self.edges.get_item(edge_id).unwrap();
+        if edge.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -2001,20 +2231,52 @@ impl Graph {
         }
     }
 
-    fn evaluate_expression(&self, expr: &Expression, in_res: &ResultSet, row_idx: usize) -> EvalValue {
+    fn evaluate_expression_to_element(&self, expr: &Expression, in_res: &ResultSet, row_idx: usize) -> GraphElement {
         match expr {
-            Expression::StringLiteral(s) => EvalValue::String(s.clone()),
-            Expression::NumberLiteral(n) => EvalValue::Number(n.clone()),
-            Expression::BooleanLiteral(b) => EvalValue::Boolean(b.clone()),
+            Expression::StringLiteral(s) => GraphElement::String(s.clone()),
+            Expression::NumberLiteral(n) => GraphElement::Number(*n),
+            Expression::BooleanLiteral(b) => GraphElement::Boolean(*b),
+            Expression::Variable(var) => {
+                in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
+            }
+            Expression::Function(func, _args) => {
+                if func.eq_ignore_ascii_case("rand") {
+                    GraphElement::Number(0f64)
+                } else {
+                    GraphElement::Null
+                }
+            }
+            Expression::Property(var, prop) => {
+                self.get_property_as_element(in_res, row_idx, var, prop).unwrap_or(GraphElement::Null)
+            }
+            Expression::List(elements) => {
+                let lst: Vec<GraphElement> = elements.iter().map(|e| self.evaluate_expression_to_element(e, in_res, row_idx)).collect();
+                GraphElement::List(lst)
+            }
+            Expression::Map(map) => {
+                let mut result_map = HashMap::new();
+                for (k, v) in map {
+                    result_map.insert(k.clone(), self.evaluate_expression_to_element(v, in_res, row_idx));
+                }
+                GraphElement::Map(result_map)
+            }
+        }
+    }
+
+    fn evaluate_expression<'a>(&'a self, expr: &'a Expression, in_res: &'a ResultSet, row_idx: usize) -> EvalValue<'a> {
+        match expr {
+            Expression::StringLiteral(s) => EvalValue::String(Cow::Borrowed(s.as_str())),
+            Expression::NumberLiteral(n) => EvalValue::Number(*n),
+            Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
             Expression::Variable(var) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     match element {
-                        GraphElement::Number(n) => EvalValue::Number(n.clone()),
-            GraphElement::String(ref s) => EvalValue::String(s.clone()),
-            GraphElement::Boolean(b) => EvalValue::Boolean(b.clone()),
+                        GraphElement::Number(n) => EvalValue::Number(*n),
+            GraphElement::String(ref s) => EvalValue::String(Cow::Borrowed(s.as_str())),
+            GraphElement::Boolean(b) => EvalValue::Boolean(*b),
             GraphElement::Null => EvalValue::Null,
-                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) => {
-                            EvalValue::String(self.format_element(element))
+                        GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) | GraphElement::Map(_) => {
+                            EvalValue::String(Cow::Owned(self.format_element(element)))
                         }
                     }
                 } else {
@@ -2038,29 +2300,31 @@ impl Graph {
                     };
                     match prop_val {
                         Some(crate::property::PropertyValue::String(s)) => {
-                            EvalValue::String(s.clone())
+                            EvalValue::String(Cow::Owned(s))
                         }
-                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n.clone()),
-                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b.clone()),
+                        Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n),
+                        Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b),
                         None => EvalValue::Null,
                     }
                 } else {
                     EvalValue::Null
                 }
             }
+            Expression::List(_) => EvalValue::Null,
+            Expression::Map(_) => EvalValue::Null,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-enum EvalValue {
-    String(String),
+enum EvalValue<'a> {
+    String(Cow<'a, str>),
     Number(f64),
     Boolean(bool),
     Null,
 }
 
-impl EvalValue {
+impl<'a> EvalValue<'a> {
     fn partial_cmp(&self, other: &EvalValue) -> Option<std::cmp::Ordering> {
         if let (EvalValue::Null, EvalValue::Null) = (self, other) {
             return Some(std::cmp::Ordering::Equal);

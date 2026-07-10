@@ -29,6 +29,29 @@ type SharedGraph = Arc<Mutex<Graph>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
+struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+struct GraphGuard {
+    g: tokio::sync::OwnedMutexGuard<Graph>,
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+impl Drop for GraphGuard {
+    fn drop(&mut self) {
+        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
     #[cfg(feature = "dhat-heap")]
@@ -48,11 +71,36 @@ async fn main() {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("Listening on {}", addr);
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .unwrap();
+    let cert = std::env::var("YAGDB_CERT").ok();
+    let key = std::env::var("YAGDB_KEY").ok();
+
+    if let (Some(cert_path), Some(key_path)) = (cert, key) {
+        let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path)
+            .await
+            .unwrap();
+
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+
+
+        tokio::spawn(async move {
+            _shutdown_signal().await;
+            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
+        });
+
+        axum_server::bind_rustls(addr, config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+
+    } else {
+        axum::Server::bind(&addr)
+            .serve(app.into_make_service())
+            .with_graceful_shutdown(_shutdown_signal())
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -96,8 +144,16 @@ async fn main() {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelGuard(cancel.clone());
+    let mut g = graph.clone().lock_owned().await;
+    g.cancel_flag = cancel;
+    let mut guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || {
+        guard.g.execute(&body)
+    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+
+    match res {
         Ok(result) => (StatusCode::OK, result).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
@@ -121,8 +177,16 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
-    let mut g = graph.lock().await;
-    match g.execute(&body) {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelGuard(cancel.clone());
+    let mut g = graph.clone().lock_owned().await;
+    g.cancel_flag = cancel;
+    let mut guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || {
+        guard.g.execute(&body)
+    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+
+    match res {
         Ok(result) => {
             if result.trim().is_empty() {
                 return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
@@ -217,7 +281,7 @@ mod tests {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn shutdown_signal() {
+async fn _shutdown_signal() {
     // Wait for the Ctrl+C signal
     let ctrl_c = async {
         signal::ctrl_c()

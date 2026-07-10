@@ -6,9 +6,10 @@ fn test_parse_create_index() {
     let (rest, ast) = parse_query(query).unwrap();
     assert_eq!(rest, "");
     match &ast.clauses[0] {
-        Clause::CreateIndex { label, property } => {
+        Clause::CreateIndex { label, property, index_type } => {
             assert_eq!(label, "Person");
             assert_eq!(property, "name");
+            assert_eq!(*index_type, yagdb::graph::IndexType::Hash);
         }
         _ => panic!("Expected CreateIndex clause"),
     }

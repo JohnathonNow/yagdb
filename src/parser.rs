@@ -46,6 +46,8 @@ pub enum Expression {
     BooleanLiteral(bool),
     Variable(String),
     Function(String, Vec<Expression>),
+    List(Vec<Expression>),
+    Map(std::collections::HashMap<String, Expression>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -87,6 +89,10 @@ pub enum ProjectionItem {
         args: Vec<Expression>,
         alias: Option<String>,
     },
+    Expression {
+        expr: Expression,
+        alias: Option<String>,
+    },
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -95,7 +101,7 @@ pub enum Clause {
     Match(Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, crate::property::PropertyValue),
-    CreateIndex { label: String, property: String },
+    CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
@@ -301,6 +307,33 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             |(func, _, args, _)| Expression::Function(func.to_string(), args),
         ),
         map(ws(identifier), |var| Expression::Variable(var.to_string())),
+        |i| {
+            let (i, list) = delimited(
+                ws(char('[')),
+                nom::multi::separated_list0(ws(char(',')), expression),
+                ws(char(']')),
+            )(i)?;
+            Ok((i, Expression::List(list)))
+        },
+        |i| {
+            let (i, pairs) = delimited(
+                ws(char('{')),
+                nom::multi::separated_list0(ws(char(',')), tuple((
+                    ws(alt((
+                        map(identifier, |s| s.to_string()),
+                        map(string_literal, |s| s.to_string())
+                    ))),
+                    ws(char(':')),
+                    expression
+                ))),
+                ws(char('}')),
+            )(i)?;
+            let mut map = std::collections::HashMap::new();
+            for (k, _, v) in pairs {
+                map.insert(k.to_string(), v);
+            }
+            Ok((i, Expression::Map(map)))
+        },
     ))(input)
 }
 
@@ -459,6 +492,17 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                 }
             }
         },
+        |i| {
+            let (i, expr) = expression(i)?;
+            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
+            Ok((
+                i,
+                ProjectionItem::Expression {
+                    expr,
+                    alias: alias.map(|s| s.to_string()),
+                },
+            ))
+        },
     ))(input)
 }
 
@@ -481,14 +525,29 @@ fn with_clause(input: &str) -> IResult<&str, Clause> {
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {
-    let (input, _) = ws(alt((tag("CREATE INDEX ON"), tag("create index on"))))(input)?;
+    let (input, _) = ws(alt((tag("CREATE"), tag("create"))))(input)?;
+
+    let (input, index_type_opt) = opt(ws(alt((
+        tag("BTREE"), tag("btree"),
+        tag("HASH"), tag("hash")
+    ))))(input)?;
+
+    let (input, _) = ws(alt((tag("INDEX ON"), tag("index on"))))(input)?;
+
     let (input, label) = preceded(ws(char(':')), ws(identifier))(input)?;
     let (input, property) = delimited(ws(char('(')), ws(identifier), ws(char(')')))(input)?;
+
+    let index_type = match index_type_opt {
+        Some(s) if s.eq_ignore_ascii_case("BTREE") => crate::graph::IndexType::BTree,
+        _ => crate::graph::IndexType::Hash,
+    };
+
     Ok((
         input,
         Clause::CreateIndex {
             label: label.to_string(),
             property: property.to_string(),
+            index_type,
         },
     ))
 }

@@ -44,11 +44,8 @@ impl QueryPlanner {
     pub fn plan_match_path(
         path: &Path,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<
-            usize,
-            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
-        >,
-        string_pool: &mut crate::string_pool::StringPool,
+        indices: &HashMap<usize, HashMap<usize, crate::graph::IndexMap>>,
+        string_pool: &crate::string_pool::StringPool,
     ) -> PlanNode {
         // Ensure the start node has a variable for chaining.
         let mut start_pattern = path.start.clone();
@@ -87,11 +84,8 @@ impl QueryPlanner {
     pub fn plan_match_paths(
         paths: &[Path],
         labels: &HashMap<String, usize>,
-        indices: &HashMap<
-            usize,
-            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
-        >,
-        string_pool: &mut crate::string_pool::StringPool,
+        indices: &HashMap<usize, HashMap<usize, crate::graph::IndexMap>>,
+        string_pool: &crate::string_pool::StringPool,
     ) -> Option<PlanNode> {
         if paths.is_empty() {
             return None;
@@ -109,11 +103,8 @@ impl QueryPlanner {
     fn plan_node_lookup(
         pattern: &NodePattern,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<
-            usize,
-            HashMap<usize, HashMap<crate::property::PropertyValue, Vec<usize>>>,
-        >,
-        string_pool: &mut crate::string_pool::StringPool,
+        indices: &HashMap<usize, HashMap<usize, crate::graph::IndexMap>>,
+        string_pool: &crate::string_pool::StringPool,
     ) -> PlanNode {
         if let Some(label_name) = &pattern.label {
             if let Some(label_id) = labels.get(label_name) {
@@ -152,7 +143,7 @@ pub enum ExecutionStep {
     Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, PropertyValue),
-    CreateIndex { label: String, property: String },
+    CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     Unwind(Vec<ProjectionItem>),
@@ -169,8 +160,8 @@ impl QueryPlanner {
     pub fn plan_query(
         query: Query,
         labels: &HashMap<String, usize>,
-        indices: &HashMap<usize, HashMap<usize, HashMap<PropertyValue, Vec<usize>>>>,
-        string_pool: &mut crate::string_pool::StringPool,
+        indices: &HashMap<usize, HashMap<usize, crate::graph::IndexMap>>,
+        string_pool: &crate::string_pool::StringPool,
     ) -> QueryPlan {
         let mut steps = Vec::new();
         for clause in query.clauses {
@@ -189,7 +180,7 @@ impl QueryPlanner {
                     ExecutionStep::Merge(planned_paths)
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
-                Clause::CreateIndex { label, property } => ExecutionStep::CreateIndex { label, property },
+                Clause::CreateIndex { label, property, index_type } => ExecutionStep::CreateIndex { label, property, index_type },
                 Clause::Return(items, order, limit) => ExecutionStep::Return(items, order, limit),
                 Clause::With(items, order, limit) => ExecutionStep::With(items, order, limit),
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
