@@ -183,11 +183,25 @@ impl QueryPlanner {
                 if *op == CompareOp::Eq {
                     if let Expression::Property(var, prop) = left {
                         if let Some(val) = Self::eval_literal(right) {
-                            extracted_props.entry(var.clone()).or_default().insert(prop.clone(), val);
+                            // ⚡ BOLT: Avoid unconditional String cloning by bypassing HashMap::entry for cache hits.
+                            if let Some(entry) = extracted_props.get_mut(var) {
+                                entry.insert(prop.clone(), val);
+                            } else {
+                                let mut map = std::collections::HashMap::new();
+                                map.insert(prop.clone(), val);
+                                extracted_props.insert(var.clone(), map);
+                            }
                         }
                     } else if let Expression::Property(var, prop) = right {
                         if let Some(val) = Self::eval_literal(left) {
-                            extracted_props.entry(var.clone()).or_default().insert(prop.clone(), val);
+                            // ⚡ BOLT: Avoid unconditional String cloning by bypassing HashMap::entry for cache hits.
+                            if let Some(entry) = extracted_props.get_mut(var) {
+                                entry.insert(prop.clone(), val);
+                            } else {
+                                let mut map = std::collections::HashMap::new();
+                                map.insert(prop.clone(), val);
+                                extracted_props.insert(var.clone(), map);
+                            }
                         }
                     }
                 }
