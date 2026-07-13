@@ -401,6 +401,7 @@ pub struct Graph {
     pub edges: ItemStorage<Edge>,
     pub labels: HashMap<String, usize>,
     pub indices: HashMap<usize, HashMap<String, IndexMap>>,
+    pub string_pool: crate::string_pool::StringPool,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
@@ -450,7 +451,11 @@ impl Graph {
                         graph.labels.insert(label, id);
                     }
                     WalEntry::AddNode { id, label, properties } => {
-                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+                        let mut props_interned = std::collections::HashMap::new();
+                        for (k, v) in properties.iter() {
+                            props_interned.insert(graph.string_pool.get_or_intern(k), v.clone());
+                        }
+                        let node = Node::new(id.clone(), vec![label], vec![], props_interned);
                         graph.nodes.push_item(node);
                         let node_id = graph.nodes.len_items() - 1;
 
@@ -485,7 +490,11 @@ impl Graph {
                         labels,
                         properties,
                     } => {
-                        let edge = Edge::new(id.clone(), labels, start, end, properties);
+                        let mut props_interned = std::collections::HashMap::new();
+                        for (k, v) in properties.iter() {
+                            props_interned.insert(graph.string_pool.get_or_intern(k), v.clone());
+                        }
+                        let edge = Edge::new(id.clone(), labels, start, end, props_interned);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
                         let mut start_n = graph.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); graph.nodes.update_item(start, start_n);
@@ -500,7 +509,8 @@ impl Graph {
                         value,
                     } => {
                         let mut __node = graph.nodes.get_item(node_id).unwrap();
-                        let old_value = __node.properties.insert(key.clone(), value.clone());
+                        let interned_key = graph.string_pool.get_or_intern(&key);
+                        let old_value = __node.properties.insert(interned_key, value.clone());
                         let has_label = __node.labels.clone();
                         graph.nodes.update_item(node_id, __node);
                         for (label_id, label_indices) in graph.indices.iter_mut() {
@@ -629,7 +639,7 @@ impl Graph {
                     );
                     let mut props = serde_json::Map::new();
                     for (k, v) in &node.properties {
-                        props.insert(k.clone(), v.to_json_value());
+                        props.insert(self.string_pool.resolve(*k), v.to_json_value());
                     }
                     map.insert("properties".to_string(), Value::Object(props));
                     Value::Object(map)
@@ -649,7 +659,7 @@ impl Graph {
                     map.insert("end".to_string(), serde_json::to_value(edge.end).unwrap());
                     let mut props = serde_json::Map::new();
                     for (k, v) in &edge.properties {
-                        props.insert(k.clone(), v.to_json_value());
+                        props.insert(self.string_pool.resolve(*k), v.to_json_value());
                     }
                     map.insert("properties".to_string(), Value::Object(props));
                     Value::Object(map)
@@ -772,6 +782,7 @@ impl Graph {
             edges: ItemStorage::Memory(Vec::new()),
             labels: HashMap::new(),
             indices: HashMap::new(),
+            string_pool: crate::string_pool::StringPool::new(),
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -780,6 +791,7 @@ impl Graph {
     }
 
     pub fn clear(&mut self) {
+        self.string_pool = crate::string_pool::StringPool::new();
         self.nodes.clear_items();
         self.edges.clear_items();
         self.labels.clear();
@@ -824,7 +836,11 @@ impl Graph {
         properties: HashMap<String, crate::property::PropertyValue>,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
-        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+        let mut props_interned = std::collections::HashMap::new();
+        for (k, v) in properties.iter() {
+            props_interned.insert(self.string_pool.get_or_intern(k), v.clone());
+        }
+        let node = Node::new(id.clone(), vec![label], vec![], props_interned);
         self.nodes.push_item(node);
         let node_id = self.nodes.len_items() - 1;
 
@@ -880,7 +896,8 @@ impl Graph {
         for node_id in 0..self.nodes.len_items() {
             let node = self.nodes.get_item(node_id).unwrap();
             if node.labels.contains(&label) {
-                if let Some(value) = node.properties.get(&property) {
+                let interned_prop = self.string_pool.get_or_intern(&property);
+                if let Some(value) = node.properties.get(&interned_prop) {
                     match property_index {
                         IndexMap::Hash(map) => {
                             if let Some(vec) = map.get_mut(value) {
@@ -910,7 +927,11 @@ impl Graph {
         properties: HashMap<String, crate::property::PropertyValue>,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
-        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
+        let mut props_interned = std::collections::HashMap::new();
+        for (k, v) in properties.iter() {
+            props_interned.insert(self.string_pool.get_or_intern(k), v.clone());
+        }
+        let edge = Edge::new(id.clone(), labels.clone(), start, end, props_interned);
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
         let mut start_n = self.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); self.nodes.update_item(start, start_n);
@@ -1042,7 +1063,8 @@ impl Graph {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
                                 let mut __node = self.nodes.get_item(node_id).unwrap();
-                                let old_value = __node.properties.insert(key.clone(), value.clone());
+                                let interned_key = self.string_pool.get_or_intern(&key);
+                                let old_value = __node.properties.insert(interned_key, value.clone());
                                 let has_label = __node.labels.clone();
                                 self.nodes.update_item(node_id, __node);
 
@@ -2092,7 +2114,11 @@ impl Graph {
         }
 
         for (k, v) in &pattern.properties {
-            if node.properties.get(k) != Some(v) {
+            if let Some(interned_k) = self.string_pool.get(k) {
+                if node.properties.get(&interned_k) != Some(v) {
+                    return false;
+                }
+            } else {
                 return false;
             }
         }
@@ -2180,7 +2206,11 @@ impl Graph {
         }
 
         for (k, v) in &pattern.properties {
-            if edge.properties.get(k) != Some(v) {
+            if let Some(interned_k) = self.string_pool.get(k) {
+                if edge.properties.get(&interned_k) != Some(v) {
+                    return false;
+                }
+            } else {
                 return false;
             }
         }
@@ -2208,8 +2238,20 @@ impl Graph {
     fn get_property_as_element(&self, in_res: &ResultSet, row_idx: usize, var: &str, prop: &str) -> Option<GraphElement> {
         if let Some(element) = in_res.get(row_idx, var) {
             let prop_val = match element {
-                GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                GraphElement::Node(id) => {
+                    if let Some(interned_prop) = self.string_pool.get(prop) {
+                        self.nodes.get_item(*id).unwrap().properties.get(&interned_prop).cloned()
+                    } else {
+                        None
+                    }
+                }
+                GraphElement::Edge(id) => {
+                    if let Some(interned_prop) = self.string_pool.get(prop) {
+                        self.edges.get_item(*id).unwrap().properties.get(&interned_prop).cloned()
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             match prop_val {
@@ -2285,8 +2327,20 @@ impl Graph {
             Expression::Property(var, prop) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     let prop_val = match element {
-                        GraphElement::Node(id) => self.nodes.get_item(*id).unwrap().properties.get(prop).cloned(),
-                        GraphElement::Edge(id) => self.edges.get_item(*id).unwrap().properties.get(prop).cloned(),
+                        GraphElement::Node(id) => {
+                    if let Some(interned_prop) = self.string_pool.get(prop) {
+                        self.nodes.get_item(*id).unwrap().properties.get(&interned_prop).cloned()
+                    } else {
+                        None
+                    }
+                }
+                        GraphElement::Edge(id) => {
+                    if let Some(interned_prop) = self.string_pool.get(prop) {
+                        self.edges.get_item(*id).unwrap().properties.get(&interned_prop).cloned()
+                    } else {
+                        None
+                    }
+                }
                         _ => None,
                     };
                     match prop_val {
