@@ -10,6 +10,8 @@ pub struct Edge {
     pub end: usize,
     pub properties: HashMap<String, crate::property::PropertyValue>,
     pub deleted: bool,
+    pub created_by: u64,
+    pub deleted_by: Option<u64>,
 }
 
 impl Edge {
@@ -19,6 +21,7 @@ impl Edge {
         start: usize,
         end: usize,
         properties: HashMap<String, crate::property::PropertyValue>,
+        created_by: u64,
     ) -> Self {
         Self {
             id,
@@ -27,6 +30,8 @@ impl Edge {
             end,
             properties,
             deleted: false,
+            created_by,
+            deleted_by: None,
         }
     }
 }
