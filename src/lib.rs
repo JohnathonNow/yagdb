@@ -4,6 +4,7 @@ pub mod node;
 pub mod parser;
 pub mod planner;
 pub mod property;
+pub mod export;
 
 #[cfg(feature = "cluster")]
 pub mod raft;
