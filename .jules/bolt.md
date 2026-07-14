@@ -20,3 +20,6 @@
 
 **Action:** Replace `HashMap::entry(k.clone())` with a two-step `get_mut()` and `insert()` pattern to bypass the `String` cloning on cache hits.
 **Action:** Whenever retrieving potentially large objects from a generalized storage abstraction inside a hot loop, avoid returning owned clones. Implement zero-copy `with_...` methods accepting closures to allow temporary read-only access to avoid unnecessary deep copying, especially during property-checking and filtering.
+## 2024-12-11 - Prevent N+1 Node/Edge Clones in Graph Traversal
+**Learning:** In highly recursive execution paths like recursive edge matching or property extraction, calling `get_item(id).unwrap()` on `ItemStorage` silently triggers expensive deep clones of the entire Node or Edge structure (which contains HashMaps and Vectors).
+**Action:** Always prefer `with_item(id, |item| ...)` to borrow fields rather than clone the entire element. If you need to map over a node's edges, extract only the lightweight list via `with_item` before entering loops that access other tables, to prevent borrow checker conflicts while preserving performance.
