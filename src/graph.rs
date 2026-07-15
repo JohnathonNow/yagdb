@@ -1962,7 +1962,7 @@ impl Graph {
             } else {
                 true
             } && {
-                self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern, u64::MAX)).unwrap()
+self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern, u64::MAX)).unwrap()
             };
 
             if matches_target {
@@ -2027,7 +2027,7 @@ impl Graph {
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                if self.nodes.with_item(*id, |node| self.node_matches(node, pattern, txid)).unwrap() {
+if self.nodes.with_item(*id, |node| self.node_matches(node, pattern, txid)).unwrap() {
                     return vec![*id];
                 } else {
                     return vec![];

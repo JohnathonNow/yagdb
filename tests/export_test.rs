@@ -9,16 +9,16 @@ fn test_export_import_csv() {
         let mut p = HashMap::new();
         p.insert("name".to_string(), yagdb::property::PropertyValue::String("Alice".to_string()));
         p
-    });
+    }, 0);
 
     // Instead of deleting, just create a node and mark it deleted manually for test
-    let node_del = g.add_node(label_id, HashMap::new());
+    let node_del = g.add_node(label_id, HashMap::new(), 0);
     let mut n_del = g.nodes.get_item(node_del).unwrap();
     n_del.deleted = true;
     g.nodes.update_item(node_del, n_del);
 
-    let node2 = g.add_node(label_id, HashMap::new());
-    let edge_id = g.add_edge(node1, node2, vec![], HashMap::new());
+    let node2 = g.add_node(label_id, HashMap::new(), 0);
+    let edge_id = g.add_edge(node1, node2, vec![], HashMap::new(), 0);
 
     g.create_index(label_id, "name".to_string(), IndexType::Hash);
 
@@ -46,11 +46,11 @@ fn test_export_import_json() {
     let label_id = g.get_or_add_label("TestJSON");
     let node1 = g.add_node(label_id, {
         let mut p = HashMap::new();
-        p.insert("name".to_string(), yagdb::property::PropertyValue::String("Bob".to_string()));
+        p.insert("name".to_string(), yagdb::property::PropertyValue::String("Alice".to_string()));
         p
-    });
-    let node2 = g.add_node(label_id, HashMap::new());
-    g.add_edge(node1, node2, vec![], HashMap::new());
+    }, 0);
+    let node2 = g.add_node(label_id, HashMap::new(), 0);
+    g.add_edge(node1, node2, vec![], HashMap::new(), 0);
 
     let json_str = g.export_json().unwrap();
 
@@ -63,5 +63,5 @@ fn test_export_import_json() {
 
     // Check one node property
     let imported_node1 = g2.nodes.get_item(node1).unwrap();
-    assert_eq!(imported_node1.properties.get("name").unwrap(), &yagdb::property::PropertyValue::String("Bob".to_string()));
+    assert_eq!(imported_node1.properties.get("name").unwrap(), &yagdb::property::PropertyValue::String("Alice".to_string()));
 }

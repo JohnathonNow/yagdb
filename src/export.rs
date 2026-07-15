@@ -147,6 +147,8 @@ impl Graph {
                     edges: vec![],
                     properties: HashMap::new(),
                     deleted: true,
+                    created_by: 0,
+                    deleted_by: None,
                 };
                 self.nodes.push_item(dummy_node);
                 current_idx += 1;
@@ -157,6 +159,8 @@ impl Graph {
                 edges: serde_json::from_str(&record.edges).map_err(|e| e.to_string())?,
                 properties: serde_json::from_str(&record.properties).map_err(|e| e.to_string())?,
                 deleted: record.deleted,
+                created_by: 0,
+                deleted_by: None,
             };
             self.nodes.push_item(node);
             current_idx += 1;
@@ -180,6 +184,8 @@ impl Graph {
                     end: 0,
                     properties: HashMap::new(),
                     deleted: true,
+                    created_by: 0,
+                    deleted_by: None,
                 };
                 self.edges.push_item(dummy_edge);
                 current_idx_edges += 1;
@@ -191,6 +197,8 @@ impl Graph {
                 end: record.end,
                 properties: serde_json::from_str(&record.properties).map_err(|e| e.to_string())?,
                 deleted: record.deleted,
+                created_by: 0,
+                deleted_by: None,
             };
             self.edges.push_item(edge);
             current_idx_edges += 1;
