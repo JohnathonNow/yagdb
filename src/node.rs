@@ -9,6 +9,8 @@ pub struct Node {
     pub edges: Vec<usize>,
     pub properties: HashMap<String, crate::property::PropertyValue>,
     pub deleted: bool,
+    pub created_by: u64,
+    pub deleted_by: Option<u64>,
 }
 
 impl Node {
@@ -17,6 +19,7 @@ impl Node {
         labels: Vec<usize>,
         edges: Vec<usize>,
         properties: HashMap<String, crate::property::PropertyValue>,
+        created_by: u64,
     ) -> Self {
         Self {
             id,
@@ -24,6 +27,8 @@ impl Node {
             edges,
             properties,
             deleted: false,
+            created_by,
+            deleted_by: None,
         }
     }
 }

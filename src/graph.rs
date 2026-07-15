@@ -408,6 +408,8 @@ pub struct Graph {
     #[serde(default = "default_cancel_flag")]
     #[cfg(not(target_arch = "wasm32"))]
     pub cancel_flag: Arc<AtomicBool>,
+    #[serde(skip)]
+    pub next_txid: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -421,6 +423,7 @@ impl Graph {
             snapshot_file.read_to_end(&mut buffer).unwrap();
             let mut g: Graph = bincode::deserialize(&buffer).unwrap();
             g.wal_file = None;
+            g.next_txid = std::sync::atomic::AtomicU64::new(1);
             g
         } else {
             Self::new()
@@ -450,7 +453,7 @@ impl Graph {
                         graph.labels.insert(label, id);
                     }
                     WalEntry::AddNode { id, label, properties } => {
-                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+                        let node = Node::new(id.clone(), vec![label], vec![], properties.clone(), 0);
                         graph.nodes.push_item(node);
                         let node_id = graph.nodes.len_items() - 1;
 
@@ -485,7 +488,7 @@ impl Graph {
                         labels,
                         properties,
                     } => {
-                        let edge = Edge::new(id.clone(), labels, start, end, properties);
+                        let edge = Edge::new(id.clone(), labels, start, end, properties, 0);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
                         let mut start_n = graph.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); graph.nodes.update_item(start, start_n);
@@ -776,6 +779,7 @@ impl Graph {
             wal_file: None,
             #[cfg(not(target_arch = "wasm32"))]
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            next_txid: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -822,9 +826,10 @@ impl Graph {
         &mut self,
         label: usize,
         properties: HashMap<String, crate::property::PropertyValue>,
+        txid: u64,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
-        let node = Node::new(id.clone(), vec![label], vec![], properties.clone());
+        let node = Node::new(id.clone(), vec![label], vec![], properties.clone(), txid);
         self.nodes.push_item(node);
         let node_id = self.nodes.len_items() - 1;
 
@@ -908,9 +913,10 @@ impl Graph {
         end: usize,
         labels: Vec<usize>,
         properties: HashMap<String, crate::property::PropertyValue>,
+        txid: u64,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
-        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone());
+        let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone(), txid);
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
         let mut start_n = self.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); self.nodes.update_item(start, start_n);
@@ -932,6 +938,7 @@ impl Graph {
     }
 
     pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
+        let txid = self.next_txid.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut output = String::new();
@@ -958,7 +965,7 @@ impl Graph {
                     for i in 0..result_set.rows {
                         let mut bindings = Vec::new();
                         for path in &paths {
-                            self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                            self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
                         }
                         new_result_set.push_row_from(&result_set, i, &bindings);
                     }
@@ -975,6 +982,7 @@ impl Graph {
                             &mut new_result_set,
                             &mut profile_out,
                             limit_for_plan,
+                            txid,
                         );
 
                         if let Some(cond) = &condition_opt {
@@ -1016,6 +1024,7 @@ impl Graph {
                                     &mut matches,
                                     &mut profile_out,
                                     None,
+                                    txid,
                                 );
                                 if !matches.is_empty() {
                                     for m_idx in 0..matches.rows {
@@ -1023,12 +1032,12 @@ impl Graph {
                                     }
                                 } else {
                                     let mut bindings = Vec::new();
-                                    self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                                    self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
                                     new_result_set.push_row_from(&result_set, i, &bindings);
                                 }
                             } else {
                                 let mut bindings = Vec::new();
-                                self.execute_create_path(path.clone(), &result_set, i, &mut bindings);
+                                self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
                                 new_result_set.push_row_from(&result_set, i, &bindings);
                             }
                         }
@@ -1117,7 +1126,7 @@ impl Graph {
                     for &edge_id in &edges_to_delete {
                         let mut e = self.edges.get_item(edge_id).unwrap();
                         if !e.deleted {
-                            e.deleted = true; self.edges.update_item(edge_id, e);
+                            e.deleted = true; e.deleted_by = Some(txid); self.edges.update_item(edge_id, e);
                             self.log_wal(&WalEntry::DeleteEdge { edge_id });
                         }
                     }
@@ -1125,7 +1134,7 @@ impl Graph {
                     for &node_id in &nodes_to_delete {
                         let mut n = self.nodes.get_item(node_id).unwrap();
                         if !n.deleted {
-                            n.deleted = true;
+                            n.deleted = true; n.deleted_by = Some(txid);
                             self.nodes.update_item(node_id, n.clone());
                             for (label_id, label_indices) in self.indices.iter_mut() {
                                 if n.labels.contains(label_id) {
@@ -1512,16 +1521,16 @@ impl Graph {
         }
     }
 
-    fn execute_create_path(&mut self, path: Path, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>) {
+    fn execute_create_path(&mut self, path: Path, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) {
         let mut path_elements = Vec::new();
-        let start_id = self.create_node(&path.start, in_res, row_idx, bindings);
+        let start_id = self.create_node(&path.start, in_res, row_idx, bindings, txid);
         path_elements.push(GraphElement::Node(start_id));
         let mut current_id = start_id;
 
         let bound_var = path.bound_variable.clone();
         for (rel, target_node) in path.edges {
-            let next_id = self.create_node(&target_node, in_res, row_idx, bindings);
-            let rel_id = self.create_rel(&rel, current_id, next_id);
+            let next_id = self.create_node(&target_node, in_res, row_idx, bindings, txid);
+            let rel_id = self.create_rel(&rel, current_id, next_id, txid);
             path_elements.push(GraphElement::Edge(rel_id));
             path_elements.push(GraphElement::Node(next_id));
             if let Some(var) = &rel.variable {
@@ -1535,7 +1544,7 @@ impl Graph {
         }
     }
 
-    fn create_node(&mut self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>) -> usize {
+    fn create_node(&mut self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) -> usize {
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
                 return *id;
@@ -1556,7 +1565,7 @@ impl Graph {
             self.get_or_add_label("Node")
         };
 
-        let node_id = self.add_node(label_id, pattern.properties.clone());
+        let node_id = self.add_node(label_id, pattern.properties.clone(), txid);
 
         if let Some(var) = &pattern.variable {
             bindings.push((var.clone(), GraphElement::Node(node_id)));
@@ -1565,14 +1574,14 @@ impl Graph {
         node_id
     }
 
-    fn create_rel(&mut self, pattern: &RelPattern, start: usize, end: usize) -> usize {
+    fn create_rel(&mut self, pattern: &RelPattern, start: usize, end: usize, txid: u64) -> usize {
         let label_id = if let Some(label) = &pattern.label {
             self.get_or_add_label(label)
         } else {
             self.get_or_add_label("Rel")
         };
 
-        self.add_edge(start, end, vec![label_id], pattern.properties.clone())
+        self.add_edge(start, end, vec![label_id], pattern.properties.clone(), txid)
     }
 
     pub fn execute_plan(
@@ -1583,6 +1592,7 @@ impl Graph {
         profile: &mut Option<String>,
         depth: usize,
         limit: Option<usize>,
+        txid: u64,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         if self.cancel_flag.load(Ordering::Relaxed) { return; }
@@ -1596,7 +1606,7 @@ impl Graph {
             PlanNode::FullNodeScan { pattern } => {
                 op_name = "FullNodeScan".to_string();
                 for i in 0..in_res.rows {
-                    let nodes = self.find_nodes(pattern, in_res, i);
+                    let nodes = self.find_nodes(pattern, in_res, i, txid);
                     for node_id in nodes {
                         if let Some(var) = &pattern.variable {
                             out.push_row_from(in_res, i, &[(var.as_str(), GraphElement::Node(node_id))]);
@@ -1614,7 +1624,7 @@ impl Graph {
                     for id in 0..self.nodes.len_items() {
                         self.nodes.with_item(id, |node| {
                             if node.labels.contains(label_id)
-                                && self.node_matches(node, pattern)
+                                && self.node_matches(node, pattern, txid)
                             {
                                 matched_nodes.push(id);
                             }
@@ -1657,7 +1667,7 @@ impl Graph {
                 }
                 for id in candidate_ids {
                     self.nodes.with_item(id, |node| {
-                        if self.node_matches(node, pattern) {
+                        if self.node_matches(node, pattern, txid) {
                             matched_nodes.push(id);
                         }
                     }).unwrap();
@@ -1682,7 +1692,7 @@ impl Graph {
             } => {
                 op_name = "PathExpand".to_string();
                 let mut source_res = ResultSet::new();
-                self.execute_plan(source, in_res, &mut source_res, profile, depth + 1, None);
+                self.execute_plan(source, in_res, &mut source_res, profile, depth + 1, None, txid);
 
                 for i in 0..source_res.rows {
                     let mut source_node_ids = Vec::new();
@@ -1694,7 +1704,7 @@ impl Graph {
                     }
 
                     if source_node_ids.is_empty() {
-                        source_node_ids = self.find_nodes(source_node_pattern, &source_res, i);
+                        source_node_ids = self.find_nodes(source_node_pattern, &source_res, i, txid);
                     }
 
                     for source_node_id in source_node_ids {
@@ -1715,9 +1725,9 @@ impl Graph {
             PlanNode::Intersect { left, right } => {
                 op_name = "Intersect".to_string();
                 let mut left_res = ResultSet::new();
-                self.execute_plan(left, in_res, &mut left_res, profile, depth + 1, None);
+                self.execute_plan(left, in_res, &mut left_res, profile, depth + 1, None, txid);
                 let mut right_res = ResultSet::new();
-                self.execute_plan(right, in_res, &mut right_res, profile, depth + 1, None);
+                self.execute_plan(right, in_res, &mut right_res, profile, depth + 1, None, txid);
 
                 for l_idx in 0..left_res.rows {
                     let mut found = false;
@@ -1744,9 +1754,9 @@ impl Graph {
             }
             PlanNode::Union { left, right } => {
                 op_name = "Union".to_string();
-                self.execute_plan(left, in_res, out, profile, depth + 1, limit);
+                self.execute_plan(left, in_res, out, profile, depth + 1, limit, txid);
                 if limit.is_some_and(|l| out.rows >= l) { return; }
-                self.execute_plan(right, in_res, out, profile, depth + 1, limit);
+                self.execute_plan(right, in_res, out, profile, depth + 1, limit, txid);
             }
             PlanNode::CrossProduct { left, right } => {
                 op_name = "CrossProduct".to_string();
@@ -1757,11 +1767,11 @@ impl Graph {
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
                     let mut left_res = ResultSet::new();
-                    self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None);
+                    self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
 
                     let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
                     let mut right_res = ResultSet::new();
-                    self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None);
+                    self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None, txid);
 
                     if let Some(prof) = profile {
                         if let Some(r_prof) = right_prof { prof.push_str(&r_prof); }
@@ -1801,9 +1811,10 @@ impl Graph {
         out: &mut ResultSet,
         profile: &mut Option<String>,
         limit: Option<usize>,
+        txid: u64,
     ) {
         let initial_rows = out.rows;
-        self.execute_plan(plan, in_res, out, profile, 0, limit);
+        self.execute_plan(plan, in_res, out, profile, 0, limit, txid);
 
 
         for path in paths {
@@ -1951,9 +1962,7 @@ impl Graph {
             } else {
                 true
             } && {
-
-                self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern)).unwrap()
-
+                self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern, u64::MAX)).unwrap()
             };
 
             if matches_target {
@@ -2014,11 +2023,11 @@ impl Graph {
         }
     }
 
-    fn find_nodes(&self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize) -> Vec<usize> {
+    fn find_nodes(&self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, txid: u64) -> Vec<usize> {
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                if self.nodes.with_item(*id, |node| self.node_matches(node, pattern)).unwrap() {
+                if self.nodes.with_item(*id, |node| self.node_matches(node, pattern, txid)).unwrap() {
                     return vec![*id];
                 } else {
                     return vec![];
@@ -2041,7 +2050,7 @@ impl Graph {
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
                                     self.nodes.with_item(id, |node| {
-                                        if self.node_matches(node, pattern) {
+                                        if self.node_matches(node, pattern, txid) {
                                             matched_nodes.push(id);
                                         }
                                     }).unwrap();
@@ -2060,7 +2069,7 @@ impl Graph {
         let mut matched_nodes = Vec::new();
         for id in 0..self.nodes.len_items() {
             self.nodes.with_item(id, |node| {
-                if self.node_matches(node, pattern) {
+                if self.node_matches(node, pattern, txid) {
                     matched_nodes.push(id);
                 }
             }).unwrap();
@@ -2068,9 +2077,9 @@ impl Graph {
         matched_nodes
     }
 
-    fn node_matches(&self, node: &Node, pattern: &NodePattern) -> bool {
+    fn node_matches(&self, node: &Node, pattern: &NodePattern, txid: u64) -> bool {
 
-        if node.deleted { return false; }
+        if node.deleted || node.created_by > txid || node.deleted_by.is_some_and(|d| d <= txid) { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
             if let Some(id) = self.labels.get(l) {
@@ -2146,7 +2155,7 @@ impl Graph {
                 }
 
                 self.nodes.with_item(end_node_id, |end_node| {
-                    if self.node_matches(end_node, target_node_pattern) {
+                    if self.node_matches(end_node, target_node_pattern, u64::MAX) {
                         matches.push((end_node_id, edge_id));
                     }
                 }).unwrap();
