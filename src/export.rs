@@ -12,6 +12,8 @@ struct CsvNode {
     edges: String,
     properties: String,
     deleted: bool,
+    deleted_by: Option<u64>,
+    created_by: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -23,6 +25,8 @@ struct CsvEdge {
     end: usize,
     properties: String,
     deleted: bool,
+    deleted_by: Option<u64>,
+    created_by: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +67,8 @@ impl Graph {
                     edges: serde_json::to_string(&node.edges).map_err(|e| e.to_string())?,
                     properties: serde_json::to_string(&node.properties).map_err(|e| e.to_string())?,
                     deleted: node.deleted,
+                    created_by: node.created_by,
+                    deleted_by: node.deleted_by,
                 };
                 nodes_wtr.serialize(csv_node).map_err(|e| e.to_string())?;
             }
@@ -79,6 +85,8 @@ impl Graph {
                     end: edge.end,
                     properties: serde_json::to_string(&edge.properties).map_err(|e| e.to_string())?,
                     deleted: edge.deleted,
+                    deleted_by: edge.deleted_by,
+                    created_by: edge.created_by,
                 };
                 edges_wtr.serialize(csv_edge).map_err(|e| e.to_string())?;
             }
@@ -147,6 +155,8 @@ impl Graph {
                     edges: vec![],
                     properties: HashMap::new(),
                     deleted: true,
+                    created_by: (u64::MAX),
+                    deleted_by: Some(u64::MAX),
                 };
                 self.nodes.push_item(dummy_node);
                 current_idx += 1;
@@ -157,6 +167,8 @@ impl Graph {
                 edges: serde_json::from_str(&record.edges).map_err(|e| e.to_string())?,
                 properties: serde_json::from_str(&record.properties).map_err(|e| e.to_string())?,
                 deleted: record.deleted,
+                created_by: record.created_by,
+                deleted_by: record.deleted_by,
             };
             self.nodes.push_item(node);
             current_idx += 1;
@@ -180,6 +192,8 @@ impl Graph {
                     end: 0,
                     properties: HashMap::new(),
                     deleted: true,
+                    created_by: (u64::MAX),
+                    deleted_by: Some(u64::MAX),
                 };
                 self.edges.push_item(dummy_edge);
                 current_idx_edges += 1;
@@ -191,6 +205,8 @@ impl Graph {
                 end: record.end,
                 properties: serde_json::from_str(&record.properties).map_err(|e| e.to_string())?,
                 deleted: record.deleted,
+                created_by: record.created_by,
+                deleted_by: record.deleted_by,
             };
             self.edges.push_item(edge);
             current_idx_edges += 1;
