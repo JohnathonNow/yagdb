@@ -2416,3 +2416,13 @@ impl ResultSet {
         }
     }
 }
+
+impl Graph {
+    pub fn rebuild_indices(&mut self) {
+        self.indices.clear();
+        // Look up all nodes and populate existing indices?
+        // Actually YAGDB creates indices via CREATE INDEX ON :Label(prop).
+        // Since indices are stored as HashMap<usize, HashMap<String, IndexMap>>, we can't easily recreate them unless we know which ones existed.
+        // Wait, import_json restores `self.indices` completely. In CSV, we didn't export `indices`.
+    }
+}
