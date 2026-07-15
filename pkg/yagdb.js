@@ -25,7 +25,7 @@ export function execute_query(query) {
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg_getRandomValues_1cfe2d41be4e068f: function() { return handleError(function (arg0, arg1) {
+        __wbg_getRandomValues_ceb34d8ffce7e87f: function() { return handleError(function (arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
         }, arguments); },
         __wbindgen_init_externref_table: function() {
