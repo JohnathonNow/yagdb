@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YAGDB Console</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 2rem; background: #f4f4f9;}
+        textarea { width: 100%; max-width: 800px; height: 100px; margin-bottom: 1rem; padding: 0.5rem; font-family: monospace; }
+        button { padding: 0.5rem 1rem; cursor: pointer; }
+        #output { width: 100%; max-width: 800px; background: #1e1e1e; color: #d4d4d4; padding: 1rem; min-height: 150px; white-space: pre-wrap; font-family: monospace; overflow-x: auto; margin-top: 1rem; margin-bottom: 1rem; }
+        #network { width: 100%; max-width: 800px; height: 400px; background: white; border: 1px solid lightgray; }
+    </style>
+</head>
+<body>
+    <h1>YAGDB Console</h1>
+    <p>Run cypher queries against the remote database!</p>
+    <textarea id="queryInput" placeholder="MATCH (n)-[r]->(m) RETURN n, r, m"></textarea>
+    <button id="runBtn">Run Query</button>
+
+    <div id="output">Output will appear here...</div>
+    <div id="network"></div>
+
+    <script>
+        let network = null;
+        let nodesData = new vis.DataSet([]);
+        let edgesData = new vis.DataSet([]);
+
+        function initNetwork() {
+            const container = document.getElementById('network');
+            const data = { nodes: nodesData, edges: edgesData };
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 20,
+                    font: { size: 14 }
+                },
+                edges: {
+                    arrows: 'to',
+                    font: { size: 12, align: 'middle' }
+                }
+            };
+            network = new vis.Network(container, data, options);
+        }
+
+        function updateGraphFromOutput(outputText) {
+            nodesData.clear();
+            edgesData.clear();
+
+            if (!outputText) return;
+
+            // The output text may contain multiple query outputs separated by newlines.
+            // We will look for JSON arrays in the output text.
+            const jsonBlocks = outputText.match(/\[\s*\{[\s\S]*?\}\s*\]/g);
+            if (!jsonBlocks) return;
+
+            let parsedData = [];
+            for (let block of jsonBlocks) {
+                try {
+                    parsedData = parsedData.concat(JSON.parse(block));
+                } catch (e) {
+                    // Skip invalid JSON blocks
+                }
+            }
+
+            function extractGraphElements(obj) {
+                if (!obj || typeof obj !== 'object') return;
+
+                if (Array.isArray(obj)) {
+                    obj.forEach(extractGraphElements);
+                    return;
+                }
+
+                // Check if it's an edge
+                if (obj.start !== undefined && obj.end !== undefined && obj.properties) {
+                    const edgeId = obj.start + "-" + obj.end;
+                    if (!edgesData.get(edgeId)) {
+                        edgesData.add({ id: edgeId, from: obj.start, to: obj.end, label: JSON.stringify(obj.properties) });
+                    }
+                    if (!nodesData.get(obj.start)) {
+                        nodesData.add({ id: obj.start, label: 'Node ' + obj.start });
+                    }
+                    if (!nodesData.get(obj.end)) {
+                        nodesData.add({ id: obj.end, label: 'Node ' + obj.end });
+                    }
+                }
+                // Check if it's a node
+                else if (obj.labels && obj.properties && obj.edges) {
+                    let propStr = JSON.stringify(obj.properties);
+                    let found = false;
+                    nodesData.forEach(n => {
+                        if (n.title === propStr || n.label === propStr) found = true;
+                    });
+                    if (!found) {
+                        let randId = "node_" + Math.random().toString(36).substring(7);
+                        nodesData.add({ id: randId, label: propStr, title: propStr });
+                    }
+                } else {
+                    // Traverse deeper
+                    Object.values(obj).forEach(extractGraphElements);
+                }
+            }
+
+            extractGraphElements(parsedData);
+        }
+
+        async function run() {
+            initNetwork();
+
+            const runBtn = document.getElementById('runBtn');
+            const queryInput = document.getElementById('queryInput');
+            const outputDiv = document.getElementById('output');
+
+            runBtn.addEventListener('click', async () => {
+                const queries = queryInput.value.trim().split('\n').filter(q => q.trim() !== '');
+                if (queries.length === 0) return;
+
+                let fullResult = "";
+                for (let q of queries) {
+                    try {
+                        const response = await fetch('/query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'text/plain'
+                            },
+                            body: q
+                        });
+
+                        const result = await response.text();
+
+                        if (response.ok) {
+                            fullResult += "Query: " + q + "\n" + (result || "(Empty Result)") + "\n\n";
+                        } else {
+                            fullResult += "Query: " + q + "\nError: " + result + "\n\n";
+                        }
+                    } catch (e) {
+                        fullResult += "Query: " + q + "\nError: " + e + "\n\n";
+                    }
+                }
+
+                outputDiv.textContent = fullResult;
+                updateGraphFromOutput(fullResult);
+            });
+        }
+        run();
+    </script>
+</body>
+</html>
