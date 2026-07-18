@@ -141,7 +141,7 @@ impl Graph {
         let mut current_idx = 0;
         for record in parsed_nodes {
             while current_idx < record.internal_id {
-                let dummy_node = Node {
+                let dummy_node = Node { created_by: 0, deleted_by: None,
                     id: String::new(),
                     labels: vec![],
                     edges: vec![],
@@ -151,7 +151,7 @@ impl Graph {
                 self.nodes.push_item(dummy_node);
                 current_idx += 1;
             }
-            let node = Node {
+            let node = Node { created_by: 0, deleted_by: None,
                 id: record.id,
                 labels: serde_json::from_str(&record.labels).map_err(|e| e.to_string())?,
                 edges: serde_json::from_str(&record.edges).map_err(|e| e.to_string())?,
@@ -173,7 +173,7 @@ impl Graph {
         let mut current_idx_edges = 0;
         for record in parsed_edges {
             while current_idx_edges < record.internal_id {
-                let dummy_edge = Edge {
+                let dummy_edge = Edge { created_by: 0, deleted_by: None,
                     id: String::new(),
                     labels: vec![],
                     start: 0,
@@ -184,7 +184,7 @@ impl Graph {
                 self.edges.push_item(dummy_edge);
                 current_idx_edges += 1;
             }
-            let edge = Edge {
+            let edge = Edge { created_by: 0, deleted_by: None,
                 id: record.id,
                 labels: serde_json::from_str(&record.labels).map_err(|e| e.to_string())?,
                 start: record.start,

@@ -33,3 +33,4 @@ pub mod wasm {
         g.clear();
     }
 }
+pub mod string_pool;
