@@ -420,6 +420,9 @@ pub struct Graph {
     pub labels: HashMap<String, usize>,
     pub indices: HashMap<usize, HashMap<String, IndexMap>>,
     #[serde(skip)]
+    #[allow(clippy::type_complexity)]
+    pub functions: HashMap<String, std::sync::Arc<dyn Fn(&[GraphElement]) -> GraphElement + Send + Sync>>,
+    #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
     pub wal_file: Option<File>,
     #[serde(skip)]
@@ -787,12 +790,25 @@ impl Graph {
         self.edges = ItemStorage::Disk(edges_disk);
     }
 
+    pub fn register_function<F>(&mut self, name: &str, func: F)
+    where
+        F: Fn(&[GraphElement]) -> GraphElement + Send + Sync + 'static,
+    {
+        self.functions.insert(name.to_lowercase(), std::sync::Arc::new(func));
+    }
+
     pub fn new() -> Self {
+        let mut functions: HashMap<String, std::sync::Arc<dyn Fn(&[GraphElement]) -> GraphElement + Send + Sync>> = HashMap::new();
+        functions.insert(
+            "rand".to_string(),
+            std::sync::Arc::new(|_args| GraphElement::Number(0f64)),
+        );
         Self {
             nodes: ItemStorage::Memory(Vec::new()),
             edges: ItemStorage::Memory(Vec::new()),
             labels: HashMap::new(),
             indices: HashMap::new(),
+            functions,
             #[cfg(not(target_arch = "wasm32"))]
             wal_file: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1375,12 +1391,18 @@ impl Graph {
                                             _ => {}
                                         }
                                     }
-                                    ProjectionItem::Function { func, args: _, alias } => {
+                                    ProjectionItem::Function { func, args, alias } => {
                                         let out_key = alias
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
+
+                                        let func_lower = func.to_lowercase();
+                                        if let Some(f) = self.functions.get(&func_lower) {
+                                            let evaluated_args: Vec<GraphElement> = args
+                                                .iter()
+                                                .map(|arg| self.evaluate_expression_to_element(arg, &result_set, group_rows[0]))
+                                                .collect();
+                                            bindings.push((out_key, f(&evaluated_args)));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -1416,12 +1438,18 @@ impl Graph {
                                             bindings.push((alias.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::Function { func, args: _, alias } => {
+                                    ProjectionItem::Function { func, args, alias } => {
                                         let out_key = alias
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
+
+                                        let func_lower = func.to_lowercase();
+                                        if let Some(f) = self.functions.get(&func_lower) {
+                                            let evaluated_args: Vec<GraphElement> = args
+                                                .iter()
+                                                .map(|arg| self.evaluate_expression_to_element(arg, &result_set, i))
+                                                .collect();
+                                            bindings.push((out_key, f(&evaluated_args)));
                                         }
                                     }
                                     ProjectionItem::Expression { expr, alias } => {
@@ -2257,9 +2285,14 @@ impl Graph {
             Expression::Variable(var) => {
                 in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
             }
-            Expression::Function(func, _args) => {
-                if func.eq_ignore_ascii_case("rand") {
-                    GraphElement::Number(0f64)
+            Expression::Function(func, args) => {
+                let func_lower = func.to_lowercase();
+                if let Some(f) = self.functions.get(&func_lower) {
+                    let evaluated_args: Vec<GraphElement> = args
+                        .iter()
+                        .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
+                        .collect();
+                    f(&evaluated_args)
                 } else {
                     GraphElement::Null
                 }
@@ -2301,9 +2334,19 @@ impl Graph {
                     EvalValue::Null
                 }
             }
-            Expression::Function(func, _args) => {
-                if func.eq_ignore_ascii_case("rand") {
-                    EvalValue::Number(0f64)
+            Expression::Function(func, args) => {
+                let func_lower = func.to_lowercase();
+                if let Some(f) = self.functions.get(&func_lower) {
+                    let evaluated_args: Vec<GraphElement> = args
+                        .iter()
+                        .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
+                        .collect();
+                    match f(&evaluated_args) {
+                        GraphElement::String(s) => EvalValue::String(Cow::Owned(s)),
+                        GraphElement::Number(n) => EvalValue::Number(n),
+                        GraphElement::Boolean(b) => EvalValue::Boolean(b),
+                        _ => EvalValue::Null,
+                    }
                 } else {
                     EvalValue::Null
                 }
