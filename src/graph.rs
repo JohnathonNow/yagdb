@@ -2007,18 +2007,20 @@ impl Graph {
         let start_node_edges = self.nodes.with_item(current_node_id, |n| n.edges.clone()).unwrap();
 
         for &edge_id in &start_node_edges {
-            let edge = self.edges.get_item(edge_id).unwrap();
-
-            if edge.start == current_node_id {
+            let edge_matches = self.edges.with_item(edge_id, |edge| {
+                if edge.start != current_node_id {
+                    return None;
+                }
                 if path_edges.contains(&edge_id) {
-                    continue;
+                    return None;
                 }
-
-                if !self.edge_matches(&edge, rel_pattern) {
-                    continue;
+                if !self.edge_matches(edge, rel_pattern) {
+                    return None;
                 }
+                Some(edge.end)
+            }).unwrap();
 
-                let end_node_id = edge.end;
+            if let Some(end_node_id) = edge_matches {
 
                 let mut new_path_edges = path_edges.clone();
                 new_path_edges.push(edge_id);
@@ -2147,24 +2149,24 @@ impl Graph {
         };
 
         for &edge_id in &start_node_edges {
-            let edge = self.edges.get_item(edge_id).unwrap();
-
-            // Only consider outgoing edges from start_id
-            if edge.start == start_id {
-                // If edge variable is bound, ensure it's the same edge
+            let edge_matches = self.edges.with_item(edge_id, |edge| {
+                if edge.start != start_id {
+                    return None;
+                }
                 if let Some(var) = &rel_pattern.variable {
                     if let Some(GraphElement::Edge(eid)) = in_res.get(row_idx, var) {
                         if *eid != edge_id {
-                            continue;
+                            return None;
                         }
                     }
                 }
-
-                if !self.edge_matches(&edge, rel_pattern) {
-                    continue;
+                if !self.edge_matches(edge, rel_pattern) {
+                    return None;
                 }
+                Some(edge.end)
+            }).unwrap();
 
-                let end_node_id = edge.end;
+            if let Some(end_node_id) = edge_matches {
 
                 if let Some(bound_target) = target_bound_id {
                     if end_node_id != bound_target {

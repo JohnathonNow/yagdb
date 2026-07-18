@@ -1,6 +1,9 @@
 ## 2024-07-14 - Implementing Export Utilities in YAGDB
 **Learning:** YAGDB handles node and edge references heavily using internal `usize` identifiers instead of their `String` UUIDs. Deletions create "holes" (or `deleted = true` items) in the internal item storage. When exporting to a format like CSV where we only serialize active items by default, importing them naiveley back via `push_item` shifts these internal indices and breaks edge topology. Furthermore, indices (`self.indices`) are dynamic and must be exported/imported explicitly or rebuilt via `create_index`.
 **Action:** When migrating internal graph states via external formats, always preserve the exact internal `usize` IDs (e.g. by exporting them alongside the data) and restore "holes" by pushing dummy items if needed. Make sure to export index definitions and recreate them upon import to ensure performance queries still work.
+## 2026-07-16 - [Optimize Loop Accesses with Closures in yagdb]
+**Learning:** When replacing `get_item` with `with_item` closures inside loops in `yagdb` to improve performance, flow control statements like `continue` or early returns cannot be used directly inside the closure to affect the outer loop.
+**Action:** Return an `Option` (e.g., `None` for early exit) from the closure and handle it in the outer loop (e.g., `if let Some(val) = result { ... }`) to preserve the correct logic and avoid compilation errors related to flow control mismatch.
 ## 2024-05-18 - Prevent N+1 allocations on Graph node/edge mutation
 **Learning:** In yagdb, modifying items inside `ItemStorage` by sequentially calling `get_item` (which clones the full node/edge structure) and then `update_item` causes massive allocation overhead on hot paths like graph creation/edge addition.
 **Action:** Implemented `with_mut_item` to pass a mutable reference to a closure, allowing O(1) in-place mutations of nodes/edges (like pushing to `n.edges`) instead of copying the whole struct.
