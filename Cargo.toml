@@ -2,6 +2,7 @@
 name = "yagdb"
 version = "0.1.0"
 edition = "2018"
+default-run = "yagdb"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
