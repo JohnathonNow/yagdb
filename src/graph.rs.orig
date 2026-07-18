@@ -86,36 +86,6 @@ pub enum GraphElement {
     Null,
 }
 
-impl Eq for GraphElement {}
-
-impl std::hash::Hash for GraphElement {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            GraphElement::Node(id) => { state.write_u8(0); id.hash(state); }
-            GraphElement::Edge(id) => { state.write_u8(1); id.hash(state); }
-            GraphElement::EdgeArray(arr) => { state.write_u8(2); arr.hash(state); }
-            GraphElement::Path(p) => { state.write_u8(3); p.hash(state); }
-            GraphElement::List(l) => { state.write_u8(4); l.hash(state); }
-            GraphElement::Map(m) => {
-                state.write_u8(5);
-                let mut pairs: Vec<_> = m.iter().collect();
-                pairs.sort_by(|a, b| a.0.cmp(b.0));
-                for (k, v) in pairs {
-                    k.hash(state);
-                    v.hash(state);
-                }
-            }
-            GraphElement::Number(n) => {
-                state.write_u8(6);
-                n.to_bits().hash(state);
-            }
-            GraphElement::String(s) => { state.write_u8(7); s.hash(state); }
-            GraphElement::Boolean(b) => { state.write_u8(8); b.hash(state); }
-            GraphElement::Null => { state.write_u8(9); }
-        }
-    }
-}
-
 pub type Environment = HashMap<String, GraphElement>;
 
 #[derive(Clone, Default, Debug, PartialEq)]
@@ -1805,68 +1775,6 @@ impl Graph {
                 self.execute_plan(left, in_res, out, profile, depth + 1, limit, txid);
                 if limit.is_some_and(|l| out.rows >= l) { return; }
                 self.execute_plan(right, in_res, out, profile, depth + 1, limit, txid);
-            }
-            PlanNode::HashJoin { left, right, join_keys } => {
-                op_name = "HashJoin".to_string();
-                for i in 0..in_res.rows {
-                    let mut single_res = ResultSet::new();
-                    single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
-
-                    let mut left_res = ResultSet::new();
-                    self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
-
-                    let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
-                    let mut right_res = ResultSet::new();
-                    self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None, txid);
-
-                    if let Some(prof) = profile {
-                        if let Some(r_prof) = right_prof { prof.push_str(&r_prof); }
-                    }
-
-                    // Build on the smaller result set, probe with the larger
-                    let (build_res, probe_res, mut build_is_left) = if left_res.rows <= right_res.rows {
-                        (&left_res, &right_res, true)
-                    } else {
-                        (&right_res, &left_res, false)
-                    };
-
-                    let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
-                    for b_idx in 0..build_res.rows {
-                        let mut key = Vec::with_capacity(join_keys.len());
-                        for k in join_keys {
-                            key.push(build_res.get(b_idx, k).cloned().unwrap_or(GraphElement::Null));
-                        }
-                        hash_table.entry(key).or_default().push(b_idx);
-                    }
-
-                    for p_idx in 0..probe_res.rows {
-                        let mut key = Vec::with_capacity(join_keys.len());
-                        for k in join_keys {
-                            key.push(probe_res.get(p_idx, k).cloned().unwrap_or(GraphElement::Null));
-                        }
-                        if let Some(b_indices) = hash_table.get(&key) {
-                            for &b_idx in b_indices {
-                                let (l_idx, r_idx) = if build_is_left { (b_idx, p_idx) } else { (p_idx, b_idx) };
-                                let mut valid = true;
-                                // Check non-join key intersections to prevent contradictory merges
-                                for (k, r_col) in &right_res.columns {
-                                    if !join_keys.contains(k) {
-                                        if let Some(l_col) = left_res.columns.get(k) {
-                                            if l_col[l_idx] != GraphElement::Null && r_col[r_idx] != GraphElement::Null && l_col[l_idx] != r_col[r_idx] {
-                                                valid = false;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if valid {
-                                    out.push_merged_row(&left_res, l_idx, &right_res, r_idx);
-                                    if limit.is_some_and(|l| out.rows >= l) { return; }
-                                }
-                            }
-                        }
-                    }
-                }
             }
             PlanNode::CrossProduct { left, right } => {
                 op_name = "CrossProduct".to_string();
