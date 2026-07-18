@@ -377,6 +377,24 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
         }
     }
 
+    /// ⚡ Bolt: Execute an in-place closure on an item to avoid cloning large structs (like properties/labels on Graph nodes).
+    /// Reduces O(N) allocation mutations down to O(1) memory updates.
+    pub fn with_mut_item<R>(&mut self, index: usize, f: impl FnOnce(&mut T) -> R) -> Option<R> {
+        match self {
+            ItemStorage::Memory(vec) => vec.get_mut(index).map(f),
+            #[cfg(not(target_arch = "wasm32"))]
+            ItemStorage::Disk(disk) => {
+                if let Some(mut item) = disk.get(index) {
+                    let result = f(&mut item);
+                    disk.update(index, item);
+                    Some(result)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     pub fn len_items(&self) -> usize {
         match self {
             ItemStorage::Memory(vec) => vec.len(),
@@ -491,8 +509,8 @@ impl Graph {
                         let edge = Edge::new(id.clone(), labels, start, end, properties, 0);
                         graph.edges.push_item(edge);
                         let edge_idx = graph.edges.len_items() - 1;
-                        let mut start_n = graph.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); graph.nodes.update_item(start, start_n);
-                        let mut end_n = graph.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); graph.nodes.update_item(end, end_n);
+                        graph.nodes.with_mut_item(start, |n| n.edges.push(edge_idx)).unwrap();
+                        graph.nodes.with_mut_item(end, |n| n.edges.push(edge_idx)).unwrap();
                     }
                     WalEntry::CreateIndex { label, property, index_type } => {
                         graph.create_index_internal(label, property, index_type);
@@ -572,7 +590,7 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteEdge { edge_id } => {
-                        let mut e = graph.edges.get_item(edge_id).unwrap(); e.deleted = true; graph.edges.update_item(edge_id, e);
+                        graph.edges.with_mut_item(edge_id, |e| e.deleted = true).unwrap();
                     }
                 }
                 needs_snapshot = true;
@@ -919,8 +937,8 @@ impl Graph {
         let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone(), txid);
         self.edges.push_item(edge);
         let edge_idx = self.edges.len_items() - 1;
-        let mut start_n = self.nodes.get_item(start).unwrap(); start_n.edges.push(edge_idx); self.nodes.update_item(start, start_n);
-        let mut end_n = self.nodes.get_item(end).unwrap(); end_n.edges.push(edge_idx); self.nodes.update_item(end, end_n);
+        self.nodes.with_mut_item(start, |n| n.edges.push(edge_idx)).unwrap();
+        self.nodes.with_mut_item(end, |n| n.edges.push(edge_idx)).unwrap();
         self.log_wal(&WalEntry::AddEdge {
             id,
             start,
