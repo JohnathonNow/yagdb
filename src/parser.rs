@@ -278,6 +278,31 @@ fn boolean_literal(input: &str) -> IResult<&str, bool> {
 
 fn property_value_parser(input: &str) -> IResult<&str, crate::property::PropertyValue> {
     alt((
+        map(
+            nom::sequence::tuple((
+                ws(nom::bytes::complete::tag_no_case("date")),
+                ws(nom::character::complete::char('(')),
+                ws(string_literal),
+                ws(nom::character::complete::char(')')),
+            )),
+            |(_, _, s, _)| {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                    crate::property::PropertyValue::Date(dt.timestamp_millis())
+                } else if let Ok(nd) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                    if let Some(dt) = nd.and_hms_opt(0, 0, 0) {
+                        let dt_utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc);
+                        crate::property::PropertyValue::Date(dt_utc.timestamp_millis())
+                    } else {
+                        crate::property::PropertyValue::String(s.to_string()) // fallback
+                    }
+                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+                    let dt_utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc);
+                    crate::property::PropertyValue::Date(dt_utc.timestamp_millis())
+                } else {
+                    crate::property::PropertyValue::String(s.to_string())
+                }
+            },
+        ),
         map(string_literal, |s| {
             crate::property::PropertyValue::String(s.to_string())
         }),
@@ -301,7 +326,7 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             tuple((
                 ws(identifier),
                 ws(char('(')),
-                separated_list1(ws(char(',')), expression),
+                nom::multi::separated_list0(ws(char(',')), expression),
                 ws(char(')')),
             )),
             |(func, _, args, _)| Expression::Function(func.to_string(), args),

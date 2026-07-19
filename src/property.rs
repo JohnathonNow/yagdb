@@ -6,6 +6,7 @@ pub enum PropertyValue {
     Boolean(bool),
     Number(f64),
     String(String),
+    Date(i64),
 }
 
 impl PropertyValue {
@@ -16,6 +17,13 @@ impl PropertyValue {
                 serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap())
             }
             PropertyValue::String(s) => serde_json::Value::String(s.clone()),
+            PropertyValue::Date(d) => {
+                if let Some(dt) = chrono::DateTime::from_timestamp_millis(*d) {
+                    serde_json::Value::String(dt.to_rfc3339())
+                } else {
+                    serde_json::Value::Null
+                }
+            }
         }
     }
 }
@@ -32,6 +40,7 @@ impl PartialEq for PropertyValue {
                 }
             }
             (PropertyValue::Boolean(a), PropertyValue::Boolean(b)) => a == b,
+            (PropertyValue::Date(a), PropertyValue::Date(b)) => a == b,
             _ => false,
         }
     }
@@ -55,9 +64,14 @@ impl PartialOrd for PropertyValue {
                 }
             }
             (PropertyValue::Boolean(a), PropertyValue::Boolean(b)) => a.partial_cmp(b),
-            // Cross-type ordering: Boolean < Number < String
+            (PropertyValue::Date(a), PropertyValue::Date(b)) => a.partial_cmp(b),
+            // Cross-type ordering: Boolean < Date < Number < String
             (PropertyValue::Boolean(_), _) => Some(std::cmp::Ordering::Less),
             (_, PropertyValue::Boolean(_)) => Some(std::cmp::Ordering::Greater),
+            (PropertyValue::Date(_), PropertyValue::Number(_)) => Some(std::cmp::Ordering::Less),
+            (PropertyValue::Number(_), PropertyValue::Date(_)) => Some(std::cmp::Ordering::Greater),
+            (PropertyValue::Date(_), PropertyValue::String(_)) => Some(std::cmp::Ordering::Less),
+            (PropertyValue::String(_), PropertyValue::Date(_)) => Some(std::cmp::Ordering::Greater),
             (PropertyValue::Number(_), PropertyValue::String(_)) => Some(std::cmp::Ordering::Less),
             (PropertyValue::String(_), PropertyValue::Number(_)) => Some(std::cmp::Ordering::Greater),
         }
@@ -85,6 +99,10 @@ impl Hash for PropertyValue {
             PropertyValue::Boolean(b) => {
                 2_u8.hash(state);
                 b.hash(state);
+            }
+            PropertyValue::Date(d) => {
+                3_u8.hash(state);
+                d.hash(state);
             }
         }
     }
