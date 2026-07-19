@@ -24,6 +24,7 @@ env_logger = { version = "0.11.10", optional = true }
 dhat = "0.3.3"
 uuid = { version = "1.23", features = ["v4"] }
 csv = "1.4.0"
+chrono = { version = "0.4.45", features = ["serde"] }
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]

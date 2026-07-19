@@ -83,6 +83,7 @@ pub enum GraphElement {
     Number(f64),
     String(String),
     Boolean(bool),
+    Date(i64),
     Null,
 }
 
@@ -703,6 +704,7 @@ impl Graph {
             GraphElement::Number(n) => json!(n),
             GraphElement::String(ref s) => json!(s),
             GraphElement::Boolean(b) => json!(b),
+            GraphElement::Date(d) => json!(d),
             GraphElement::Null => Value::Null,
         }
     }
@@ -739,6 +741,7 @@ impl Graph {
             GraphElement::Number(n) => format!("{}", n),
             GraphElement::String(ref s) => format!("\"{}\"", s),
             GraphElement::Boolean(b) => format!("{}", b),
+            GraphElement::Date(d) => format!("{}", d),
             GraphElement::Null => "null".to_string(),
         }
     }
@@ -2242,6 +2245,7 @@ impl Graph {
                 Some(crate::property::PropertyValue::String(s)) => Some(GraphElement::String(s)),
                 Some(crate::property::PropertyValue::Number(n)) => Some(GraphElement::Number(n)),
                 Some(crate::property::PropertyValue::Boolean(b)) => Some(GraphElement::Boolean(b)),
+                Some(crate::property::PropertyValue::Date(d)) => Some(GraphElement::Date(d)),
                 None => None,
             }
         } else {
@@ -2257,9 +2261,23 @@ impl Graph {
             Expression::Variable(var) => {
                 in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
             }
-            Expression::Function(func, _args) => {
+            Expression::Function(func, args) => {
                 if func.eq_ignore_ascii_case("rand") {
                     GraphElement::Number(0f64)
+                } else if func.eq_ignore_ascii_case("date") {
+                    if args.len() == 1 {
+                        let arg_val = self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                        if let GraphElement::String(s) = arg_val {
+                            if let Ok(d) = chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
+                                return GraphElement::Date(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis());
+                            } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S") {
+                                return GraphElement::Date(dt.and_utc().timestamp_millis());
+                            } else if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                                return GraphElement::Date(dt.timestamp_millis());
+                            }
+                        }
+                    }
+                    GraphElement::Null
                 } else {
                     GraphElement::Null
                 }
@@ -2290,9 +2308,10 @@ impl Graph {
                 if let Some(element) = in_res.get(row_idx, var) {
                     match element {
                         GraphElement::Number(n) => EvalValue::Number(*n),
-            GraphElement::String(ref s) => EvalValue::String(Cow::Borrowed(s.as_str())),
-            GraphElement::Boolean(b) => EvalValue::Boolean(*b),
-            GraphElement::Null => EvalValue::Null,
+                        GraphElement::String(ref s) => EvalValue::String(Cow::Borrowed(s.as_str())),
+                        GraphElement::Boolean(b) => EvalValue::Boolean(*b),
+                        GraphElement::Date(d) => EvalValue::Date(*d),
+                        GraphElement::Null => EvalValue::Null,
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) | GraphElement::Map(_) => {
                             EvalValue::String(Cow::Owned(self.format_element(element)))
                         }
@@ -2301,9 +2320,23 @@ impl Graph {
                     EvalValue::Null
                 }
             }
-            Expression::Function(func, _args) => {
+            Expression::Function(func, args) => {
                 if func.eq_ignore_ascii_case("rand") {
                     EvalValue::Number(0f64)
+                } else if func.eq_ignore_ascii_case("date") {
+                    if args.len() == 1 {
+                        let arg_val = self.evaluate_expression(&args[0], in_res, row_idx);
+                        if let EvalValue::String(s) = arg_val {
+                            if let Ok(d) = chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
+                                return EvalValue::Date(d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis());
+                            } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S") {
+                                return EvalValue::Date(dt.and_utc().timestamp_millis());
+                            } else if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                                return EvalValue::Date(dt.timestamp_millis());
+                            }
+                        }
+                    }
+                    EvalValue::Null
                 } else {
                     EvalValue::Null
                 }
@@ -2321,6 +2354,7 @@ impl Graph {
                         }
                         Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n),
                         Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b),
+                        Some(crate::property::PropertyValue::Date(d)) => EvalValue::Date(d),
                         None => EvalValue::Null,
                     }
                 } else {
@@ -2338,6 +2372,7 @@ enum EvalValue<'a> {
     String(Cow<'a, str>),
     Number(f64),
     Boolean(bool),
+    Date(i64),
     Null,
 }
 
@@ -2356,6 +2391,7 @@ impl<'a> EvalValue<'a> {
         match (self, other) {
             (EvalValue::Number(l), EvalValue::Number(r)) => l.partial_cmp(r),
             (EvalValue::String(l), EvalValue::String(r)) => l.partial_cmp(r),
+            (EvalValue::Date(l), EvalValue::Date(r)) => l.partial_cmp(r),
             (EvalValue::Number(l), EvalValue::String(r)) => {
                 if let Ok(r_num) = r.parse::<f64>() {
                     l.partial_cmp(&r_num)
@@ -2381,6 +2417,14 @@ impl<'a> EvalValue<'a> {
         match (self, other) {
             (EvalValue::Number(l), EvalValue::Number(r)) => Self::compare_f64(*l, *r, op),
             (EvalValue::String(l), EvalValue::String(r)) => Self::compare_str(l, r, op),
+            (EvalValue::Date(l), EvalValue::Date(r)) => match op {
+                CompareOp::Eq => l == r,
+                CompareOp::Neq => l != r,
+                CompareOp::Gt => l > r,
+                CompareOp::Gte => l >= r,
+                CompareOp::Lt => l < r,
+                CompareOp::Lte => l <= r,
+            },
             (EvalValue::Number(l), EvalValue::String(r)) => {
                 if let Ok(r_num) = r.parse::<f64>() {
                     Self::compare_f64(*l, r_num, op)
