@@ -83,6 +83,8 @@ pub enum GraphElement {
     Number(f64),
     String(String),
     Boolean(bool),
+    Date(chrono::NaiveDate),
+    DateTime(chrono::DateTime<chrono::Utc>),
     Null,
 }
 
@@ -413,6 +415,8 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
 }
 
 
+pub type CustomFunction = std::sync::Arc<dyn Fn(&[GraphElement]) -> Result<GraphElement, String> + Send + Sync>;
+
 #[derive(Serialize, Deserialize)]
 pub struct Graph {
     pub nodes: ItemStorage<Node>,
@@ -428,6 +432,8 @@ pub struct Graph {
     pub cancel_flag: Arc<AtomicBool>,
     #[serde(skip)]
     pub next_txid: std::sync::atomic::AtomicU64,
+    #[serde(skip)]
+    pub functions: HashMap<String, CustomFunction>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -442,6 +448,7 @@ impl Graph {
             let mut g: Graph = bincode::deserialize(&buffer).unwrap();
             g.wal_file = None;
             g.next_txid = std::sync::atomic::AtomicU64::new(1);
+            g.register_default_functions();
             g
         } else {
             Self::new()
@@ -703,6 +710,8 @@ impl Graph {
             GraphElement::Number(n) => json!(n),
             GraphElement::String(ref s) => json!(s),
             GraphElement::Boolean(b) => json!(b),
+            GraphElement::Date(d) => json!(d.to_string()),
+            GraphElement::DateTime(dt) => json!(dt.to_rfc3339()),
             GraphElement::Null => Value::Null,
         }
     }
@@ -739,6 +748,8 @@ impl Graph {
             GraphElement::Number(n) => format!("{}", n),
             GraphElement::String(ref s) => format!("\"{}\"", s),
             GraphElement::Boolean(b) => format!("{}", b),
+            GraphElement::Date(d) => format!("{}", d.to_string()),
+            GraphElement::DateTime(dt) => format!("{}", dt.to_rfc3339()),
             GraphElement::Null => "null".to_string(),
         }
     }
@@ -788,7 +799,7 @@ impl Graph {
     }
 
     pub fn new() -> Self {
-        Self {
+        let mut g = Self {
             nodes: ItemStorage::Memory(Vec::new()),
             edges: ItemStorage::Memory(Vec::new()),
             labels: HashMap::new(),
@@ -798,7 +809,43 @@ impl Graph {
             #[cfg(not(target_arch = "wasm32"))]
             cancel_flag: Arc::new(AtomicBool::new(false)),
             next_txid: std::sync::atomic::AtomicU64::new(1),
-        }
+            functions: HashMap::new(),
+        };
+        g.register_default_functions();
+        g
+    }
+
+    pub fn register_function(&mut self, name: &str, func: CustomFunction) {
+        self.functions.insert(name.to_lowercase(), func);
+    }
+
+    fn register_default_functions(&mut self) {
+        self.register_function("rand", std::sync::Arc::new(|_args| {
+            // Note: In reality `rand` produces a float, but we keep compatibility with prior random 0f64 for simplicity right now
+            Ok(GraphElement::Number(0f64))
+        }));
+
+        self.register_function("date", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::String(s) = &args[0] {
+                    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                        return Ok(GraphElement::Date(d));
+                    }
+                }
+            }
+            Err("Invalid arguments to date()".to_string())
+        }));
+
+        self.register_function("datetime", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::String(s) = &args[0] {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                        return Ok(GraphElement::DateTime(dt.with_timezone(&chrono::Utc)));
+                    }
+                }
+            }
+            Err("Invalid arguments to datetime()".to_string())
+        }));
     }
 
     pub fn clear(&mut self) {
@@ -2242,6 +2289,8 @@ impl Graph {
                 Some(crate::property::PropertyValue::String(s)) => Some(GraphElement::String(s)),
                 Some(crate::property::PropertyValue::Number(n)) => Some(GraphElement::Number(n)),
                 Some(crate::property::PropertyValue::Boolean(b)) => Some(GraphElement::Boolean(b)),
+                Some(crate::property::PropertyValue::Date(d)) => Some(GraphElement::Date(d)),
+                Some(crate::property::PropertyValue::DateTime(dt)) => Some(GraphElement::DateTime(dt)),
                 None => None,
             }
         } else {
@@ -2257,9 +2306,13 @@ impl Graph {
             Expression::Variable(var) => {
                 in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
             }
-            Expression::Function(func, _args) => {
-                if func.eq_ignore_ascii_case("rand") {
-                    GraphElement::Number(0f64)
+            Expression::Function(func, args) => {
+                if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                    let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx)).collect();
+                    match f(&eval_args) {
+                        Ok(res) => res,
+                        Err(_) => GraphElement::Null
+                    }
                 } else {
                     GraphElement::Null
                 }
@@ -2296,14 +2349,28 @@ impl Graph {
                         GraphElement::Node(_) | GraphElement::Edge(_) | GraphElement::EdgeArray(_) | GraphElement::Path(_) | GraphElement::List(_) | GraphElement::Map(_) => {
                             EvalValue::String(Cow::Owned(self.format_element(element)))
                         }
+                        GraphElement::Date(d) => EvalValue::Date(*d),
+                        GraphElement::DateTime(dt) => EvalValue::DateTime(*dt),
                     }
                 } else {
                     EvalValue::Null
                 }
             }
-            Expression::Function(func, _args) => {
-                if func.eq_ignore_ascii_case("rand") {
-                    EvalValue::Number(0f64)
+            Expression::Function(func, args) => {
+                if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                    let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx)).collect();
+                    match f(&eval_args) {
+                        Ok(res) => match res {
+                            GraphElement::Number(n) => EvalValue::Number(n),
+                            GraphElement::String(s) => EvalValue::String(Cow::Owned(s)),
+                            GraphElement::Boolean(b) => EvalValue::Boolean(b),
+                            GraphElement::Date(d) => EvalValue::Date(d),
+                            GraphElement::DateTime(dt) => EvalValue::DateTime(dt),
+                            GraphElement::Null => EvalValue::Null,
+                            _ => EvalValue::String(Cow::Owned(self.format_element(&res))),
+                        },
+                        Err(_) => EvalValue::Null
+                    }
                 } else {
                     EvalValue::Null
                 }
@@ -2321,6 +2388,8 @@ impl Graph {
                         }
                         Some(crate::property::PropertyValue::Number(n)) => EvalValue::Number(n),
                         Some(crate::property::PropertyValue::Boolean(b)) => EvalValue::Boolean(b),
+                        Some(crate::property::PropertyValue::Date(d)) => EvalValue::Date(d),
+                        Some(crate::property::PropertyValue::DateTime(dt)) => EvalValue::DateTime(dt),
                         None => EvalValue::Null,
                     }
                 } else {
@@ -2338,6 +2407,8 @@ enum EvalValue<'a> {
     String(Cow<'a, str>),
     Number(f64),
     Boolean(bool),
+    Date(chrono::NaiveDate),
+    DateTime(chrono::DateTime<chrono::Utc>),
     Null,
 }
 
@@ -2370,6 +2441,8 @@ impl<'a> EvalValue<'a> {
                     None
                 }
             }
+            (EvalValue::Date(l), EvalValue::Date(r)) => l.partial_cmp(r),
+            (EvalValue::DateTime(l), EvalValue::DateTime(r)) => l.partial_cmp(r),
             _ => None,
         }
     }
@@ -2396,7 +2469,31 @@ impl<'a> EvalValue<'a> {
                 }
             }
             (EvalValue::Boolean(l), EvalValue::Boolean(r)) => Self::compare_bool(*l, *r, op),
+            (EvalValue::Date(l), EvalValue::Date(r)) => Self::compare_date(l, r, op),
+            (EvalValue::DateTime(l), EvalValue::DateTime(r)) => Self::compare_datetime(l, r, op),
             _ => false,
+        }
+    }
+
+    fn compare_date(l: &chrono::NaiveDate, r: &chrono::NaiveDate, op: &CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => l == r,
+            CompareOp::Neq => l != r,
+            CompareOp::Gt => l > r,
+            CompareOp::Gte => l >= r,
+            CompareOp::Lt => l < r,
+            CompareOp::Lte => l <= r,
+        }
+    }
+
+    fn compare_datetime(l: &chrono::DateTime<chrono::Utc>, r: &chrono::DateTime<chrono::Utc>, op: &CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => l == r,
+            CompareOp::Neq => l != r,
+            CompareOp::Gt => l > r,
+            CompareOp::Gte => l >= r,
+            CompareOp::Lt => l < r,
+            CompareOp::Lte => l <= r,
         }
     }
 
