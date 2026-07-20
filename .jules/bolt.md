@@ -11,3 +11,9 @@
 ## 2024-05-18 - Refactoring `get_item` mutations to `with_mut_item` requires escaping the closure context
 **Learning:** In yagdb, `with_mut_item` takes a closure over a mutable reference to the object. However, inside this closure you cannot borrow `self` or access `graph` methods (e.g. `log_wal` or iterating over `indices`) because `self` is already borrowed mutably by `with_mut_item`.
 **Action:** When refactoring to use `with_mut_item` in `yagdb`, avoid borrow checker conflicts with other methods requiring `&self` (e.g., `self.log_wal()`) by extracting necessary condition flags or data from the closure's return value and invoking the `&self` method after the closure.
+## 2024-07-28 - Optimize HashJoin Execution with Buffer Reuse
+**Learning:** In 's `HashJoin` execution, allocating a new `Vec<GraphElement>` key inside the inner loop and moving it into a `HashMap` via `entry` caused significant overhead. By reusing a single `Vec` buffer and bypassing `HashMap::entry` on cache hits using `get_mut` and `insert`, vector allocation overhead could be minimized.
+**Action:** When aggregating or joining with complex keys, reuse allocation buffers and use two-step lookups (`get_mut` + `insert`) to avoid continuous allocation in hot execution paths.
+## 2024-07-28 - Optimize HashJoin Execution with Buffer Reuse
+**Learning:** In yagdb's `HashJoin` execution, allocating a new `Vec<GraphElement>` key inside the inner loop and moving it into a `HashMap` via `entry` caused significant overhead. By reusing a single `Vec` buffer and bypassing `HashMap::entry` on cache hits using `get_mut` and `insert`, vector allocation overhead could be minimized.
+**Action:** When aggregating or joining with complex keys, reuse allocation buffers and use two-step lookups (`get_mut` + `insert`) to avoid continuous allocation in hot execution paths.
