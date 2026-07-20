@@ -7,3 +7,7 @@
 ## 2024-05-18 - Prevent N+1 allocations on Graph node/edge mutation
 **Learning:** In yagdb, modifying items inside `ItemStorage` by sequentially calling `get_item` (which clones the full node/edge structure) and then `update_item` causes massive allocation overhead on hot paths like graph creation/edge addition.
 **Action:** Implemented `with_mut_item` to pass a mutable reference to a closure, allowing O(1) in-place mutations of nodes/edges (like pushing to `n.edges`) instead of copying the whole struct.
+
+## 2024-05-18 - Refactoring `get_item` mutations to `with_mut_item` requires escaping the closure context
+**Learning:** In yagdb, `with_mut_item` takes a closure over a mutable reference to the object. However, inside this closure you cannot borrow `self` or access `graph` methods (e.g. `log_wal` or iterating over `indices`) because `self` is already borrowed mutably by `with_mut_item`.
+**Action:** When refactoring to use `with_mut_item` in `yagdb`, avoid borrow checker conflicts with other methods requiring `&self` (e.g., `self.log_wal()`) by extracting necessary condition flags or data from the closure's return value and invoking the `&self` method after the closure.
