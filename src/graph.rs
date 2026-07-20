@@ -114,6 +114,8 @@ impl std::hash::Hash for GraphElement {
             GraphElement::String(s) => { state.write_u8(7); s.hash(state); }
             GraphElement::Boolean(b) => { state.write_u8(8); b.hash(state); }
             GraphElement::Null => { state.write_u8(9); }
+            GraphElement::Date(d) => { state.write_u8(10); d.hash(state); }
+            GraphElement::DateTime(d) => { state.write_u8(11); d.hash(state); }
         }
     }
 }
@@ -1889,7 +1891,7 @@ impl Graph {
                     }
 
                     // Build on the smaller result set, probe with the larger
-                    let (build_res, probe_res, mut build_is_left) = if left_res.rows <= right_res.rows {
+                    let (build_res, probe_res, build_is_left) = if left_res.rows <= right_res.rows {
                         (&left_res, &right_res, true)
                     } else {
                         (&right_res, &left_res, false)

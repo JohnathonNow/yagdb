@@ -18,7 +18,7 @@ fn test_export_import_csv() {
     g.nodes.update_item(node_del, n_del);
 
     let node2 = g.add_node(label_id, HashMap::new(), 0);
-    let edge_id = g.add_edge(node1, node2, vec![], HashMap::new(), 0);
+    let _edge_id = g.add_edge(node1, node2, vec![], HashMap::new(), 0);
 
     g.create_index(label_id, "name".to_string(), IndexType::Hash);
 
