@@ -32,6 +32,11 @@ pub enum PlanNode {
         left: Box<PlanNode>,
         right: Box<PlanNode>,
     },
+    HashJoin {
+        left: Box<PlanNode>,
+        right: Box<PlanNode>,
+        join_keys: Vec<String>,
+    },
     CrossProduct {
         left: Box<PlanNode>,
         right: Box<PlanNode>,
@@ -81,6 +86,22 @@ impl QueryPlanner {
         plan
     }
 
+    fn extract_variables(path: &Path) -> std::collections::HashSet<String> {
+        let mut vars = std::collections::HashSet::new();
+        if let Some(v) = &path.start.variable {
+            vars.insert(v.clone());
+        }
+        for (rel, node) in &path.edges {
+            if let Some(v) = &rel.variable {
+                vars.insert(v.clone());
+            }
+            if let Some(v) = &node.variable {
+                vars.insert(v.clone());
+            }
+        }
+        vars
+    }
+
     pub fn plan_match_paths(
         paths: &[Path],
         labels: &HashMap<String, usize>,
@@ -91,11 +112,27 @@ impl QueryPlanner {
             return None;
         }
         let mut plan = Self::plan_match_path(&paths[0], labels, indices, extracted_props);
+        let mut planned_vars = Self::extract_variables(&paths[0]);
+
         for path in paths.iter().skip(1) {
-            plan = PlanNode::CrossProduct {
-                left: Box::new(plan),
-                right: Box::new(Self::plan_match_path(path, labels, indices, extracted_props)),
-            };
+            let right_plan = Self::plan_match_path(path, labels, indices, extracted_props);
+            let right_vars = Self::extract_variables(path);
+            let mut join_keys: Vec<String> = planned_vars.intersection(&right_vars).cloned().collect();
+            join_keys.sort(); // For determinism
+
+            if !join_keys.is_empty() {
+                plan = PlanNode::HashJoin {
+                    left: Box::new(plan),
+                    right: Box::new(right_plan),
+                    join_keys,
+                };
+            } else {
+                plan = PlanNode::CrossProduct {
+                    left: Box::new(plan),
+                    right: Box::new(right_plan),
+                };
+            }
+            planned_vars.extend(right_vars);
         }
         Some(plan)
     }
