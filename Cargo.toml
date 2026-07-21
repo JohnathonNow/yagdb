@@ -49,3 +49,27 @@ name = "performance"
 harness = false
 [profile.release]
 debug = 1
+
+[[bench]]
+name = "hash_bench"
+harness = false
+
+[[bench]]
+name = "hash_bench2"
+harness = false
+
+[[bench]]
+name = "hash_bench3"
+harness = false
+
+[[bench]]
+name = "hash_bench_reuse"
+harness = false
+
+[[bench]]
+name = "hash_bench_reuse2"
+harness = false
+
+[[bench]]
+name = "hash_bench_reuse_full"
+harness = false

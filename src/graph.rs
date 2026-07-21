@@ -1898,20 +1898,27 @@ impl Graph {
                     };
 
                     let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
+                    // ⚡ BOLT: Reuse allocation buffer to avoid continuous vec creation in hash join.
+                    let mut key_buf = Vec::with_capacity(join_keys.len());
                     for b_idx in 0..build_res.rows {
-                        let mut key = Vec::with_capacity(join_keys.len());
+                        key_buf.clear();
                         for k in join_keys {
-                            key.push(build_res.get(b_idx, k).cloned().unwrap_or(GraphElement::Null));
+                            key_buf.push(build_res.get(b_idx, k).cloned().unwrap_or(GraphElement::Null));
                         }
-                        hash_table.entry(key).or_default().push(b_idx);
+                        // ⚡ BOLT: Avoid unconditional cloning of keys by bypassing HashMap::entry for cache hits.
+                        if let Some(b_indices) = hash_table.get_mut(&key_buf) {
+                            b_indices.push(b_idx);
+                        } else {
+                            hash_table.insert(key_buf.clone(), vec![b_idx]);
+                        }
                     }
 
                     for p_idx in 0..probe_res.rows {
-                        let mut key = Vec::with_capacity(join_keys.len());
+                        key_buf.clear();
                         for k in join_keys {
-                            key.push(probe_res.get(p_idx, k).cloned().unwrap_or(GraphElement::Null));
+                            key_buf.push(probe_res.get(p_idx, k).cloned().unwrap_or(GraphElement::Null));
                         }
-                        if let Some(b_indices) = hash_table.get(&key) {
+                        if let Some(b_indices) = hash_table.get(&key_buf) {
                             for &b_idx in b_indices {
                                 let (l_idx, r_idx) = if build_is_left { (b_idx, p_idx) } else { (p_idx, b_idx) };
                                 let mut valid = true;
