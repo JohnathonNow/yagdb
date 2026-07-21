@@ -59,8 +59,9 @@ impl Graph {
     pub fn export_csv(&self) -> Result<(String, String, String, String), String> {
         let mut nodes_wtr = csv::Writer::from_writer(vec![]);
         for i in 0..self.nodes.len_items() {
-            if let Some(node) = self.nodes.get_item(i) {
-                let csv_node = CsvNode {
+            // OPTIMIZATION: Use `with_item` instead of `get_item` to avoid fully cloning the `Node` struct.
+            let res: Option<Result<CsvNode, String>> = self.nodes.with_item(i, |node| {
+                Ok(CsvNode {
                     internal_id: i,
                     id: node.id.clone(),
                     labels: serde_json::to_string(&node.labels).map_err(|e| e.to_string())?,
@@ -69,15 +70,18 @@ impl Graph {
                     deleted: node.deleted,
                     created_by: node.created_by,
                     deleted_by: node.deleted_by,
-                };
-                nodes_wtr.serialize(csv_node).map_err(|e| e.to_string())?;
+                })
+            });
+            if let Some(res) = res {
+                nodes_wtr.serialize(res?).map_err(|e| e.to_string())?;
             }
         }
 
         let mut edges_wtr = csv::Writer::from_writer(vec![]);
         for i in 0..self.edges.len_items() {
-            if let Some(edge) = self.edges.get_item(i) {
-                let csv_edge = CsvEdge {
+            // OPTIMIZATION: Use `with_item` instead of `get_item` to avoid fully cloning the `Edge` struct.
+            let res: Option<Result<CsvEdge, String>> = self.edges.with_item(i, |edge| {
+                Ok(CsvEdge {
                     internal_id: i,
                     id: edge.id.clone(),
                     labels: serde_json::to_string(&edge.labels).map_err(|e| e.to_string())?,
@@ -87,8 +91,10 @@ impl Graph {
                     deleted: edge.deleted,
                     deleted_by: edge.deleted_by,
                     created_by: edge.created_by,
-                };
-                edges_wtr.serialize(csv_edge).map_err(|e| e.to_string())?;
+                })
+            });
+            if let Some(res) = res {
+                edges_wtr.serialize(res?).map_err(|e| e.to_string())?;
             }
         }
 
