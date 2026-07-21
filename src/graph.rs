@@ -751,10 +751,11 @@ impl Graph {
 
     pub fn format_element(&self, element: &GraphElement) -> String {
         match element {
-            GraphElement::Node(node_id) => format!("{:?}", self.nodes.get_item(*node_id).unwrap()),
-            GraphElement::Edge(edge_id) => format!("{:?}", self.edges.get_item(*edge_id).unwrap()),
+            // OPTIMIZATION: Use `with_item` to format elements directly without cloning the underlying Node or Edge.
+            GraphElement::Node(node_id) => self.nodes.with_item(*node_id, |n| format!("{:?}", n)).unwrap(),
+            GraphElement::Edge(edge_id) => self.edges.with_item(*edge_id, |e| format!("{:?}", e)).unwrap(),
             GraphElement::EdgeArray(edge_ids) => {
-                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.get_item(id).unwrap()).collect();
+                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.with_item(id, |e| e.clone()).unwrap()).collect();
                 format!("{:?}", edges)
             }
             GraphElement::Path(elements) => {
