@@ -520,10 +520,9 @@ impl Graph {
                         key,
                         value,
                     } => {
-                        let mut __node = graph.nodes.get_item(node_id).unwrap();
-                        let old_value = __node.properties.insert(key.clone(), value.clone());
-                        let has_label = __node.labels.clone();
-                        graph.nodes.update_item(node_id, __node);
+                        let (old_value, has_label) = graph.nodes.with_mut_item(node_id, |n| {
+                            (n.properties.insert(key.clone(), value.clone()), n.labels.clone())
+                        }).unwrap();
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if has_label.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
@@ -566,10 +565,10 @@ impl Graph {
                         }
                     }
                     WalEntry::DeleteNode { node_id } => {
-                        let mut n = graph.nodes.get_item(node_id).unwrap();
-                        n.deleted = true;
-                        let has_label = n.labels.clone();
-                        graph.nodes.update_item(node_id, n);
+                        let has_label = graph.nodes.with_mut_item(node_id, |n| {
+                            n.deleted = true;
+                            n.labels.clone()
+                        }).unwrap();
                         for (label_id, label_indices) in graph.indices.iter_mut() {
                             if has_label.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
@@ -1068,10 +1067,9 @@ impl Graph {
                         if let Some(GraphElement::Node(node_id)) = result_set.get(i, &var) {
                             let node_id = *node_id;
                             if updated_nodes.insert(node_id) {
-                                let mut __node = self.nodes.get_item(node_id).unwrap();
-                                let old_value = __node.properties.insert(key.clone(), value.clone());
-                                let has_label = __node.labels.clone();
-                                self.nodes.update_item(node_id, __node);
+                                let (old_value, has_label) = self.nodes.with_mut_item(node_id, |n| {
+                                    (n.properties.insert(key.clone(), value.clone()), n.labels.clone())
+                                }).unwrap();
 
                                 // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
@@ -1142,20 +1140,31 @@ impl Graph {
                     }
 
                     for &edge_id in &edges_to_delete {
-                        let mut e = self.edges.get_item(edge_id).unwrap();
-                        if !e.deleted {
-                            e.deleted = true; e.deleted_by = Some(txid); self.edges.update_item(edge_id, e);
+                        let was_deleted = self.edges.with_mut_item(edge_id, |e| {
+                            let deleted = e.deleted;
+                            if !deleted {
+                                e.deleted = true;
+                                e.deleted_by = Some(txid);
+                            }
+                            deleted
+                        }).unwrap();
+                        if !was_deleted {
                             self.log_wal(&WalEntry::DeleteEdge { edge_id });
                         }
                     }
 
                     for &node_id in &nodes_to_delete {
-                        let mut n = self.nodes.get_item(node_id).unwrap();
-                        if !n.deleted {
-                            n.deleted = true; n.deleted_by = Some(txid);
-                            self.nodes.update_item(node_id, n.clone());
+                        let (was_deleted, has_label) = self.nodes.with_mut_item(node_id, |n| {
+                            let deleted = n.deleted;
+                            if !deleted {
+                                n.deleted = true;
+                                n.deleted_by = Some(txid);
+                            }
+                            (deleted, n.labels.clone())
+                        }).unwrap();
+                        if !was_deleted {
                             for (label_id, label_indices) in self.indices.iter_mut() {
-                                if n.labels.contains(label_id) {
+                                if has_label.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
                                         match prop_index {
                                             IndexMap::Hash(map) => {
