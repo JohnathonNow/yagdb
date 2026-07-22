@@ -192,7 +192,7 @@ pub enum ExecutionStep {
     Create(Vec<Path>),
     Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
-    Set(String, String, PropertyValue),
+    Set(String, String, Expression),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),

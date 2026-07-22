@@ -100,7 +100,7 @@ pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>, Option<Condition>, Option<usize>),
     Merge(Vec<Path>),
-    Set(String, String, crate::property::PropertyValue),
+    Set(String, String, Expression),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
@@ -301,7 +301,7 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             tuple((
                 ws(identifier),
                 ws(char('(')),
-                separated_list1(ws(char(',')), expression),
+                separated_list0(ws(char(',')), expression),
                 ws(char(')')),
             )),
             |(func, _, args, _)| Expression::Function(func.to_string(), args),
@@ -564,12 +564,7 @@ fn set_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(char('.'))(input)?;
     let (input, prop) = ws(identifier)(input)?;
     let (input, _) = ws(char('='))(input)?;
-    let (input, val) = ws(alt((
-        property_value_parser,
-        map(identifier, |s| {
-            crate::property::PropertyValue::String(s.to_string())
-        }),
-    )))(input)?;
+    let (input, val) = ws(expression)(input)?;
     Ok((input, Clause::Set(var.to_string(), prop.to_string(), val)))
 }
 
