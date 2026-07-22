@@ -1143,18 +1143,20 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::Set(var, key, value) => {
+                ExecutionStep::Set(var, key, value_expr) => {
                     let mut updated_nodes = std::collections::HashSet::new();
                     for i in 0..result_set.rows {
                         if let Some(GraphElement::Node(node_id)) = result_set.get(i, &var) {
                             let node_id = *node_id;
-                            if updated_nodes.insert(node_id) {
-                                // ⚡ Bolt: Use in-place mutation to set property without allocating memory for cloning the node.
-                                let (old_value, has_label) = self.nodes.with_mut_item(node_id, |__node| {
-                                    (__node.properties.insert(key.clone(), value.clone()), __node.labels.clone())
-                                }).unwrap();
+                            let evaluated_value = self.evaluate_expression_to_element(&value_expr, &result_set, i);
+                            if let Some(value) = evaluated_value.to_property_value() {
+                                if updated_nodes.insert(node_id) {
+                                    // ⚡ Bolt: Use in-place mutation to set property without allocating memory for cloning the node.
+                                    let (old_value, has_label) = self.nodes.with_mut_item(node_id, |__node| {
+                                        (__node.properties.insert(key.clone(), value.clone()), __node.labels.clone())
+                                    }).unwrap();
 
-                                // Update indices if necessary
+                                    // Update indices if necessary
                                 for (label_id, label_indices) in self.indices.iter_mut() {
                                     if has_label.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
@@ -1196,11 +1198,12 @@ impl Graph {
                                     }
                                 }
 
-                                self.log_wal(&WalEntry::SetNodeProperty {
-                                    node_id,
-                                    key: key.clone(),
-                                    value: value.clone(),
-                                });
+                                    self.log_wal(&WalEntry::SetNodeProperty {
+                                        node_id,
+                                        key: key.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -2669,5 +2672,18 @@ impl Graph {
         // Actually YAGDB creates indices via CREATE INDEX ON :Label(prop).
         // Since indices are stored as HashMap<usize, HashMap<String, IndexMap>>, we can't easily recreate them unless we know which ones existed.
         // Wait, import_json restores `self.indices` completely. In CSV, we didn't export `indices`.
+    }
+}
+
+impl GraphElement {
+    pub fn to_property_value(&self) -> Option<crate::property::PropertyValue> {
+        match self {
+            GraphElement::String(s) => Some(crate::property::PropertyValue::String(s.clone())),
+            GraphElement::Number(n) => Some(crate::property::PropertyValue::Number(*n)),
+            GraphElement::Boolean(b) => Some(crate::property::PropertyValue::Boolean(*b)),
+            GraphElement::Date(d) => Some(crate::property::PropertyValue::Date(*d)),
+            GraphElement::DateTime(dt) => Some(crate::property::PropertyValue::DateTime(*dt)),
+            _ => None,
+        }
     }
 }

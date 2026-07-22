@@ -76,3 +76,21 @@ fn test_set_index_update() {
     let _ = fs::remove_file(snapshot_path);
     let _ = fs::remove_file(wal_path);
 }
+
+#[test]
+fn test_set_from_function() {
+    let mut g = Graph::new();
+    // Graph::new() already registers default functions
+    g.execute("CREATE (n:Test {value: 'initial'})").unwrap();
+
+    // Create a custom function to test deterministic return
+    let custom_func = std::sync::Arc::new(|_args: &[yagdb::graph::GraphElement]| -> Result<yagdb::graph::GraphElement, String> {
+        Ok(yagdb::graph::GraphElement::Number(42.0))
+    });
+    g.register_function("custom_val", custom_func);
+
+    g.execute("MATCH (n:Test) SET n.value = custom_val()").unwrap();
+
+    let result = g.execute("MATCH (n:Test) RETURN n.value AS val").unwrap();
+    assert!(result.contains("42"));
+}
