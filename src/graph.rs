@@ -750,12 +750,14 @@ impl Graph {
     }
 
     pub fn format_element(&self, element: &GraphElement) -> String {
+        // Optimization: Replace get_item with with_item to avoid making a complete clone
+        // of nodes and edges from storage when they just need to be formatted.
         match element {
-            GraphElement::Node(node_id) => format!("{:?}", self.nodes.get_item(*node_id).unwrap()),
-            GraphElement::Edge(edge_id) => format!("{:?}", self.edges.get_item(*edge_id).unwrap()),
+            GraphElement::Node(node_id) => self.nodes.with_item(*node_id, |node| format!("{:?}", node)).unwrap(),
+            GraphElement::Edge(edge_id) => self.edges.with_item(*edge_id, |edge| format!("{:?}", edge)).unwrap(),
             GraphElement::EdgeArray(edge_ids) => {
-                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.get_item(id).unwrap()).collect();
-                format!("{:?}", edges)
+                let edges: Vec<_> = edge_ids.iter().map(|&id| self.edges.with_item(id, |edge| format!("{:?}", edge)).unwrap()).collect();
+                format!("[{}]", edges.join(", "))
             }
             GraphElement::Path(elements) => {
                 let mut path_out = Vec::new();

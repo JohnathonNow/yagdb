@@ -17,3 +17,6 @@
 ## 2024-07-28 - Optimize HashJoin Execution with Buffer Reuse
 **Learning:** In yagdb's `HashJoin` execution, allocating a new `Vec<GraphElement>` key inside the inner loop and moving it into a `HashMap` via `entry` caused significant overhead. By reusing a single `Vec` buffer and bypassing `HashMap::entry` on cache hits using `get_mut` and `insert`, vector allocation overhead could be minimized.
 **Action:** When aggregating or joining with complex keys, reuse allocation buffers and use two-step lookups (`get_mut` + `insert`) to avoid continuous allocation in hot execution paths.
+## 2024-07-28 - Replace `get_item` with `with_item` to avoid cloning in hot paths
+**Learning:** `yagdb` storage methods like `get_item` clone the underlying struct (like `Node` or `Edge`) which incurs significant allocation penalties when iterating over many nodes, such as during CSV export or formatting arrays. By using `with_item`, a closure is given a reference to the item in storage, bypassing the clone overhead.
+**Action:** Always favor `with_item` over `get_item` in hot loops or simple data accesses where full ownership of the struct isn't necessary.
