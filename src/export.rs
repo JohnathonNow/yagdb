@@ -59,7 +59,8 @@ impl Graph {
     pub fn export_csv(&self) -> Result<(String, String, String, String), String> {
         let mut nodes_wtr = csv::Writer::from_writer(vec![]);
         for i in 0..self.nodes.len_items() {
-            if let Some(node) = self.nodes.get_item(i) {
+            // OPTIMIZATION: Use with_item to avoid cloning the full node object and its vectors/maps during export
+            let result = self.nodes.with_item(i, |node| -> Result<(), String> {
                 let csv_node = CsvNode {
                     internal_id: i,
                     id: node.id.clone(),
@@ -70,13 +71,17 @@ impl Graph {
                     created_by: node.created_by,
                     deleted_by: node.deleted_by,
                 };
-                nodes_wtr.serialize(csv_node).map_err(|e| e.to_string())?;
+                nodes_wtr.serialize(csv_node).map_err(|e| e.to_string())
+            });
+            if let Some(res) = result {
+                res?;
             }
         }
 
         let mut edges_wtr = csv::Writer::from_writer(vec![]);
         for i in 0..self.edges.len_items() {
-            if let Some(edge) = self.edges.get_item(i) {
+            // OPTIMIZATION: Use with_item to avoid cloning the full edge object during export
+            let result = self.edges.with_item(i, |edge| -> Result<(), String> {
                 let csv_edge = CsvEdge {
                     internal_id: i,
                     id: edge.id.clone(),
@@ -88,7 +93,10 @@ impl Graph {
                     deleted_by: edge.deleted_by,
                     created_by: edge.created_by,
                 };
-                edges_wtr.serialize(csv_edge).map_err(|e| e.to_string())?;
+                edges_wtr.serialize(csv_edge).map_err(|e| e.to_string())
+            });
+            if let Some(res) = result {
+                res?;
             }
         }
 
