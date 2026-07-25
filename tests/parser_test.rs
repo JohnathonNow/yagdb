@@ -109,7 +109,7 @@ fn test_parser_set() {
             assert_eq!(prop, "age");
             assert_eq!(
                 val,
-                &yagdb::property::PropertyValue::String("30".to_string())
+                &yagdb::parser::Expression::StringLiteral("30".to_string())
             );
         }
         _ => panic!("Expected Set clause"),
