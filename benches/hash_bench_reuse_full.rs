@@ -1,69 +1,72 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::collections::HashMap;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum GraphElement {
+#[derive(Clone, Default, Debug, PartialEq)]
+pub enum GraphElement {
+    #[default]
     Null,
     String(String),
 }
 
-fn entry_benchmark(c: &mut Criterion) {
-    let join_keys = vec!["a"];
-    c.bench_function("allocate_every_time", |b| {
-        b.iter(|| {
-            let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
-            for b_idx in 0..1000 {
-                let mut key = Vec::with_capacity(join_keys.len());
-                for _ in &join_keys {
-                    key.push(GraphElement::String((b_idx % 10).to_string()));
-                }
-                hash_table.entry(key).or_default().push(b_idx);
-            }
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct ResultSet {
+    pub columns: HashMap<String, Vec<GraphElement>>,
+    pub rows: usize,
+}
 
-            let mut matches = 0;
-            for p_idx in 0..1000 {
-                let mut key = Vec::with_capacity(join_keys.len());
-                for _ in &join_keys {
-                    key.push(GraphElement::String((p_idx % 10).to_string()));
-                }
-                if let Some(b_indices) = hash_table.get(&key) {
-                    matches += b_indices.len();
-                }
+impl ResultSet {
+    pub fn new() -> Self {
+        Self {
+            columns: HashMap::new(),
+            rows: 0,
+        }
+    }
+    pub fn clear(&mut self) {
+        for col in self.columns.values_mut() {
+            col.clear();
+        }
+        self.rows = 0;
+    }
+}
+
+fn execute_plan(res: &mut ResultSet) {
+    res.rows = 100;
+    for c in res.columns.values_mut() {
+        c.resize(100, GraphElement::Null);
+    }
+}
+
+fn full_benchmark(c: &mut Criterion) {
+    c.bench_function("allocate_resultset_every_time", |b| {
+        b.iter(|| {
+            for _ in 0..100 {
+                let mut left_res = ResultSet::new();
+                let mut right_res = ResultSet::new();
+                left_res.columns.insert("a".to_string(), Vec::new());
+                right_res.columns.insert("a".to_string(), Vec::new());
+                execute_plan(&mut left_res);
+                execute_plan(&mut right_res);
+                black_box((left_res.rows, right_res.rows));
             }
-            black_box(matches);
         })
     });
 
-    c.bench_function("reuse_buffer_both", |b| {
+    c.bench_function("reuse_resultset", |b| {
         b.iter(|| {
-            let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
-            let mut key_buf = Vec::with_capacity(join_keys.len());
-            for b_idx in 0..1000 {
-                key_buf.clear();
-                for _ in &join_keys {
-                    key_buf.push(GraphElement::String((b_idx % 10).to_string()));
-                }
-                if let Some(v) = hash_table.get_mut(&key_buf) {
-                    v.push(b_idx);
-                } else {
-                    hash_table.insert(key_buf.clone(), vec![b_idx]);
-                }
+            let mut left_res = ResultSet::new();
+            let mut right_res = ResultSet::new();
+            left_res.columns.insert("a".to_string(), Vec::new());
+            right_res.columns.insert("a".to_string(), Vec::new());
+            for _ in 0..100 {
+                left_res.clear();
+                right_res.clear();
+                execute_plan(&mut left_res);
+                execute_plan(&mut right_res);
+                black_box((left_res.rows, right_res.rows));
             }
-
-            let mut matches = 0;
-            for p_idx in 0..1000 {
-                key_buf.clear();
-                for _ in &join_keys {
-                    key_buf.push(GraphElement::String((p_idx % 10).to_string()));
-                }
-                if let Some(b_indices) = hash_table.get(&key_buf) {
-                    matches += b_indices.len();
-                }
-            }
-            black_box(matches);
         })
     });
 }
 
-criterion_group!(benches, entry_benchmark);
+criterion_group!(benches, full_benchmark);
 criterion_main!(benches);

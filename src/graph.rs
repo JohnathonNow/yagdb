@@ -136,6 +136,13 @@ impl ResultSet {
         }
     }
 
+    pub fn clear(&mut self) {
+        for col in self.columns.values_mut() {
+            col.clear();
+        }
+        self.rows = 0;
+    }
+
     pub fn get_row(&self, idx: usize) -> Environment {
         let mut env = HashMap::new();
         for (k, v) in &self.columns {
@@ -1878,15 +1885,21 @@ impl Graph {
             }
             PlanNode::HashJoin { left, right, join_keys } => {
                 op_name = "HashJoin".to_string();
+                let mut single_res = ResultSet::new();
+                let mut left_res = ResultSet::new();
+                let mut right_res = ResultSet::new();
+                let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
+                let mut key_buf = Vec::with_capacity(join_keys.len());
+
                 for i in 0..in_res.rows {
-                    let mut single_res = ResultSet::new();
+                    single_res.clear();
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
-                    let mut left_res = ResultSet::new();
+                    left_res.clear();
                     self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
 
                     let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
-                    let mut right_res = ResultSet::new();
+                    right_res.clear();
                     self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None, txid);
 
                     if let Some(prof) = profile {
@@ -1900,9 +1913,8 @@ impl Graph {
                         (&right_res, &left_res, false)
                     };
 
-                    let mut hash_table: HashMap<Vec<GraphElement>, Vec<usize>> = HashMap::new();
+                    hash_table.clear();
                     // ⚡ BOLT: Reuse allocation buffer to avoid continuous vec creation in hash join.
-                    let mut key_buf = Vec::with_capacity(join_keys.len());
                     for b_idx in 0..build_res.rows {
                         key_buf.clear();
                         for k in join_keys {
@@ -1949,15 +1961,19 @@ impl Graph {
                 op_name = "CrossProduct".to_string();
                 // To preserve incoming row associations correctly when cross joining independent paths
                 // evaluated on the SAME incoming row, we process each incoming row separately for cross-product.
+                let mut single_res = ResultSet::new();
+                let mut left_res = ResultSet::new();
+                let mut right_res = ResultSet::new();
+
                 for i in 0..in_res.rows {
-                    let mut single_res = ResultSet::new();
+                    single_res.clear();
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
-                    let mut left_res = ResultSet::new();
+                    left_res.clear();
                     self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
 
                     let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
-                    let mut right_res = ResultSet::new();
+                    right_res.clear();
                     self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None, txid);
 
                     if let Some(prof) = profile {
