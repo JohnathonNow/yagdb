@@ -1878,8 +1878,9 @@ impl Graph {
             }
             PlanNode::HashJoin { left, right, join_keys } => {
                 op_name = "HashJoin".to_string();
+                let mut single_res = ResultSet::new();
                 for i in 0..in_res.rows {
-                    let mut single_res = ResultSet::new();
+                    single_res.clear();
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
                     let mut left_res = ResultSet::new();
@@ -1949,8 +1950,9 @@ impl Graph {
                 op_name = "CrossProduct".to_string();
                 // To preserve incoming row associations correctly when cross joining independent paths
                 // evaluated on the SAME incoming row, we process each incoming row separately for cross-product.
+                let mut single_res = ResultSet::new();
                 for i in 0..in_res.rows {
-                    let mut single_res = ResultSet::new();
+                    single_res.clear();
                     single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
 
                     let mut left_res = ResultSet::new();
@@ -2656,6 +2658,13 @@ impl<'a> EvalValue<'a> {
 
 
 impl ResultSet {
+    pub fn clear(&mut self) {
+        self.rows = 0;
+        for col in self.columns.values_mut() {
+            col.clear();
+        }
+    }
+
     pub fn truncate(&mut self, len: usize) {
         if len >= self.rows { return; }
         self.rows = len;

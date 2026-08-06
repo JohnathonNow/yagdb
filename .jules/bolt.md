@@ -17,3 +17,6 @@
 ## 2024-07-28 - Optimize HashJoin Execution with Buffer Reuse
 **Learning:** In yagdb's `HashJoin` execution, allocating a new `Vec<GraphElement>` key inside the inner loop and moving it into a `HashMap` via `entry` caused significant overhead. By reusing a single `Vec` buffer and bypassing `HashMap::entry` on cache hits using `get_mut` and `insert`, vector allocation overhead could be minimized.
 **Action:** When aggregating or joining with complex keys, reuse allocation buffers and use two-step lookups (`get_mut` + `insert`) to avoid continuous allocation in hot execution paths.
+## 2024-08-04 - Result Set Re-use Optimization
+**Learning:** In yagdb, `HashJoin` and `CrossProduct` iterate over all rows of an input result set to evaluate the left or right side plans. Previously, they constructed a brand new `ResultSet` containing only the current row for every iteration. This incurred significant allocation overhead for the `HashMap` containing the variables and copying strings as keys for `GraphElement`s.
+**Action:** By adding a `.clear()` method to `ResultSet` that resets its row counter and clears the underlying Vecs in the columns map without destroying the `HashMap` entries, we can instantiate `ResultSet::new()` once outside the loop and `.clear()` it at the start of each iteration, vastly reducing memory allocations and cloning.
