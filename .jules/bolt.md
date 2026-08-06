@@ -20,3 +20,6 @@
 ## 2024-08-04 - Result Set Re-use Optimization
 **Learning:** In yagdb, `HashJoin` and `CrossProduct` iterate over all rows of an input result set to evaluate the left or right side plans. Previously, they constructed a brand new `ResultSet` containing only the current row for every iteration. This incurred significant allocation overhead for the `HashMap` containing the variables and copying strings as keys for `GraphElement`s.
 **Action:** By adding a `.clear()` method to `ResultSet` that resets its row counter and clears the underlying Vecs in the columns map without destroying the `HashMap` entries, we can instantiate `ResultSet::new()` once outside the loop and `.clear()` it at the start of each iteration, vastly reducing memory allocations and cloning.
+## 2024-08-06 - Optimize Cypher Intersect Execution with HashSet
+**Learning:** In yagdb's `PlanNode::Intersect` execution, checking for matching rows between the left and right result sets was implemented using a nested loop, leading to O(N*M) time complexity. This caused significant performance degradation for intersecting large result sets.
+**Action:** Replace the nested loop with a `HashSet` containing the keys of the right result set. Iterating through the left result set and probing the hash set reduces the time complexity to O(N+M), significantly improving intersection performance.
