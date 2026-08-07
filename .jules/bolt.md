@@ -23,3 +23,6 @@
 ## 2024-08-06 - Optimize Cypher Intersect Execution with HashSet
 **Learning:** In yagdb's `PlanNode::Intersect` execution, checking for matching rows between the left and right result sets was implemented using a nested loop, leading to O(N*M) time complexity. This caused significant performance degradation for intersecting large result sets.
 **Action:** Replace the nested loop with a `HashSet` containing the keys of the right result set. Iterating through the left result set and probing the hash set reduces the time complexity to O(N+M), significantly improving intersection performance.
+## 2024-08-07 - Optimize HashJoin ResultSet Allocations
+**Learning:** `ResultSet` structures within `yagdb`'s execution loops inside `PlanNode::HashJoin`, `CrossProduct`, and `ExecutionStep::Merge` incur high allocation overhead when re-instantiated on every iteration.
+**Action:** Reuse existing `ResultSet` memory allocations by instantiating them outside hot loops and calling `.clear()` inside the loop, preserving vector capacities.
