@@ -73,3 +73,7 @@ harness = false
 [[bench]]
 name = "hash_bench_reuse_full"
 harness = false
+
+[[bench]]
+name = "intersect_bench"
+harness = false

@@ -1847,24 +1847,31 @@ impl Graph {
                 let mut right_res = ResultSet::new();
                 self.execute_plan(right, in_res, &mut right_res, profile, depth + 1, None, txid);
 
-                for l_idx in 0..left_res.rows {
-                    let mut found = false;
-                    for r_idx in 0..right_res.rows {
-                        let mut match_all = true;
-                        for (k, l_col) in &left_res.columns {
-                            if let Some(r_col) = right_res.columns.get(k) {
-                                if l_col[l_idx] != r_col[r_idx] {
-                                    match_all = false;
-                                    break;
-                                }
-                            }
-                        }
-                        if match_all {
-                            found = true;
-                            break;
-                        }
+                let mut common_keys = Vec::new();
+                for k in left_res.columns.keys() {
+                    if right_res.columns.contains_key(k) {
+                        common_keys.push(k.clone());
                     }
-                    if found {
+                }
+
+                let mut right_hash = std::collections::HashSet::new();
+                let mut key_buf = Vec::with_capacity(common_keys.len());
+                for r_idx in 0..right_res.rows {
+                    key_buf.clear();
+                    for k in &common_keys {
+                        key_buf.push(right_res.get(r_idx, k).cloned().unwrap_or(GraphElement::Null));
+                    }
+                    // ⚡ BOLT: Build hash set of right side to check for intersection efficiently O(N+M) instead of O(N*M).
+                    right_hash.insert(key_buf.clone());
+                }
+
+                for l_idx in 0..left_res.rows {
+                    key_buf.clear();
+                    for k in &common_keys {
+                        key_buf.push(left_res.get(l_idx, k).cloned().unwrap_or(GraphElement::Null));
+                    }
+
+                    if right_hash.contains(&key_buf) {
                         out.push_row_from(&left_res, l_idx, &[] as &[(&str, GraphElement)]);
                         if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
