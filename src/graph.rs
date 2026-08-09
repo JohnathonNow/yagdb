@@ -137,7 +137,8 @@ impl ResultSet {
     }
 
     pub fn get_row(&self, idx: usize) -> Environment {
-        let mut env = HashMap::new();
+        // ⚡ BOLT: Avoid re-allocating memory for get_row by pre-allocating the hash map capacity.
+        let mut env = HashMap::with_capacity(self.columns.len());
         for (k, v) in &self.columns {
             let val = &v[idx];
             if !matches!(val, GraphElement::Null) {
