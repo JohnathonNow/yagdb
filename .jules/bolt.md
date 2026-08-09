@@ -23,3 +23,6 @@
 ## 2024-08-06 - Optimize Cypher Intersect Execution with HashSet
 **Learning:** In yagdb's `PlanNode::Intersect` execution, checking for matching rows between the left and right result sets was implemented using a nested loop, leading to O(N*M) time complexity. This caused significant performance degradation for intersecting large result sets.
 **Action:** Replace the nested loop with a `HashSet` containing the keys of the right result set. Iterating through the left result set and probing the hash set reduces the time complexity to O(N+M), significantly improving intersection performance.
+## 2024-08-08 - Optimize ResultSet Row Push Allocations
+**Learning:** In yagdb's query execution engine, passing `bindings` to `ResultSet::push_row_from` required collecting intermediate `Vec<(&str, GraphElement)>` references and cloning `GraphElement`s via a `.map().collect()` loop because the function signature took an iterator of references (`&'a (K, GraphElement)`).
+**Action:** By updating `push_row_from` to accept an iterator of owned values (`IntoIterator<Item = (K, GraphElement)>`), we can eliminate intermediate Vec allocations and avoid double-cloning by either yielding directly from an iterator (e.g. `bindings.into_iter()`) or passing `std::iter::empty()` for cases with no bindings.
