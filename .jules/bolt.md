@@ -26,3 +26,6 @@
 ## 2024-08-07 - Optimize HashJoin ResultSet Allocations
 **Learning:** `ResultSet` structures within `yagdb`'s execution loops inside `PlanNode::HashJoin`, `CrossProduct`, and `ExecutionStep::Merge` incur high allocation overhead when re-instantiated on every iteration.
 **Action:** Reuse existing `ResultSet` memory allocations by instantiating them outside hot loops and calling `.clear()` inside the loop, preserving vector capacities.
+## 2026-08-10 - Optimize ResultSet Allocations in Loops
+**Learning:** In yagdb's query execution pipeline, `ResultSet::new()` was called inside hot loops (such as iteration over `result_set.rows` in `ExecutionStep::Merge`, `ExecutionStep::Return`/`With` projections, and recursive path finding like `match_edges_recursive`), causing significant memory allocation overhead.
+**Action:** When implementing or modifying execution step iterators, always hoist `ResultSet` and other collection initializations outside of the loop. Use `.clear()` (or reuse empty instances) inside the loop to preserve capacities and avoid redundant memory allocations.
