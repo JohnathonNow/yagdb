@@ -98,14 +98,14 @@ pub enum ProjectionItem {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
-    Match(Vec<Path>, Option<Condition>, Option<usize>),
+    Match(Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, Expression),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
-    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
+    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
+    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -421,9 +421,11 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("MATCH"), tag("match"))))(input)?;
     let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     let (input, condition) = opt(where_clause)(input)?;
+    let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
+    let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Match(paths, condition, limit_val)))
+    Ok((input, Clause::Match(paths, condition, skip_val, limit_val)))
 }
 
 fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
@@ -510,18 +512,22 @@ fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
     let (input, vars) = separated_list1(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
+    let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
+    let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Return(vars, order_by, limit_val)))
+    Ok((input, Clause::Return(vars, order_by, skip_val, limit_val)))
 }
 
 fn with_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("WITH"), tag("with"))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
+    let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
+    let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::With(vars, order_by, limit_val)))
+    Ok((input, Clause::With(vars, order_by, skip_val, limit_val)))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {

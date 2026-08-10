@@ -190,12 +190,12 @@ impl QueryPlanner {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStep {
     Create(Vec<Path>),
-    Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>),
+    Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, Expression),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
-    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>),
+    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
+    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
 }
@@ -265,13 +265,13 @@ impl QueryPlanner {
         for clause in query.clauses {
             let step = match clause {
                 Clause::Create(paths) => ExecutionStep::Create(paths),
-                Clause::Match(paths, condition, limit) => {
+                Clause::Match(paths, condition, skip, limit) => {
                     let mut extracted_props = HashMap::new();
                     if let Some(cond) = &condition {
                         Self::extract_props_from_condition(cond, &mut extracted_props);
                     }
                     let plan = Self::plan_match_paths(&paths, labels, indices, &extracted_props);
-                    ExecutionStep::Match(plan, paths, condition, limit)
+                    ExecutionStep::Match(plan, paths, condition, skip, limit)
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();
@@ -284,8 +284,8 @@ impl QueryPlanner {
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
                 Clause::CreateIndex { label, property, index_type } => ExecutionStep::CreateIndex { label, property, index_type },
-                Clause::Return(items, order, limit) => ExecutionStep::Return(items, order, limit),
-                Clause::With(items, order, limit) => ExecutionStep::With(items, order, limit),
+                Clause::Return(items, order, skip, limit) => ExecutionStep::Return(items, order, skip, limit),
+                Clause::With(items, order, skip, limit) => ExecutionStep::With(items, order, skip, limit),
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
                 Clause::Delete(items) => ExecutionStep::Delete(items),
             };
