@@ -1071,10 +1071,16 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::Match(plan_opt, paths, condition_opt, limit_opt) => {
+                ExecutionStep::Match(plan_opt, paths, condition_opt, skip_opt, limit_opt) => {
                     if let Some(plan) = plan_opt {
                         let mut new_result_set = ResultSet::new();
-                        let limit_for_plan = if condition_opt.is_none() { limit_opt.clone() } else { None };
+                        let limit_for_plan = if condition_opt.is_none() {
+                            if let (Some(l), Some(s)) = (limit_opt, skip_opt) {
+                                Some(l + s)
+                            } else {
+                                limit_opt
+                            }
+                        } else { None };
                         self.execute_plan_and_bind_paths(
                             &plan,
                             &paths,
@@ -1087,8 +1093,14 @@ impl Graph {
 
                         if let Some(cond) = &condition_opt {
                             let mut filtered = ResultSet::new();
+                            let mut skipped = 0;
+                            let skip = skip_opt.unwrap_or(0);
                             for i in 0..new_result_set.rows {
                                 if self.evaluate_condition(cond, &new_result_set, i) {
+                                    if skipped < skip {
+                                        skipped += 1;
+                                        continue;
+                                    }
                                     filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
                                     if let Some(limit) = limit_opt {
                                         if filtered.rows >= limit {
@@ -1098,8 +1110,13 @@ impl Graph {
                                 }
                             }
                             new_result_set = filtered;
-                        } else if let Some(limit) = limit_opt {
-                            new_result_set.truncate(limit);
+                        } else {
+                            if let Some(skip) = skip_opt {
+                                new_result_set.skip(skip);
+                            }
+                            if let Some(limit) = limit_opt {
+                                new_result_set.truncate(limit);
+                            }
                         }
 
                         result_set = new_result_set;
@@ -1325,8 +1342,9 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::With(ref items, ref order_by_opt, ref l) | ExecutionStep::Return(ref items, ref order_by_opt, ref l) => {
+                ExecutionStep::With(ref items, ref order_by_opt, ref s, ref l) | ExecutionStep::Return(ref items, ref order_by_opt, ref s, ref l) => {
                     let mut is_return = false;
+                    let skip = *s;
                     let limit = *l;
                     if let ExecutionStep::Return(..) = &step {
                         is_return = true;
@@ -1567,6 +1585,10 @@ impl Graph {
                             sorted_res.push_row_from(&final_res, original_idx, &[] as &[(&str, GraphElement)]);
                         }
                         final_res = sorted_res;
+                    }
+
+                    if let Some(s) = skip {
+                        final_res.skip(s);
                     }
 
                     if is_return {
@@ -2680,6 +2702,18 @@ impl ResultSet {
         self.rows = len;
         for col in self.columns.values_mut() {
             col.truncate(len);
+        }
+    }
+
+    pub fn skip(&mut self, amount: usize) {
+        if amount == 0 { return; }
+        if amount >= self.rows {
+            self.clear();
+            return;
+        }
+        self.rows -= amount;
+        for col in self.columns.values_mut() {
+            col.drain(0..amount);
         }
     }
 }

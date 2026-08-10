@@ -50,7 +50,7 @@ fn test_where_clause() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(_, Some(condition), _) => {
+        Clause::Match(_, Some(condition), _, _) => {
             // Verify condition structure roughly
             match condition {
                 Condition::Or(left, right) => {
@@ -123,7 +123,7 @@ fn test_return_star() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Return(vars, _, _) => {
+        Clause::Return(vars, _, _, _) => {
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], yagdb::parser::ProjectionItem::Star);
         }
@@ -149,7 +149,7 @@ fn test_match_path_assignment() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(paths, condition, _) => {
+        Clause::Match(paths, condition, _, _) => {
             assert_eq!(paths.len(), 1);
             assert!(condition.is_none());
             assert_eq!(paths[0].bound_variable.as_deref(), Some("p"));
@@ -181,7 +181,7 @@ fn test_with_and_aggregates_parse() {
     assert_eq!(query.clauses.len(), 3);
 
     match &query.clauses[1] {
-        Clause::With(items, _, _) => {
+        Clause::With(items, _, _, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
@@ -204,7 +204,7 @@ fn test_with_and_aggregates_parse() {
     }
 
     match &query.clauses[2] {
-        Clause::Return(items, _, _) => {
+        Clause::Return(items, _, _, _) => {
             assert_eq!(items.len(), 2);
             assert_eq!(
                 items[0],
