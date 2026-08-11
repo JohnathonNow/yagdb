@@ -96,11 +96,18 @@ pub enum ProjectionItem {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum RemoveItem {
+    Property(String, String),
+    Label(String, String),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
     Match(Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, Expression),
+    Remove(Vec<RemoveItem>),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
@@ -580,6 +587,32 @@ fn unwind_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Unwind(vars)))
 }
 
+fn remove_item(input: &str) -> IResult<&str, RemoveItem> {
+    let (input, var) = ws(identifier)(input)?;
+    let var_str = var.to_string();
+
+    let (input, item) = alt((
+        |i| {
+            let (i, _) = ws(char('.'))(i)?;
+            let (i, prop) = ws(identifier)(i)?;
+            Ok((i, RemoveItem::Property(var_str.clone(), prop.to_string())))
+        },
+        |i| {
+            let (i, _) = ws(char(':'))(i)?;
+            let (i, label) = ws(identifier)(i)?;
+            Ok((i, RemoveItem::Label(var_str.clone(), label.to_string())))
+        },
+    ))(input)?;
+
+    Ok((input, item))
+}
+
+fn remove_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("REMOVE"), tag("remove"))))(input)?;
+    let (input, items) = separated_list1(ws(char(',')), remove_item)(input)?;
+    Ok((input, Clause::Remove(items)))
+}
+
 fn delete_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("DELETE"), tag("delete"))))(input)?;
     let (input, vars) = separated_list1(ws(char(',')), ws(identifier))(input)?;
@@ -593,6 +626,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
         match_clause,
         merge_clause,
         set_clause,
+        remove_clause,
         with_clause,
         return_clause,
         unwind_clause,
