@@ -1389,7 +1389,7 @@ impl Graph {
                     let mut final_res = ResultSet::new();
 
                     if has_aggregate {
-                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<usize>)> = Vec::new();
+                        let mut groups: indexmap::IndexMap<Vec<Option<GraphElement>>, Vec<usize>> = indexmap::IndexMap::new();
 
                         for i in 0..result_set.rows {
                             let key: Vec<Option<GraphElement>> =
@@ -1405,13 +1405,8 @@ impl Graph {
                                     }
                                 }).collect();
 
-                            if let Some((_, group_rows)) =
-                                groups.iter_mut().find(|(k, _)| *k == key)
-                            {
-                                group_rows.push(i);
-                            } else {
-                                groups.push((key, vec![i]));
-                            }
+                            // ⚡ Bolt: Use IndexMap for O(1) hash-based grouping while preserving deterministic insertion order
+                            groups.entry(key).or_insert_with(Vec::new).push(i);
                         }
 
                         // Compute aggregates per group
