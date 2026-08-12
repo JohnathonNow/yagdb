@@ -32,3 +32,6 @@
 ## 2024-08-11 - Optimize Aggregation in Cypher Execution
 **Learning:** In yagdb's `ExecutionStep::Return`/`ExecutionStep::With` execution, aggregating rows for functions like `count()` was done using a `Vec` of groups and a linear search (`groups.iter_mut().find(...)`), resulting in O(N*M) time complexity (N rows, M groups). For large results with many groups, this caused significant performance degradation.
 **Action:** Replace the `Vec` and linear search with `indexmap::IndexMap`. Using `IndexMap` preserves the insertion order (which is important for deterministic results in query engines if no `ORDER BY` is specified) while providing O(1) hash-based lookups, significantly improving aggregation performance (measured ~50% time reduction in local benchmarks).
+## 2026-08-12 - Passing Empty Iterators to Generic Bounds
+**Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
+**Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
