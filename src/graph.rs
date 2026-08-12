@@ -192,8 +192,8 @@ impl ResultSet {
         }
     }
 
-    pub fn push_row_from<'a, K: AsRef<str> + 'a, I>(&mut self, other: &ResultSet, row_idx: usize, bindings: I)
-    where I: IntoIterator<Item = &'a (K, GraphElement)> {
+    pub fn push_row_from<K: AsRef<str>, I>(&mut self, other: &ResultSet, row_idx: usize, bindings: I)
+    where I: IntoIterator<Item = (K, GraphElement)> {
         let current_rows = self.rows;
         for (k, v) in &other.columns {
             let val = &v[row_idx];
@@ -210,16 +210,16 @@ impl ResultSet {
         for (k, v) in bindings {
             if let Some(col) = self.columns.get_mut(k.as_ref()) {
                 if col.len() > current_rows {
-                    col[current_rows] = v.clone();
+                    col[current_rows] = v;
                 } else {
-                    col.push(v.clone());
+                    col.push(v);
                 }
             } else {
                 let mut col = vec![GraphElement::Null; current_rows];
                 if col.len() > current_rows {
-                    col[current_rows] = v.clone();
+                    col[current_rows] = v;
                 } else {
-                    col.push(v.clone());
+                    col.push(v);
                 }
                 self.columns.insert(k.as_ref().to_string(), col);
             }
@@ -1128,7 +1128,7 @@ impl Graph {
                         for path in &paths {
                             self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
                         }
-                        new_result_set.push_row_from(&result_set, i, &bindings);
+                        new_result_set.push_row_from(&result_set, i, bindings);
                     }
                     result_set = new_result_set;
                 }
@@ -1162,7 +1162,7 @@ impl Graph {
                                         skipped += 1;
                                         continue;
                                     }
-                                    filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
+                                    filtered.push_row_from(&new_result_set, i, std::iter::empty::<(&str, GraphElement)>());
                                     if let Some(limit) = limit_opt {
                                         if filtered.rows >= limit {
                                             break;
@@ -1194,7 +1194,7 @@ impl Graph {
                         for (plan_opt, path) in &planned_paths {
                             if let Some(plan) = plan_opt {
                                 single_res.clear();
-                                single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+                                single_res.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
 
                                 matches.clear();
                                 self.execute_plan_and_bind_paths(
@@ -1208,17 +1208,17 @@ impl Graph {
                                 );
                                 if !matches.is_empty() {
                                     for m_idx in 0..matches.rows {
-                                        new_result_set.push_row_from(&matches, m_idx, &[] as &[(&str, GraphElement)]);
+                                        new_result_set.push_row_from(&matches, m_idx, std::iter::empty::<(&str, GraphElement)>());
                                     }
                                 } else {
                                     let mut bindings = Vec::new();
                                     self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
-                                    new_result_set.push_row_from(&result_set, i, &bindings);
+                                    new_result_set.push_row_from(&result_set, i, bindings);
                                 }
                             } else {
                                 let mut bindings = Vec::new();
                                 self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
-                                new_result_set.push_row_from(&result_set, i, &bindings);
+                                new_result_set.push_row_from(&result_set, i, bindings);
                             }
                         }
                     }
@@ -1462,7 +1462,7 @@ impl Graph {
                                         match val {
                                             GraphElement::List(v) => {
                                                 for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, &[(var.as_str(), x.clone())] as &[(&str, GraphElement)]);
+                                                    new_result_set.push_row_from(&result_set, i, [(var.as_str(), x.clone())]);
                                                 }
                                             }
                                             _ => {}
@@ -1475,7 +1475,7 @@ impl Graph {
                                             GraphElement::List(v) => {
                                                 for x in v {
                                                     let key = format!("{}.{}", var, prop);
-                                                    new_result_set.push_row_from(&result_set, i, &[(key.as_str(), x.clone())] as &[(&str, GraphElement)]);
+                                                    new_result_set.push_row_from(&result_set, i, [(key.as_str(), x.clone())]);
                                                 }
                                             }
                                             _ => {}
@@ -1487,7 +1487,7 @@ impl Graph {
                                         match val {
                                             GraphElement::List(v) => {
                                                 for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, &[(alias.as_str(), x.clone())] as &[(&str, GraphElement)]);
+                                                    new_result_set.push_row_from(&result_set, i, [(alias.as_str(), x.clone())]);
                                                 }
                                             }
                                             _ => {}
@@ -1659,8 +1659,7 @@ impl Graph {
                                     ProjectionItem::Star => {}
                                 }
                             }
-                            let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
+                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
                         }
                     } else {
                         // Simple projection without aggregation
@@ -1704,8 +1703,7 @@ impl Graph {
                                     _ => {}
                                 }
                             }
-                            let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
+                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
                         }
                     }
 
@@ -1734,7 +1732,7 @@ impl Graph {
 
                         let mut sorted_res = ResultSet::new();
                         for (_, original_idx) in env_with_keys {
-                            sorted_res.push_row_from(&final_res, original_idx, &[] as &[(&str, GraphElement)]);
+                            sorted_res.push_row_from(&final_res, original_idx, std::iter::empty::<(&str, GraphElement)>());
                         }
                         final_res = sorted_res;
                     }
@@ -1902,9 +1900,9 @@ impl Graph {
                     let nodes = self.find_nodes(pattern, in_res, i, txid);
                     for node_id in nodes {
                         if let Some(var) = &pattern.variable {
-                            out.push_row_from(in_res, i, &[(var.as_str(), GraphElement::Node(node_id))]);
+                            out.push_row_from(in_res, i, [(var.as_str(), GraphElement::Node(node_id))]);
                         } else {
-                            out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
+                            out.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
                         }
                         if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
@@ -1928,9 +1926,9 @@ impl Graph {
                 for i in 0..in_res.rows {
                     for &node_id in &matched_nodes {
                         if let Some(var) = &pattern.variable {
-                            out.push_row_from(in_res, i, &[(var.as_str(), GraphElement::Node(node_id))]);
+                            out.push_row_from(in_res, i, [(var.as_str(), GraphElement::Node(node_id))]);
                         } else {
-                            out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
+                            out.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
                         }
                         if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
@@ -1969,9 +1967,9 @@ impl Graph {
                 for i in 0..in_res.rows {
                     for &node_id in &matched_nodes {
                         if let Some(var) = &pattern.variable {
-                            out.push_row_from(in_res, i, &[(var.as_str(), GraphElement::Node(node_id))]);
+                            out.push_row_from(in_res, i, [(var.as_str(), GraphElement::Node(node_id))]);
                         } else {
-                            out.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
+                            out.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
                         }
                         if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
@@ -2047,7 +2045,7 @@ impl Graph {
                     }
 
                     if right_hash.contains(&key_buf) {
-                        out.push_row_from(&left_res, l_idx, &[] as &[(&str, GraphElement)]);
+                        out.push_row_from(&left_res, l_idx, std::iter::empty::<(&str, GraphElement)>());
                         if limit.is_some_and(|l| out.rows >= l) { return; }
                     }
                 }
@@ -2065,7 +2063,7 @@ impl Graph {
                 let mut right_res = ResultSet::new();
                 for i in 0..in_res.rows {
                     single_res.clear();
-                    single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
+                    single_res.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
 
                     left_res.clear();
                     self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
@@ -2137,7 +2135,7 @@ impl Graph {
                 let mut single_res = ResultSet::new();
                 for i in 0..in_res.rows {
                     single_res.clear();
-                    single_res.push_row_from(in_res, i, &[] as &[(&str, GraphElement)]);
+                    single_res.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
 
                     let mut left_res = ResultSet::new();
                     self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
@@ -2249,7 +2247,7 @@ impl Graph {
 
         if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
-            out.push_row_from(in_res, row_idx, &[] as &[(&str, GraphElement)]);
+            out.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());
             return;
         }
 
@@ -2292,7 +2290,7 @@ impl Graph {
             if let Some(var) = &target_node_pattern.variable {
                 bindings.push((var.as_str(), GraphElement::Node(next_node_id)));
             }
-            single_res.push_row_from(in_res, row_idx, &bindings);
+            single_res.push_row_from(in_res, row_idx, bindings);
 
             self.match_edges_recursive(edges, edge_idx + 1, next_node_id, &single_res, 0, out, limit);
             if limit.is_some_and(|l| out.rows >= l) { return; }
@@ -2348,7 +2346,7 @@ impl Graph {
                 if let Some(var) = &target_node_pattern.variable {
                     bindings.push((var.as_str(), GraphElement::Node(current_node_id)));
                 }
-                single_res.push_row_from(in_res, row_idx, &bindings);
+                single_res.push_row_from(in_res, row_idx, bindings);
 
                 self.match_edges_recursive(edges, edge_idx + 1, current_node_id, &single_res, 0, out, limit);
             }
