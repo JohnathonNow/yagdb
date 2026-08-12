@@ -1188,13 +1188,15 @@ impl Graph {
                 }
                 ExecutionStep::Merge(planned_paths) => {
                     let mut new_result_set = ResultSet::new();
+                    let mut single_res = ResultSet::new();
+                    let mut matches = ResultSet::new();
                     for i in 0..result_set.rows {
                         for (plan_opt, path) in &planned_paths {
                             if let Some(plan) = plan_opt {
-                                let mut single_res = ResultSet::new();
+                                single_res.clear();
                                 single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
 
-                                let mut matches = ResultSet::new();
+                                matches.clear();
                                 self.execute_plan_and_bind_paths(
                                     plan,
                                     &[path.clone()],
@@ -1543,6 +1545,7 @@ impl Graph {
                     }
 
                     let mut final_res = ResultSet::new();
+                    let empty_res = ResultSet::new();
 
                     if has_aggregate {
                         let mut groups: indexmap::IndexMap<Vec<Option<GraphElement>>, Vec<usize>> = indexmap::IndexMap::new();
@@ -1657,7 +1660,6 @@ impl Graph {
                                 }
                             }
                             let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            let empty_res = ResultSet::new();
                             final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
                         }
                     } else {
@@ -1703,7 +1705,6 @@ impl Graph {
                                 }
                             }
                             let bindings_ref: Vec<(&str, GraphElement)> = bindings.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-                            let empty_res = ResultSet::new();
                             final_res.push_row_from(&empty_res, 0, &bindings_ref as &[(&str, GraphElement)]);
                         }
                     }
@@ -2281,8 +2282,9 @@ impl Graph {
             row_idx,
         );
 
+        let mut single_res = ResultSet::new();
         for (next_node_id, edge_id) in matches {
-            let mut single_res = ResultSet::new();
+            single_res.clear();
             let mut bindings = Vec::new();
             if let Some(var) = &rel_pattern.variable {
                 bindings.push((var.as_str(), GraphElement::Edge(edge_id)));
