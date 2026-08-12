@@ -70,6 +70,14 @@ pub enum WalEntry {
     },
     DeleteNode { node_id: usize },
     DeleteEdge { edge_id: usize },
+    RemoveNodeProperty {
+        node_id: usize,
+        key: String,
+    },
+    RemoveNodeLabel {
+        node_id: usize,
+        label_id: usize,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -622,6 +630,59 @@ impl Graph {
                                         }
                                         IndexMap::BTree(map) => {
                                             for (_, vec) in map.iter_mut() {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WalEntry::RemoveNodeProperty { node_id, key } => {
+                        let (old_value, has_label) = graph.nodes.with_mut_item(node_id, |n| {
+                            (n.properties.remove(&key), n.labels.clone())
+                        }).unwrap();
+
+                        if let Some(old_val) = old_value {
+                            for (label_id, label_indices) in graph.indices.iter_mut() {
+                                if has_label.contains(label_id) {
+                                    if let Some(prop_index) = label_indices.get_mut(&key) {
+                                        match prop_index {
+                                            IndexMap::Hash(map) => {
+                                                if let Some(vec) = map.get_mut(&old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                            IndexMap::BTree(map) => {
+                                                if let Some(vec) = map.get_mut(&old_val) {
+                                                    vec.retain(|&id| id != node_id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WalEntry::RemoveNodeLabel { node_id, label_id } => {
+                        let properties = graph.nodes.with_mut_item(node_id, |n| {
+                            if let Some(pos) = n.labels.iter().position(|&l| l == label_id) {
+                                n.labels.remove(pos);
+                            }
+                            n.properties.clone()
+                        }).unwrap();
+
+                        if let Some(label_indices) = graph.indices.get_mut(&label_id) {
+                            for (key, val) in properties {
+                                if let Some(prop_index) = label_indices.get_mut(&key) {
+                                    match prop_index {
+                                        IndexMap::Hash(map) => {
+                                            if let Some(vec) = map.get_mut(&val) {
+                                                vec.retain(|&id| id != node_id);
+                                            }
+                                        }
+                                        IndexMap::BTree(map) => {
+                                            if let Some(vec) = map.get_mut(&val) {
                                                 vec.retain(|&id| id != node_id);
                                             }
                                         }
@@ -1228,6 +1289,101 @@ impl Graph {
                         }
                     }
                 }
+                ExecutionStep::Remove(items) => {
+                    let mut updated_nodes = std::collections::HashSet::new();
+                    for item in &items {
+                        match item {
+                            crate::parser::RemoveItem::Property(var, key) => {
+                                for i in 0..result_set.rows {
+                                    if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
+                                        let node_id = *node_id;
+                                        if updated_nodes.insert((node_id, key.clone())) {
+                                            let (old_value, has_label) = self.nodes.with_mut_item(node_id, |n| {
+                                                (n.properties.remove(key), n.labels.clone())
+                                            }).unwrap();
+
+                                            if let Some(old_val) = old_value {
+                                                // Update indices
+                                                for (label_id, label_indices) in self.indices.iter_mut() {
+                                                    if has_label.contains(label_id) {
+                                                        if let Some(prop_index) = label_indices.get_mut(key) {
+                                                            match prop_index {
+                                                                IndexMap::Hash(map) => {
+                                                                    if let Some(vec) = map.get_mut(&old_val) {
+                                                                        vec.retain(|&id| id != node_id);
+                                                                    }
+                                                                }
+                                                                IndexMap::BTree(map) => {
+                                                                    if let Some(vec) = map.get_mut(&old_val) {
+                                                                        vec.retain(|&id| id != node_id);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                self.log_wal(&WalEntry::RemoveNodeProperty {
+                                                    node_id,
+                                                    key: key.clone(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            crate::parser::RemoveItem::Label(var, label) => {
+                                let label_id_opt = self.labels.get(label).copied();
+                                if let Some(label_id) = label_id_opt {
+                                    for i in 0..result_set.rows {
+                                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
+                                            let node_id = *node_id;
+
+                                            // ⚡ Bolt: in-place mutation and extraction of removed condition to prevent cloning full node
+                                            let (removed, properties) = self.nodes.with_mut_item(node_id, |n| {
+                                                let mut removed = false;
+                                                if let Some(pos) = n.labels.iter().position(|&l| l == label_id) {
+                                                    n.labels.remove(pos);
+                                                    removed = true;
+                                                }
+                                                (removed, if removed { Some(n.properties.clone()) } else { None })
+                                            }).unwrap();
+
+                                            if removed {
+                                                // Remove from all indices for this label
+                                                if let Some(label_indices) = self.indices.get_mut(&label_id) {
+                                                    if let Some(props) = properties {
+                                                        for (key, val) in props {
+                                                            if let Some(prop_index) = label_indices.get_mut(&key) {
+                                                                match prop_index {
+                                                                    IndexMap::Hash(map) => {
+                                                                        if let Some(vec) = map.get_mut(&val) {
+                                                                            vec.retain(|&id| id != node_id);
+                                                                        }
+                                                                    }
+                                                                    IndexMap::BTree(map) => {
+                                                                        if let Some(vec) = map.get_mut(&val) {
+                                                                            vec.retain(|&id| id != node_id);
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                self.log_wal(&WalEntry::RemoveNodeLabel {
+                                                    node_id,
+                                                    label_id,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 ExecutionStep::Delete(vars) => {
                     let mut nodes_to_delete = Vec::new();
                     let mut edges_to_delete = Vec::new();
@@ -1392,7 +1548,7 @@ impl Graph {
                     let empty_res = ResultSet::new();
 
                     if has_aggregate {
-                        let mut groups: Vec<(Vec<Option<GraphElement>>, Vec<usize>)> = Vec::new();
+                        let mut groups: indexmap::IndexMap<Vec<Option<GraphElement>>, Vec<usize>> = indexmap::IndexMap::new();
 
                         for i in 0..result_set.rows {
                             let key: Vec<Option<GraphElement>> =
@@ -1408,13 +1564,8 @@ impl Graph {
                                     }
                                 }).collect();
 
-                            if let Some((_, group_rows)) =
-                                groups.iter_mut().find(|(k, _)| *k == key)
-                            {
-                                group_rows.push(i);
-                            } else {
-                                groups.push((key, vec![i]));
-                            }
+                            // ⚡ Bolt: Use IndexMap for O(1) hash-based grouping while preserving deterministic insertion order
+                            groups.entry(key).or_insert_with(Vec::new).push(i);
                         }
 
                         // Compute aggregates per group

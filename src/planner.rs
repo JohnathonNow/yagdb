@@ -193,6 +193,7 @@ pub enum ExecutionStep {
     Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, Expression),
+    Remove(Vec<crate::parser::RemoveItem>),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
     With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
@@ -283,6 +284,7 @@ impl QueryPlanner {
                     ExecutionStep::Merge(planned_paths)
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
+                Clause::Remove(items) => ExecutionStep::Remove(items),
                 Clause::CreateIndex { label, property, index_type } => ExecutionStep::CreateIndex { label, property, index_type },
                 Clause::Return(items, order, skip, limit) => ExecutionStep::Return(items, order, skip, limit),
                 Clause::With(items, order, skip, limit) => ExecutionStep::With(items, order, skip, limit),

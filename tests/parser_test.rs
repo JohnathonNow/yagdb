@@ -224,3 +224,16 @@ fn test_list_and_map_literals() {
     let (rest, _query) = yagdb::parser::parse_query(query_str).unwrap();
     assert_eq!(rest, "");
 }
+
+#[test]
+fn test_parse_remove() {
+    let query = "REMOVE n.prop, n:Label";
+    let (_, parsed) = parse_query(query).unwrap();
+    assert_eq!(
+        parsed.clauses[0],
+        Clause::Remove(vec![
+            RemoveItem::Property("n".to_string(), "prop".to_string()),
+            RemoveItem::Label("n".to_string(), "Label".to_string()),
+        ])
+    );
+}
