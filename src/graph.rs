@@ -941,6 +941,77 @@ impl Graph {
             }
             Err("Invalid arguments to datetime()".to_string())
         }));
+
+        self.register_function("tolower", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::String(s) = &args[0] {
+                    return Ok(GraphElement::String(s.to_lowercase()));
+                }
+            }
+            Err("Invalid arguments to toLower()".to_string())
+        }));
+
+        self.register_function("toupper", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::String(s) = &args[0] {
+                    return Ok(GraphElement::String(s.to_uppercase()));
+                }
+            }
+            Err("Invalid arguments to toUpper()".to_string())
+        }));
+
+        self.register_function("substring", std::sync::Arc::new(|args| {
+            if args.len() == 3 {
+                if let (GraphElement::String(s), GraphElement::Number(start), GraphElement::Number(length)) = (&args[0], &args[1], &args[2]) {
+                    let start = *start as usize;
+                    let length = *length as usize;
+                    let chars_count = s.chars().count();
+                    if start <= chars_count {
+                        let sub: String = s.chars().skip(start).take(length).collect();
+                        return Ok(GraphElement::String(sub));
+                    } else {
+                        return Ok(GraphElement::String("".to_string()));
+                    }
+                }
+            }
+            Err("Invalid arguments to substring()".to_string())
+        }));
+
+        self.register_function("abs", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::Number(n) = &args[0] {
+                    return Ok(GraphElement::Number(n.abs()));
+                }
+            }
+            Err("Invalid arguments to abs()".to_string())
+        }));
+
+        self.register_function("round", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::Number(n) = &args[0] {
+                    return Ok(GraphElement::Number(n.round()));
+                }
+            }
+            Err("Invalid arguments to round()".to_string())
+        }));
+
+        self.register_function("ceil", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::Number(n) = &args[0] {
+                    return Ok(GraphElement::Number(n.ceil()));
+                }
+            }
+            Err("Invalid arguments to ceil()".to_string())
+        }));
+
+        self.register_function("floor", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                if let GraphElement::Number(n) = &args[0] {
+                    return Ok(GraphElement::Number(n.floor()));
+                }
+            }
+            Err("Invalid arguments to floor()".to_string())
+        }));
     }
 
     pub fn clear(&mut self) {
@@ -1574,36 +1645,36 @@ impl Graph {
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = result_set.get(*first_idx, var) {
+                                        if let Some(_first_idx) = group_rows.first() {
+                                            if let Some(val) = result_set.get(group_rows[0], var) {
                                                 bindings.push((var.clone(), val.clone()));
                                             }
                                         }
                                     }
                                     ProjectionItem::AliasedVariable(var, alias) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = result_set.get(*first_idx, var) {
+                                        if let Some(_first_idx) = group_rows.first() {
+                                            if let Some(val) = result_set.get(group_rows[0], var) {
                                                 bindings.push((alias.clone(), val.clone()));
                                             }
                                         }
                                     }
                                     ProjectionItem::Property(var, prop) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
+                                        if let Some(_first_idx) = group_rows.first() {
+                                            if let Some(val) = self.get_property_as_element(&result_set, group_rows[0], var, prop) {
                                                 bindings.push((format!("{}.{}", var, prop), val));
                                             }
                                         }
                                     }
                                     ProjectionItem::AliasedProperty(var, prop, alias) => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            if let Some(val) = self.get_property_as_element(&result_set, *first_idx, var, prop) {
+                                        if let Some(_first_idx) = group_rows.first() {
+                                            if let Some(val) = self.get_property_as_element(&result_set, group_rows[0], var, prop) {
                                                 bindings.push((alias.clone(), val));
                                             }
                                         }
                                     }
                                     ProjectionItem::Expression { expr, alias } => {
-                                        if let Some(first_idx) = group_rows.first() {
-                                            let val = self.evaluate_expression_to_element(expr, &result_set, *first_idx);
+                                        if let Some(_first_idx) = group_rows.first() {
+                                            let val = self.evaluate_expression_to_element(expr, &result_set, group_rows[0]);
                                             let out_key = alias.clone().unwrap_or_else(|| "expr".to_string());
                                             bindings.push((out_key, val));
                                         }
@@ -1648,11 +1719,17 @@ impl Graph {
                                             _ => {}
                                         }
                                     }
-                                    ProjectionItem::Function { func, args: _, alias } => {
+                                    ProjectionItem::Function { func, args, alias } => {
                                         let out_key = alias
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
+
+                                        let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, &result_set, group_rows[0])).collect();
+                                        if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                                            if let Ok(val) = f(&eval_args) {
+                                                bindings.push((out_key, val));
+                                            }
+                                        } else if func.eq_ignore_ascii_case("rand") {
                                             bindings.push((out_key, GraphElement::Number(0f64)));
                                         }
                                     }
@@ -1687,11 +1764,17 @@ impl Graph {
                                             bindings.push((alias.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::Function { func, args: _, alias } => {
+                                    ProjectionItem::Function { func, args, alias } => {
                                         let out_key = alias
                                             .clone()
                                             .unwrap_or_else(|| format!("{}()", func));
-                                        if func.eq_ignore_ascii_case("rand") {
+
+                                        let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, &result_set, i)).collect();
+                                        if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                                            if let Ok(val) = f(&eval_args) {
+                                                bindings.push((out_key, val));
+                                            }
+                                        } else if func.eq_ignore_ascii_case("rand") {
                                             bindings.push((out_key, GraphElement::Number(0f64)));
                                         }
                                     }
