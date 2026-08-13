@@ -26,6 +26,12 @@
 ## 2024-08-07 - Optimize HashJoin ResultSet Allocations
 **Learning:** `ResultSet` structures within `yagdb`'s execution loops inside `PlanNode::HashJoin`, `CrossProduct`, and `ExecutionStep::Merge` incur high allocation overhead when re-instantiated on every iteration.
 **Action:** Reuse existing `ResultSet` memory allocations by instantiating them outside hot loops and calling `.clear()` inside the loop, preserving vector capacities.
+## 2026-08-10 - Optimize ResultSet Allocations in Loops
+**Learning:** In yagdb's query execution pipeline, `ResultSet::new()` was called inside hot loops (such as iteration over `result_set.rows` in `ExecutionStep::Merge`, `ExecutionStep::Return`/`With` projections, and recursive path finding like `match_edges_recursive`), causing significant memory allocation overhead.
+**Action:** When implementing or modifying execution step iterators, always hoist `ResultSet` and other collection initializations outside of the loop. Use `.clear()` (or reuse empty instances) inside the loop to preserve capacities and avoid redundant memory allocations.
 ## 2024-08-11 - Optimize Aggregation in Cypher Execution
 **Learning:** In yagdb's `ExecutionStep::Return`/`ExecutionStep::With` execution, aggregating rows for functions like `count()` was done using a `Vec` of groups and a linear search (`groups.iter_mut().find(...)`), resulting in O(N*M) time complexity (N rows, M groups). For large results with many groups, this caused significant performance degradation.
 **Action:** Replace the `Vec` and linear search with `indexmap::IndexMap`. Using `IndexMap` preserves the insertion order (which is important for deterministic results in query engines if no `ORDER BY` is specified) while providing O(1) hash-based lookups, significantly improving aggregation performance (measured ~50% time reduction in local benchmarks).
+## 2026-08-12 - Passing Empty Iterators to Generic Bounds
+**Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
+**Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
