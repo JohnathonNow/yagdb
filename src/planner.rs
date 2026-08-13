@@ -190,7 +190,7 @@ impl QueryPlanner {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStep {
     Create(Vec<Path>),
-    Match(Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
+    Match(bool, Option<PlanNode>, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, Expression),
     Remove(Vec<crate::parser::RemoveItem>),
@@ -266,13 +266,13 @@ impl QueryPlanner {
         for clause in query.clauses {
             let step = match clause {
                 Clause::Create(paths) => ExecutionStep::Create(paths),
-                Clause::Match(paths, condition, skip, limit) => {
+                Clause::Match(is_optional, paths, condition, skip, limit) => {
                     let mut extracted_props = HashMap::new();
                     if let Some(cond) = &condition {
                         Self::extract_props_from_condition(cond, &mut extracted_props);
                     }
                     let plan = Self::plan_match_paths(&paths, labels, indices, &extracted_props);
-                    ExecutionStep::Match(plan, paths, condition, skip, limit)
+                    ExecutionStep::Match(is_optional, plan, paths, condition, skip, limit)
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();

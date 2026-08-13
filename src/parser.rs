@@ -104,7 +104,7 @@ pub enum RemoveItem {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
-    Match(Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
+    Match(bool, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
     Merge(Vec<Path>),
     Set(String, String, Expression),
     Remove(Vec<RemoveItem>),
@@ -425,14 +425,22 @@ fn order_by_clause(input: &str) -> IResult<&str, Vec<OrderItem>> {
 }
 
 fn match_clause(input: &str) -> IResult<&str, Clause> {
-    let (input, _) = ws(alt((tag("MATCH"), tag("match"))))(input)?;
+    let (input, optional) = opt(ws(alt((tag("OPTIONAL MATCH"), tag("optional match")))))(input)?;
+    let (input, _) = if optional.is_none() {
+        ws(alt((tag("MATCH"), tag("match"))))(input)?
+    } else {
+        (input, "")
+    };
+
+    let is_optional = optional.is_some();
+
     let (input, paths) = separated_list1(ws(char(',')), path)(input)?;
     let (input, condition) = opt(where_clause)(input)?;
     let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
     let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Match(paths, condition, skip_val, limit_val)))
+    Ok((input, Clause::Match(is_optional, paths, condition, skip_val, limit_val)))
 }
 
 fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
