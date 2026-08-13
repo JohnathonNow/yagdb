@@ -1188,7 +1188,7 @@ impl Graph {
 
                             for i in 0..result_set.rows {
                                 let mut single_res = ResultSet::new();
-                                single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+                                single_res.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
 
                                 let mut matches = ResultSet::new();
                                 self.execute_plan_and_bind_paths(
@@ -1214,7 +1214,7 @@ impl Graph {
                                                 overall_skipped += 1;
                                                 continue;
                                             }
-                                            new_result_set.push_row_from(&matches, m_idx, &[] as &[(&str, GraphElement)]);
+                                            new_result_set.push_row_from(&matches, m_idx, std::iter::empty::<(&str, GraphElement)>());
                                             if let Some(limit) = limit_opt {
                                                 if new_result_set.rows >= limit {
                                                     break;
@@ -1229,7 +1229,7 @@ impl Graph {
                                         overall_skipped += 1;
                                         continue;
                                     }
-                                    new_result_set.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+                                    new_result_set.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
                                 }
 
                                 if let Some(limit) = limit_opt {
