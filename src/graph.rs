@@ -1132,7 +1132,7 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::Match(plan_opt, paths, condition_opt, skip_opt, limit_opt) => {
+                ExecutionStep::Match(is_optional, plan_opt, paths, condition_opt, skip_opt, limit_opt) => {
                     if let Some(plan) = plan_opt {
                         let mut new_result_set = ResultSet::new();
                         let limit_for_plan = if condition_opt.is_none() {
@@ -1142,41 +1142,101 @@ impl Graph {
                                 limit_opt
                             }
                         } else { None };
-                        self.execute_plan_and_bind_paths(
-                            &plan,
-                            &paths,
-                            &result_set,
-                            &mut new_result_set,
-                            &mut profile_out,
-                            limit_for_plan,
-                            txid,
-                        );
 
-                        if let Some(cond) = &condition_opt {
-                            let mut filtered = ResultSet::new();
-                            let mut skipped = 0;
-                            let skip = skip_opt.unwrap_or(0);
-                            for i in 0..new_result_set.rows {
-                                if self.evaluate_condition(cond, &new_result_set, i) {
-                                    if skipped < skip {
-                                        skipped += 1;
-                                        continue;
-                                    }
-                                    filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
-                                    if let Some(limit) = limit_opt {
-                                        if filtered.rows >= limit {
-                                            break;
+                        if !is_optional {
+                            self.execute_plan_and_bind_paths(
+                                &plan,
+                                &paths,
+                                &result_set,
+                                &mut new_result_set,
+                                &mut profile_out,
+                                limit_for_plan,
+                                txid,
+                            );
+
+                            if let Some(cond) = &condition_opt {
+                                let mut filtered = ResultSet::new();
+                                let mut skipped = 0;
+                                let skip = skip_opt.unwrap_or(0);
+                                for i in 0..new_result_set.rows {
+                                    if self.evaluate_condition(cond, &new_result_set, i) {
+                                        if skipped < skip {
+                                            skipped += 1;
+                                            continue;
+                                        }
+                                        filtered.push_row_from(&new_result_set, i, &[] as &[(&str, GraphElement)]);
+                                        if let Some(limit) = limit_opt {
+                                            if filtered.rows >= limit {
+                                                break;
+                                            }
                                         }
                                     }
                                 }
+                                new_result_set = filtered;
+                            } else {
+                                if let Some(skip) = skip_opt {
+                                    new_result_set.skip(skip);
+                                }
+                                if let Some(limit) = limit_opt {
+                                    new_result_set.truncate(limit);
+                                }
                             }
-                            new_result_set = filtered;
                         } else {
-                            if let Some(skip) = skip_opt {
-                                new_result_set.skip(skip);
-                            }
-                            if let Some(limit) = limit_opt {
-                                new_result_set.truncate(limit);
+                            // OPTIONAL MATCH
+                            let mut overall_skipped = 0;
+                            let overall_skip = skip_opt.unwrap_or(0);
+
+                            for i in 0..result_set.rows {
+                                let mut single_res = ResultSet::new();
+                                single_res.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+
+                                let mut matches = ResultSet::new();
+                                self.execute_plan_and_bind_paths(
+                                    &plan,
+                                    &paths,
+                                    &single_res,
+                                    &mut matches,
+                                    &mut profile_out,
+                                    None,
+                                    txid,
+                                );
+
+                                let mut found_match = false;
+                                if !matches.is_empty() {
+                                    for m_idx in 0..matches.rows {
+                                        let condition_met = match &condition_opt {
+                                            Some(cond) => self.evaluate_condition(cond, &matches, m_idx),
+                                            None => true,
+                                        };
+                                        if condition_met {
+                                            found_match = true;
+                                            if overall_skipped < overall_skip {
+                                                overall_skipped += 1;
+                                                continue;
+                                            }
+                                            new_result_set.push_row_from(&matches, m_idx, &[] as &[(&str, GraphElement)]);
+                                            if let Some(limit) = limit_opt {
+                                                if new_result_set.rows >= limit {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !found_match {
+                                    if overall_skipped < overall_skip {
+                                        overall_skipped += 1;
+                                        continue;
+                                    }
+                                    new_result_set.push_row_from(&result_set, i, &[] as &[(&str, GraphElement)]);
+                                }
+
+                                if let Some(limit) = limit_opt {
+                                    if new_result_set.rows >= limit {
+                                        break;
+                                    }
+                                }
                             }
                         }
 

@@ -259,6 +259,31 @@ mod tests {
     }
 
     #[test]
+    fn test_optional_match() {
+        let mut g = Graph::new();
+        g.execute("CREATE (a:User {id: '1'})").unwrap();
+        g.execute("CREATE (a:User {id: '2'})-[r:FOLLOWS]->(b:User {id: '3'})").unwrap();
+
+        let result = g.execute("MATCH (u:User) OPTIONAL MATCH (u)-[r:FOLLOWS]->(v) RETURN u.id, v.id ORDER BY u.id").unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let arr = parsed.as_array().unwrap();
+
+        assert_eq!(arr.len(), 3);
+
+        // Node 1: no follows relationship
+        assert_eq!(arr[0].get("u.id").unwrap().as_str().unwrap(), "1");
+        assert!(arr[0].get("v.id").unwrap().is_null());
+
+        // Node 2: follows Node 3
+        assert_eq!(arr[1].get("u.id").unwrap().as_str().unwrap(), "2");
+        assert_eq!(arr[1].get("v.id").unwrap().as_str().unwrap(), "3");
+
+        // Node 3: no follows relationship
+        assert_eq!(arr[2].get("u.id").unwrap().as_str().unwrap(), "3");
+        assert!(arr[2].get("v.id").unwrap().is_null());
+    }
+
+    #[test]
     fn test_limit_clause() {
         let mut g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})").unwrap();
