@@ -35,3 +35,9 @@
 ## 2026-08-12 - Passing Empty Iterators to Generic Bounds
 **Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
 **Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
+## 2026-08-14 - Reuse ResultSets in ExecutePlan loops
+**Learning:** During query execution in yagdb, loops like  and  instantiate multiple  instances per incoming row, which allocates new s and vectors. Rust allows safely extracting these allocations outside the loop and resetting them via  to maintain capacity without reallocating per iteration.
+**Action:** When implementing new  operations or looping over intermediate result sets, always hoist  buffers outside the loop and use  to prevent O(N) memory allocations.
+## $(date +%Y-%m-%d) - Reuse ResultSets in ExecutePlan loops
+**Learning:** During query execution in yagdb, loops like `CrossProduct` and `OPTIONAL MATCH` instantiate multiple `ResultSet::new()` instances per incoming row, which allocates new HashMaps and vectors. Rust allows safely extracting these allocations outside the loop and resetting them via `ResultSet::clear()` to maintain capacity without reallocating per iteration.
+**Action:** When implementing new `ExecutionStep` operations or looping over intermediate result sets, always hoist `ResultSet` buffers outside the loop and use `.clear()` to prevent O(N) memory allocations.
