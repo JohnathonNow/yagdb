@@ -1211,6 +1211,20 @@ impl Graph {
                                         }
                                     }
                                 }
+                                ProjectionItem::Expression { expr, alias } => {
+                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                    let out_key = alias.as_deref().unwrap_or("expr");
+                                    match val {
+                                        GraphElement::List(v) => {
+                                            for x in v {
+                                                new_result_set.push_row_from(&result_set, i, [(out_key, x.clone())]);
+                                            }
+                                        }
+                                        _ => {
+                                            new_result_set.push_row_from(&result_set, i, [(out_key, val.clone())]);
+                                        }
+                                    }
+                                }
                                 _ => {}
                             }
                         }
