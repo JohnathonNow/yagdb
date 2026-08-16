@@ -35,3 +35,6 @@
 ## 2026-08-12 - Passing Empty Iterators to Generic Bounds
 **Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
 **Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
+## 2026-08-16 - Optimize ResultSet Allocations in Cypher OPTIONAL MATCH Execution
+**Learning:** In yagdb's `ExecutionStep::Match` block for `OPTIONAL MATCH` clauses, `ResultSet::new()` was called inside a hot loop iterating over incoming rows. Re-allocating the `ResultSet` components (`HashMap` and underlying vecs) on every single iteration caused significant memory allocation overhead during query execution.
+**Action:** Move the instantiations of `single_res` and `matches` `ResultSet`s outside of the `for` loop, and use their `.clear()` methods inside the loop. This reuses the underlying memory capacities across iterations, avoiding repeated allocations.

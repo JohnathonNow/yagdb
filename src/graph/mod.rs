@@ -843,11 +843,14 @@ impl Graph {
                             let mut overall_skipped = 0;
                             let overall_skip = skip_opt.unwrap_or(0);
 
+                            let mut single_res = ResultSet::new();
+                            let mut matches = ResultSet::new();
+
                             for i in 0..result_set.rows {
-                                let mut single_res = ResultSet::new();
+                                single_res.clear();
                                 single_res.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
 
-                                let mut matches = ResultSet::new();
+                                matches.clear();
                                 self.execute_plan_and_bind_paths(
                                     &plan,
                                     &paths,
