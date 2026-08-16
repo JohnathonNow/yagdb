@@ -78,3 +78,7 @@ harness = false
 [[bench]]
 name = "intersect_bench"
 harness = false
+
+[[bench]]
+name = "throughput"
+harness = false

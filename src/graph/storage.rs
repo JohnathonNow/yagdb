@@ -67,12 +67,12 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
         drop(offsets);
 
         let mut cache = self.cache.borrow_mut();
-        if !cache.contains_key(&index) {
+        cache.entry(index).or_insert_with(|| {
             let mut file = self.file.borrow_mut();
             file.seek(std::io::SeekFrom::Start(offset)).unwrap();
             let item: T = bincode::deserialize_from(&mut *file).unwrap();
-            cache.insert(index, item);
-        }
+            item
+        });
         cache.get(&index).cloned()
     }
 
