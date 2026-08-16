@@ -2,7 +2,7 @@ use yagdb::graph::Graph;
 
 #[test]
 fn test_profile_output() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:User {id: '1'})-[r:FOLLOWS]->(b:User {id: '2'})")
         .unwrap();
 

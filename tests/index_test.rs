@@ -27,7 +27,7 @@ fn test_index_usage() {
     let _ = fs::remove_file(wal_path);
 
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         g.execute("CREATE (a:User {username: 'alice'}), (b:User {username: 'bob'})")
             .unwrap();
 
@@ -40,7 +40,7 @@ fn test_index_usage() {
 
     // Reload graph to test recovery
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
 
         // Create an index on the username property
         g.execute("CREATE INDEX ON :User(username)").unwrap();
@@ -51,7 +51,7 @@ fn test_index_usage() {
 
     // Reload graph to test recovery
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
 
         let result = g
             .execute("MATCH (u:User {username: 'bob'}) RETURN u")

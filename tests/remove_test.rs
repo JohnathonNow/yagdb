@@ -3,7 +3,7 @@ use serde_json::Value;
 
 #[test]
 fn test_remove_property() {
-    let mut g = Graph::new();
+    let g = Graph::new();
 
     // Create node with properties
     g.execute("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
@@ -26,7 +26,7 @@ fn test_remove_property() {
 
 #[test]
 fn test_remove_label() {
-    let mut g = Graph::new();
+    let g = Graph::new();
 
     // Create node with multiple labels (Note: yagdb create currently parses one label per node in path, but let's just create one and remove it)
     g.execute("CREATE (n:Person {name: 'Bob'})").unwrap();

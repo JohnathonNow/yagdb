@@ -134,7 +134,7 @@ fn test_return_star() {
 #[test]
 fn test_return_star_graph() {
     use yagdb::graph::Graph;
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Person {name: 'Alice'})").unwrap();
     let res = g
         .execute("MATCH (b:Person {name: 'Alice'}) RETURN *")
@@ -161,7 +161,7 @@ fn test_match_path_assignment() {
 #[test]
 fn test_execute_bound_path() {
     use yagdb::graph::Graph;
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE p=(a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})")
         .unwrap();
     let res = g

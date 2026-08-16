@@ -99,7 +99,7 @@ impl Graph {
         }
 
         let mut labels_wtr = csv::Writer::from_writer(vec![]);
-        for (name, id) in &self.labels {
+        for (name, id) in &*self.labels.read() {
             let csv_label = CsvLabel {
                 name: name.clone(),
                 id: *id,
@@ -108,7 +108,7 @@ impl Graph {
         }
 
         let mut indices_wtr = csv::Writer::from_writer(vec![]);
-        for (label_id, props) in &self.indices {
+        for (label_id, props) in &*self.indices.read() {
             for (prop_name, index_map) in props {
                 let index_type = match index_map {
                     IndexMap::Hash(_) => "hash",
@@ -134,13 +134,13 @@ impl Graph {
     pub fn import_csv(&mut self, nodes_csv: &str, edges_csv: &str, labels_csv: &str, indices_csv: &str) -> Result<(), String> {
         self.nodes.clear_items();
         self.edges.clear_items();
-        self.labels.clear();
-        self.indices.clear();
+        self.labels.write().clear();
+        self.indices.write().clear();
 
         let mut labels_rdr = csv::Reader::from_reader(labels_csv.as_bytes());
         for result in labels_rdr.deserialize() {
             let record: CsvLabel = result.map_err(|e| e.to_string())?;
-            self.labels.insert(record.name, record.id);
+            self.labels.write().insert(record.name, record.id);
         }
 
         let mut nodes_rdr = csv::Reader::from_reader(nodes_csv.as_bytes());

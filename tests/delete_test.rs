@@ -9,7 +9,7 @@ fn test_delete_nodes_and_edges() {
     let _ = fs::remove_file(wal_path);
 
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         g.execute("CREATE (a:User {name: 'Alice'})-[r:KNOWS]->(b:User {name: 'Bob'})").unwrap();
         let r1 = g.execute("MATCH (n:User) RETURN n").unwrap();
         assert!(r1.contains("Alice"));
@@ -23,7 +23,7 @@ fn test_delete_nodes_and_edges() {
 
     // Now verify WAL persistence
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         let r3 = g.execute("MATCH (n:User) RETURN n").unwrap();
         assert!(!r3.contains("Alice"));
         assert!(r3.contains("Bob"));

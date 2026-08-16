@@ -14,11 +14,11 @@ pub struct App {
     pub addr: String,
     pub raft: AppRaft,
     pub config: Arc<Config>,
-    pub graph: Arc<Mutex<Graph>>,
+    pub graph: Arc<Graph>,
 }
 
 impl App {
-    pub async fn new(id: u64, addr: String, graph: Arc<Mutex<Graph>>) -> Self {
+    pub async fn new(id: u64, addr: String, graph: Arc<Graph>) -> Self {
         let config = Config {
             heartbeat_interval: 500,
             election_timeout_min: 1500,

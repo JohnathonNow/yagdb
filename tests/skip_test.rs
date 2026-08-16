@@ -3,7 +3,7 @@ use serde_json::Value;
 
 #[test]
 fn test_skip_clause() {
-    let mut g = Graph::new();
+    let g = Graph::new();
 
     // Create test data
     g.execute("CREATE (u:User {name: 'Alice'}), (u2:User {name: 'Bob'}), (u3:User {name: 'Charlie'}), (u4:User {name: 'Dave'})").unwrap();

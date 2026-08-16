@@ -12,14 +12,14 @@ fn test_wal_and_recovery() {
 
     // Create a new graph and add some data
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         g.execute("CREATE (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})")
             .unwrap();
     }
 
     // Now reload the graph from the snapshot + WAL
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         let result = g
             .execute("MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b")
             .unwrap();
@@ -36,7 +36,7 @@ fn test_wal_and_recovery() {
 
     // Reload again to verify the new snapshot incorporates the previous WAL + the new WAL works
     {
-        let mut g = Graph::load_or_create(snapshot_path, wal_path);
+        let g = Graph::load_or_create(snapshot_path, wal_path);
         let result = g
             .execute("MATCH (c:Person {name: 'Charlie'}) RETURN c")
             .unwrap();

@@ -3,7 +3,7 @@ use yagdb::graph::Graph;
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_graph_backup_serialization() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:User {name: 'Alice'})").unwrap();
 
     let backup_bytes = g.backup().unwrap();

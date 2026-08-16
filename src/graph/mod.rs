@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
-use std::cell::RefCell;
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,8 +27,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
-fn default_cancel_flag() -> Arc<AtomicBool> {
-    Arc::new(AtomicBool::new(false))
+fn default_cancel_flag() -> parking_lot::RwLock<Arc<AtomicBool>> {
+    parking_lot::RwLock::new(Arc::new(AtomicBool::new(false)))
 }
 
 use crate::planner::{ExecutionStep, PlanNode, QueryPlanner};
@@ -49,19 +49,19 @@ pub type CustomFunction = std::sync::Arc<dyn Fn(&[GraphElement]) -> Result<Graph
 pub struct Graph {
     pub nodes: ItemStorage<Node>,
     pub edges: ItemStorage<Edge>,
-    pub labels: HashMap<String, usize>,
-    pub indices: HashMap<usize, HashMap<String, IndexMap>>,
+    pub labels: parking_lot::RwLock<HashMap<String, usize>>,
+    pub indices: parking_lot::RwLock<HashMap<usize, HashMap<String, IndexMap>>>,
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub wal_file: Option<File>,
+    pub wal_file: parking_lot::Mutex<Option<File>>,
     #[serde(skip)]
     #[serde(default = "default_cancel_flag")]
     #[cfg(not(target_arch = "wasm32"))]
-    pub cancel_flag: Arc<AtomicBool>,
+    pub cancel_flag: parking_lot::RwLock<Arc<AtomicBool>>,
     #[serde(skip)]
     pub next_txid: std::sync::atomic::AtomicU64,
     #[serde(skip)]
-    pub functions: HashMap<String, CustomFunction>,
+    pub functions: parking_lot::RwLock<HashMap<String, CustomFunction>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -74,7 +74,7 @@ impl Graph {
             let mut buffer = Vec::new();
             snapshot_file.read_to_end(&mut buffer).unwrap();
             let mut g: Graph = bincode::deserialize(&buffer).unwrap();
-            g.wal_file = None;
+            g.wal_file = parking_lot::Mutex::new(None);
             g.next_txid = std::sync::atomic::AtomicU64::new(1);
             g.register_default_functions();
             g
@@ -102,8 +102,8 @@ impl Graph {
                 let entry: WalEntry = bincode::deserialize(&entry_buf).unwrap();
                 match entry {
                     WalEntry::AddLabel { label } => {
-                        let id = graph.labels.len();
-                        graph.labels.insert(label, id);
+                        let id = graph.labels.read().len();
+                        graph.labels.write().insert(label, id);
                     }
                     WalEntry::AddNode { id, label, properties } => {
                         let node = Node::new(id.clone(), vec![label], vec![], properties.clone(), 0);
@@ -111,7 +111,7 @@ impl Graph {
                         let node_id = graph.nodes.len_items() - 1;
 
                         // Update indices if any apply
-                        if let Some(label_indices) = graph.indices.get_mut(&label) {
+                        if let Some(label_indices) = graph.indices.write().get_mut(&label) {
                             for (prop_key, prop_index) in label_indices.iter_mut() {
                                 if let Some(prop_val) = properties.get(prop_key) {
                                     match prop_index {
@@ -159,7 +159,7 @@ impl Graph {
                         let (old_value, has_label) = graph.nodes.with_mut_item(node_id, |__node| {
                             (__node.properties.insert(key.clone(), value.clone()), __node.labels.clone())
                         }).unwrap();
-                        for (label_id, label_indices) in graph.indices.iter_mut() {
+                        for (label_id, label_indices) in graph.indices.write().iter_mut() {
                             if has_label.contains(label_id) {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
                                     match prop_index {
@@ -206,7 +206,7 @@ impl Graph {
                             n.deleted = true;
                             n.labels.clone()
                         }).unwrap();
-                        for (label_id, label_indices) in graph.indices.iter_mut() {
+                        for (label_id, label_indices) in graph.indices.write().iter_mut() {
                             if has_label.contains(label_id) {
                                 for (_, prop_index) in label_indices.iter_mut() {
                                     match prop_index {
@@ -231,7 +231,7 @@ impl Graph {
                         }).unwrap();
 
                         if let Some(old_val) = old_value {
-                            for (label_id, label_indices) in graph.indices.iter_mut() {
+                            for (label_id, label_indices) in graph.indices.write().iter_mut() {
                                 if has_label.contains(label_id) {
                                     if let Some(prop_index) = label_indices.get_mut(&key) {
                                         match prop_index {
@@ -259,7 +259,7 @@ impl Graph {
                             n.properties.clone()
                         }).unwrap();
 
-                        if let Some(label_indices) = graph.indices.get_mut(&label_id) {
+                        if let Some(label_indices) = graph.indices.write().get_mut(&label_id) {
                             for (key, val) in properties {
                                 if let Some(prop_index) = label_indices.get_mut(&key) {
                                     match prop_index {
@@ -313,13 +313,13 @@ impl Graph {
             wal_file.sync_data().unwrap();
         }
 
-        graph.wal_file = Some(
+        graph.wal_file = parking_lot::Mutex::new(Some(
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(wal_path)
-                .unwrap(),
-        );
+                .unwrap()
+        ));
 
         graph
     }
@@ -439,68 +439,70 @@ impl Graph {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_disk_storage(&mut self, nodes_path: &str, edges_path: &str) {
         let mut nodes_disk = DiskStorage {
-            file: RefCell::new(std::fs::OpenOptions::new()
+            file: parking_lot::RwLock::new(std::fs::OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .truncate(true)
                 .open(nodes_path)
                 .unwrap()),
-            cache: RefCell::new(HashMap::new()),
-            access_tracker: RefCell::new(Vec::new()),
-            offsets: RefCell::new(Vec::new()),
+            cache: parking_lot::RwLock::new(HashMap::new()),
+            access_tracker: parking_lot::RwLock::new(Vec::new()),
+            offsets: parking_lot::RwLock::new(Vec::new()),
             capacity: 10000,
         };
         if let ItemStorage::Memory(vec) = &self.nodes {
-            for node in vec {
-                nodes_disk.push(node.clone());
+            let vec_guard = vec.read();
+            for node in vec_guard.iter() {
+                nodes_disk.push(node.read().clone());
             }
         }
-        self.nodes = ItemStorage::Disk(nodes_disk);
+        self.nodes = ItemStorage::Disk(parking_lot::RwLock::new(nodes_disk));
 
         let mut edges_disk = DiskStorage {
-            file: RefCell::new(std::fs::OpenOptions::new()
+            file: parking_lot::RwLock::new(std::fs::OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .truncate(true)
                 .open(edges_path)
                 .unwrap()),
-            cache: RefCell::new(HashMap::new()),
-            access_tracker: RefCell::new(Vec::new()),
-            offsets: RefCell::new(Vec::new()),
+            cache: parking_lot::RwLock::new(HashMap::new()),
+            access_tracker: parking_lot::RwLock::new(Vec::new()),
+            offsets: parking_lot::RwLock::new(Vec::new()),
             capacity: 10000,
         };
         if let ItemStorage::Memory(vec) = &self.edges {
-            for edge in vec {
-                edges_disk.push(edge.clone());
+            let vec_guard = vec.read();
+            for edge in vec_guard.iter() {
+                edges_disk.push(edge.read().clone());
             }
         }
-        self.edges = ItemStorage::Disk(edges_disk);
+        self.edges = ItemStorage::Disk(parking_lot::RwLock::new(edges_disk));
     }
 
     pub fn new() -> Self {
-        let mut g = Self {
-            nodes: ItemStorage::Memory(Vec::new()),
-            edges: ItemStorage::Memory(Vec::new()),
-            labels: HashMap::new(),
-            indices: HashMap::new(),
+        let g = Self {
+            nodes: ItemStorage::Memory(parking_lot::RwLock::new(Vec::new())),
+            edges: ItemStorage::Memory(parking_lot::RwLock::new(Vec::new())),
+            labels: parking_lot::RwLock::new(HashMap::new()),
+            indices: parking_lot::RwLock::new(HashMap::new()),
             #[cfg(not(target_arch = "wasm32"))]
-            wal_file: None,
+            wal_file: parking_lot::Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
-            cancel_flag: Arc::new(AtomicBool::new(false)),
+            cancel_flag: parking_lot::RwLock::new(Arc::new(AtomicBool::new(false))),
             next_txid: std::sync::atomic::AtomicU64::new(1),
-            functions: HashMap::new(),
+            functions: parking_lot::RwLock::new(HashMap::new()),
         };
         g.register_default_functions();
         g
     }
 
-    pub fn register_function(&mut self, name: &str, func: CustomFunction) {
-        self.functions.insert(name.to_lowercase(), func);
+    pub fn register_function(&self, name: &str, func: CustomFunction) {
+        self.functions.write().insert(name.to_lowercase(), func);
     }
 
-    fn register_default_functions(&mut self) {
+    fn register_default_functions(&self) {
         self.register_function("rand", std::sync::Arc::new(|_args| {
             // Note: In reality `rand` produces a float, but we keep compatibility with prior random 0f64 for simplicity right now
             Ok(GraphElement::Number(0f64))
@@ -600,21 +602,21 @@ impl Graph {
         }));
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         self.nodes.clear_items();
         self.edges.clear_items();
-        self.labels.clear();
-        self.indices.clear();
+        self.labels.write().clear();
+        self.indices.write().clear();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(file) = &mut self.wal_file {
+        if let Some(file) = &mut *self.wal_file.lock() {
             let _ = file.set_len(0);
             let _ = file.rewind();
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn log_wal(&mut self, entry: &WalEntry) {
-        if let Some(file) = &mut self.wal_file {
+    fn log_wal(&self, entry: &WalEntry) {
+        if let Some(file) = &mut *self.wal_file.lock() {
             let encoded = bincode::serialize(entry).unwrap();
             let len = encoded.len() as u32;
             file.write_all(&len.to_le_bytes()).unwrap();
@@ -624,34 +626,36 @@ impl Graph {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn log_wal(&mut self, _entry: &WalEntry) {}
+    fn log_wal(&self, _entry: &WalEntry) {}
 
-    pub fn get_or_add_label(&mut self, label: &str) -> usize {
-        if let Some(&id) = self.labels.get(label) {
-            id
-        } else {
-            let id = self.labels.len();
-            self.labels.insert(label.to_string(), id);
-            self.log_wal(&WalEntry::AddLabel {
-                label: label.to_string(),
-            });
-            id
+    pub fn get_or_add_label(&self, label: &str) -> usize {
+        if let Some(&id) = self.labels.read().get(label) {
+            return id;
         }
+        let mut labels_write = self.labels.write();
+        if let Some(&id) = labels_write.get(label) {
+            return id;
+        }
+        let id = labels_write.len();
+        labels_write.insert(label.to_string(), id);
+        self.log_wal(&WalEntry::AddLabel {
+            label: label.to_string(),
+        });
+        id
     }
 
     pub fn add_node(
-        &mut self,
+        &self,
         label: usize,
         properties: HashMap<String, crate::property::PropertyValue>,
         txid: u64,
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let node = Node::new(id.clone(), vec![label], vec![], properties.clone(), txid);
-        self.nodes.push_item(node);
-        let node_id = self.nodes.len_items() - 1;
+        let node_id = self.nodes.push_item(node);
 
         // Update indices if any apply
-        if let Some(label_indices) = self.indices.get_mut(&label) {
+        if let Some(label_indices) = self.indices.write().get_mut(&label) {
             for (prop_key, prop_index) in label_indices.iter_mut() {
                 if let Some(prop_val) = properties.get(prop_key) {
                     match prop_index {
@@ -678,16 +682,14 @@ impl Graph {
         node_id
     }
 
-    pub fn create_index(&mut self, label: usize, property: String, index_type: IndexType) {
+    pub fn create_index(&self, label: usize, property: String, index_type: IndexType) {
         self.create_index_internal(label, property.clone(), index_type.clone());
         self.log_wal(&WalEntry::CreateIndex { label, property, index_type });
     }
 
-    fn create_index_internal(&mut self, label: usize, property: String, index_type: IndexType) {
-        if !self.indices.contains_key(&label) {
-            self.indices.insert(label, HashMap::new());
-        }
-        let label_indices = self.indices.get_mut(&label).unwrap();
+    fn create_index_internal(&self, label: usize, property: String, index_type: IndexType) {
+        let mut indices_guard = self.indices.write();
+        let label_indices = indices_guard.entry(label).or_insert_with(HashMap::new);
         if !label_indices.contains_key(&property) {
             let index_map = match index_type {
                 IndexType::Hash => IndexMap::Hash(HashMap::new()),
@@ -726,7 +728,7 @@ impl Graph {
     }
 
     pub fn add_edge(
-        &mut self,
+        &self,
         start: usize,
         end: usize,
         labels: Vec<usize>,
@@ -735,8 +737,7 @@ impl Graph {
     ) -> usize {
         let id = uuid::Uuid::new_v4().to_string();
         let edge = Edge::new(id.clone(), labels.clone(), start, end, properties.clone(), txid);
-        self.edges.push_item(edge);
-        let edge_idx = self.edges.len_items() - 1;
+        let edge_idx = self.edges.push_item(edge);
         self.nodes.with_mut_item(start, |n| n.edges.push(edge_idx)).unwrap();
         self.nodes.with_mut_item(end, |n| n.edges.push(edge_idx)).unwrap();
         self.log_wal(&WalEntry::AddEdge {
@@ -755,7 +756,7 @@ impl Graph {
         Ok(encoded)
     }
 
-    pub fn execute(&mut self, query_str: &str) -> Result<String, String> {
+    pub fn execute(&self, query_str: &str) -> Result<String, String> {
         let txid = self.next_txid.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
 
@@ -770,11 +771,11 @@ impl Graph {
         let mut result_set = ResultSet::new();
         result_set.push_row(&HashMap::new());
 
-        let plan = QueryPlanner::plan_query(query, &self.labels, &self.indices);
+        let plan = QueryPlanner::plan_query(query, &*self.labels.read(), &*self.indices.read());
 
         for step in plan.steps {
             #[cfg(not(target_arch = "wasm32"))]
-            if self.cancel_flag.load(Ordering::Relaxed) {
+            if self.cancel_flag.read().load(Ordering::Relaxed) {
                 return Err("Query cancelled".to_string());
             }
             match step {
@@ -955,7 +956,7 @@ impl Graph {
                                     }).unwrap();
 
                                     // Update indices if necessary
-                                for (label_id, label_indices) in self.indices.iter_mut() {
+                                for (label_id, label_indices) in self.indices.write().iter_mut() {
                                     if has_label.contains(label_id) {
                                         if let Some(prop_index) = label_indices.get_mut(&key) {
                                             match prop_index {
@@ -1021,7 +1022,7 @@ impl Graph {
 
                                             if let Some(old_val) = old_value {
                                                 // Update indices
-                                                for (label_id, label_indices) in self.indices.iter_mut() {
+                                                for (label_id, label_indices) in self.indices.write().iter_mut() {
                                                     if has_label.contains(label_id) {
                                                         if let Some(prop_index) = label_indices.get_mut(key) {
                                                             match prop_index {
@@ -1050,7 +1051,7 @@ impl Graph {
                                 }
                             }
                             crate::parser::RemoveItem::Label(var, label) => {
-                                let label_id_opt = self.labels.get(label).copied();
+                                let label_id_opt = self.labels.read().get(label).copied();
                                 if let Some(label_id) = label_id_opt {
                                     for i in 0..result_set.rows {
                                         if let Some(GraphElement::Node(node_id)) = result_set.get(i, var) {
@@ -1068,7 +1069,7 @@ impl Graph {
 
                                             if removed {
                                                 // Remove from all indices for this label
-                                                if let Some(label_indices) = self.indices.get_mut(&label_id) {
+                                                if let Some(label_indices) = self.indices.write().get_mut(&label_id) {
                                                     if let Some(props) = properties {
                                                         for (key, val) in props {
                                                             if let Some(prop_index) = label_indices.get_mut(&key) {
@@ -1147,7 +1148,7 @@ impl Graph {
                         }).unwrap();
 
                         if let Some(n_labels) = labels {
-                            for (label_id, label_indices) in self.indices.iter_mut() {
+                            for (label_id, label_indices) in self.indices.write().iter_mut() {
                                 if n_labels.contains(label_id) {
                                     for (_, prop_index) in label_indices.iter_mut() {
                                         match prop_index {
@@ -1371,7 +1372,7 @@ impl Graph {
                                             .unwrap_or_else(|| format!("{}()", func));
 
                                         let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, &result_set, group_rows[0])).collect();
-                                        if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                                        if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
                                             if let Ok(val) = f(&eval_args) {
                                                 bindings.push((out_key, val));
                                             }
@@ -1416,7 +1417,7 @@ impl Graph {
                                             .unwrap_or_else(|| format!("{}()", func));
 
                                         let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, &result_set, i)).collect();
-                                        if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                                        if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
                                             if let Ok(val) = f(&eval_args) {
                                                 bindings.push((out_key, val));
                                             }
@@ -1541,7 +1542,7 @@ impl Graph {
         }
     }
 
-    fn execute_create_path(&mut self, path: Path, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) {
+    fn execute_create_path(&self, path: Path, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) {
         let mut path_elements = Vec::new();
         let start_id = self.create_node(&path.start, in_res, row_idx, bindings, txid);
         path_elements.push(GraphElement::Node(start_id));
@@ -1564,7 +1565,7 @@ impl Graph {
         }
     }
 
-    fn create_node(&mut self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) -> usize {
+    fn create_node(&self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, bindings: &mut Vec<(String, GraphElement)>, txid: u64) -> usize {
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
                 return *id;
@@ -1594,7 +1595,7 @@ impl Graph {
         node_id
     }
 
-    fn create_rel(&mut self, pattern: &RelPattern, start: usize, end: usize, txid: u64) -> usize {
+    fn create_rel(&self, pattern: &RelPattern, start: usize, end: usize, txid: u64) -> usize {
         let label_id = if let Some(label) = &pattern.label {
             self.get_or_add_label(label)
         } else {
@@ -1615,7 +1616,7 @@ impl Graph {
         txid: u64,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
-        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+        if self.cancel_flag.read().load(Ordering::Relaxed) { return; }
 
         let indent = "  ".repeat(depth);
         let op_name;
@@ -1640,7 +1641,7 @@ impl Graph {
             PlanNode::NodeLabelLookup { label, pattern } => {
                 op_name = format!("NodeLabelLookup({})", label);
                 let mut matched_nodes = Vec::new();
-                if let Some(label_id) = self.labels.get(label) {
+                if let Some(label_id) = self.labels.read().get(label) {
                     for id in 0..self.nodes.len_items() {
                         self.nodes.with_item(id, |node| {
                             if node.labels.contains(label_id)
@@ -1672,8 +1673,8 @@ impl Graph {
                 op_name = format!("NodeIndexLookup({}.{}='{:?}')", label, property, value);
                 let mut matched_nodes = Vec::new();
                 let mut candidate_ids = Vec::new();
-                if let Some(label_id) = self.labels.get(label) {
-                    if let Some(label_indices) = self.indices.get(label_id) {
+                if let Some(label_id) = self.labels.read().get(label) {
+                    if let Some(label_indices) = self.indices.read().get(label_id) {
                         if let Some(prop_index) = label_indices.get(property) {
                             let node_ids_opt = match prop_index {
                                 IndexMap::Hash(map) => map.get(value),
@@ -1971,7 +1972,7 @@ impl Graph {
         limit: Option<usize>,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
-        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+        if self.cancel_flag.read().load(Ordering::Relaxed) { return; }
 
         if limit.is_some_and(|l| out.rows >= l) { return; }
         if edge_idx >= edges.len() {
@@ -2041,7 +2042,7 @@ impl Graph {
         limit: Option<usize>,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
-        if self.cancel_flag.load(Ordering::Relaxed) { return; }
+        if self.cancel_flag.read().load(Ordering::Relaxed) { return; }
 
         if limit.is_some_and(|l| out.rows >= l) { return; }
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
@@ -2139,8 +2140,8 @@ impl Graph {
 
         // Try to use an index if one is available
         if let Some(label_name) = &pattern.label {
-            if let Some(label_id) = self.labels.get(label_name) {
-                if let Some(label_indices) = self.indices.get(label_id) {
+            if let Some(label_id) = self.labels.read().get(label_name) {
+                if let Some(label_indices) = self.indices.read().get(label_id) {
                     for (prop_name, prop_value) in &pattern.properties {
                         if let Some(prop_index) = label_indices.get(prop_name) {
                             let node_ids_opt = match prop_index {
@@ -2184,7 +2185,7 @@ impl Graph {
         if node.deleted || node.created_by > txid || node.deleted_by.is_some_and(|d| d <= txid) { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
-            if let Some(id) = self.labels.get(l) {
+            if let Some(id) = self.labels.read().get(l) {
                 Some(*id)
             } else {
                 return false; // label not even in graph
@@ -2272,7 +2273,7 @@ impl Graph {
         if edge.deleted { return false; }
 
         let label_id = if let Some(l) = &pattern.label {
-            if let Some(id) = self.labels.get(l) {
+            if let Some(id) = self.labels.read().get(l) {
                 Some(*id)
             } else {
                 return false;
@@ -2342,7 +2343,7 @@ impl Graph {
                 in_res.get(row_idx, var).cloned().unwrap_or(GraphElement::Null)
             }
             Expression::Function(func, args) => {
-                if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
                     let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx)).collect();
                     match f(&eval_args) {
                         Ok(res) => res,
@@ -2392,7 +2393,7 @@ impl Graph {
                 }
             }
             Expression::Function(func, args) => {
-                if let Some(f) = self.functions.get(&func.to_lowercase()) {
+                if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
                     let eval_args: Vec<GraphElement> = args.iter().map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx)).collect();
                     match f(&eval_args) {
                         Ok(res) => match res {
@@ -2438,8 +2439,25 @@ impl Graph {
 }
 
 impl Graph {
-    pub fn rebuild_indices(&mut self) {
-        self.indices.clear();
+    pub fn rebuild_indices(&self) {
+        self.indices.write().clear();
+    }
+
+    pub fn replace_from(&self, other: Graph) {
+        self.nodes.replace_from(other.nodes);
+        self.edges.replace_from(other.edges);
+        *self.labels.write() = other.labels.into_inner();
+        *self.indices.write() = other.indices.into_inner();
+        *self.functions.write() = other.functions.into_inner();
+        self.next_txid.store(other.next_txid.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *self.wal_file.lock() = other.wal_file.into_inner();
+        }
+    }
+
+    fn dummy_replace(&self) {
         // Look up all nodes and populate existing indices?
         // Actually YAGDB creates indices via CREATE INDEX ON :Label(prop).
         // Since indices are stored as HashMap<usize, HashMap<String, IndexMap>>, we can't easily recreate them unless we know which ones existed.

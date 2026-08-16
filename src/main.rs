@@ -14,8 +14,6 @@ use axum::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::Mutex;
 
 #[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
@@ -26,7 +24,7 @@ use tokio::signal;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-type SharedGraph = Arc<Mutex<Graph>>;
+type SharedGraph = Arc<Graph>;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
@@ -41,13 +39,13 @@ impl Drop for CancelGuard {
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 struct GraphGuard {
-    g: tokio::sync::OwnedMutexGuard<Graph>,
+    g: Arc<Graph>,
 }
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 impl Drop for GraphGuard {
     fn drop(&mut self) {
-        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *self.g.cancel_flag.write() = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     }
 }
 
@@ -61,7 +59,7 @@ async fn main() {
     if std::env::var("YAGDB_DISK_STORAGE").is_ok() {
         g.enable_disk_storage("nodes.bin", "edges.bin");
     }
-    let graph = Arc::new(Mutex::new(g));
+    let graph = Arc::new(g);
 
     let app = Router::new()
         .route("/query", post(handle_query))
@@ -124,10 +122,10 @@ async fn main() {
     let args = Args::parse();
     env_logger::init();
 
-    let graph = Arc::new(Mutex::new(Graph::load_or_create(
+    let graph = Arc::new(Graph::load_or_create(
         &format!("graph_{}.bin", args.id),
         &format!("wal_{}.bin", args.id),
-    )));
+    ));
 
     let app: Arc<yagdb::raft::app::App> =
         Arc::new(yagdb::raft::app::App::new(args.id, args.addr.clone(), graph).await);
@@ -148,9 +146,9 @@ async fn main() {
 async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
-    let mut g = graph.clone().lock_owned().await;
-    g.cancel_flag = cancel;
-    let mut guard = GraphGuard { g };
+    let g = graph.clone();
+    *g.cancel_flag.write() = cancel;
+    let guard = GraphGuard { g };
     let res = tokio::task::spawn_blocking(move || {
         guard.g.execute(&body)
     }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
@@ -164,7 +162,7 @@ async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl In
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
-    let g = graph.lock().await;
+    let g = graph.clone();
     match g.backup() {
         Ok(bytes) => {
             let mut headers = axum::http::HeaderMap::new();
@@ -181,9 +179,9 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
-    let mut g = graph.clone().lock_owned().await;
-    g.cancel_flag = cancel;
-    let mut guard = GraphGuard { g };
+    let g = graph.clone();
+    *g.cancel_flag.write() = cancel;
+    let guard = GraphGuard { g };
     let res = tokio::task::spawn_blocking(move || {
         guard.g.execute(&body)
     }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
@@ -225,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_cypher_create_and_match() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})-[r:FOLLOWS]->(b:User {id: '2'})")
             .unwrap();
 
@@ -244,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_no_match_on_missing_label() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})").unwrap();
 
         let result = g.execute("MATCH (a:Admin {id: '1'}) RETURN a").unwrap();
@@ -253,14 +251,14 @@ mod tests {
 
     #[test]
     fn test_trailing_garbage_fails() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         let res = g.execute("CREATE (n) BAD SYNTAX");
         assert!(res.is_err());
     }
 
     #[test]
     fn test_optional_match() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})").unwrap();
         g.execute("CREATE (a:User {id: '2'})-[r:FOLLOWS]->(b:User {id: '3'})").unwrap();
 
@@ -285,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_limit_clause() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})").unwrap();
         g.execute("CREATE (a:User {id: '2'})").unwrap();
         g.execute("CREATE (a:User {id: '3'})").unwrap();

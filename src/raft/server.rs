@@ -20,11 +20,11 @@ impl Drop for CancelGuard {
     }
 }
 struct GraphGuard {
-    g: tokio::sync::OwnedMutexGuard<crate::graph::Graph>,
+    g: std::sync::Arc<crate::graph::Graph>,
 }
 impl Drop for GraphGuard {
     fn drop(&mut self) {
-        self.g.cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *self.g.cancel_flag.write() = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     }
 }
 
@@ -118,8 +118,8 @@ async fn handle_query(
         // Read query, can be handled locally by any node because state is updated via Raft
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _guard = CancelGuard(cancel.clone());
-        let mut g = app.graph.clone().lock_owned().await;
-        g.cancel_flag = cancel;
+        let g = app.graph.clone();
+        *g.cancel_flag.write() = cancel;
         let mut guard = GraphGuard { g };
         let res = tokio::task::spawn_blocking(move || {
             guard.g.execute(&body)
@@ -183,8 +183,8 @@ async fn handle_query_stream(
     } else {
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _guard = CancelGuard(cancel.clone());
-        let mut g = app.graph.clone().lock_owned().await;
-        g.cancel_flag = cancel;
+        let g = app.graph.clone();
+        *g.cancel_flag.write() = cancel;
         let mut guard = GraphGuard { g };
         tokio::task::spawn_blocking(move || {
             guard.g.execute(&body)

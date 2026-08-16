@@ -3,7 +3,7 @@ use serde_json::Value;
 
 #[test]
 fn test_order_by() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Test {v: '1'})").unwrap();
     g.execute("CREATE (b:Test {v: '2'})").unwrap();
     g.execute("CREATE (c:Test {v: '3'})").unwrap();
@@ -18,7 +18,7 @@ fn test_order_by() {
 
 #[test]
 fn test_rand() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Test {v: '1'})").unwrap();
     g.execute("CREATE (b:Test {v: '2'})").unwrap();
     g.execute("CREATE (c:Test {v: '3'})").unwrap();

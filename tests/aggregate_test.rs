@@ -2,7 +2,7 @@ use yagdb::graph::Graph;
 
 #[test]
 fn test_aggregate_count() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})")
         .unwrap();
     let res = g
@@ -13,7 +13,7 @@ fn test_aggregate_count() {
 
 #[test]
 fn test_aggregate_collect() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})")
         .unwrap();
     let res = g
@@ -24,7 +24,7 @@ fn test_aggregate_collect() {
 
 #[test]
 fn test_aggregate_unique() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute(
         "CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Alice'}), (c:Person {name: 'Bob'})",
     )

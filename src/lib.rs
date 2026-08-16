@@ -15,12 +15,12 @@ pub mod wasm {
     use std::sync::Mutex;
     use wasm_bindgen::prelude::*;
 
-    static GRAPH: once_cell::sync::Lazy<Mutex<Graph>> =
-        once_cell::sync::Lazy::new(|| Mutex::new(Graph::new()));
+    static GRAPH: once_cell::sync::Lazy<Graph> =
+        once_cell::sync::Lazy::new(|| Graph::new());
 
     #[wasm_bindgen]
     pub fn execute_query(query: &str) -> String {
-        let mut g = GRAPH.lock().unwrap();
+        let g = &*GRAPH;
         match g.execute(query) {
             Ok(result) => result,
             Err(e) => format!("Error: {}", e),
@@ -29,7 +29,7 @@ pub mod wasm {
 
     #[wasm_bindgen]
     pub fn clear_graph() {
-        let mut g = GRAPH.lock().unwrap();
+        let g = &*GRAPH;
         g.clear();
     }
 }

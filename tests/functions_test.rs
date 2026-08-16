@@ -2,7 +2,7 @@ use yagdb::graph::Graph;
 
 #[test]
 fn test_string_functions() {
-    let mut g = Graph::new();
+    let g = Graph::new();
 
     // tolower
     let res = g.execute("RETURN tolower('HeLlO') AS lower").unwrap();
@@ -27,7 +27,7 @@ fn test_string_functions() {
 
 #[test]
 fn test_math_functions() {
-    let mut g = Graph::new();
+    let g = Graph::new();
 
     // abs
     let res = g.execute("RETURN abs(-5.5) AS abs_val").unwrap();
@@ -51,7 +51,7 @@ fn test_math_functions() {
 
 #[test]
 fn test_substring_unicode() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     let res = g.execute("RETURN substring('🍎🍌🍇🍉', 1.0, 2.0) AS sub").unwrap();
     assert!(res.contains(r#""sub": "🍌🍇""#) || res.contains(r#""sub":"🍌🍇""#));
 }

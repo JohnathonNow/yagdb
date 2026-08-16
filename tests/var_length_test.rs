@@ -2,7 +2,7 @@ use yagdb::graph::Graph;
 
 #[test]
 fn test_variable_length() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute(
         "CREATE (a:Node {id: '1'})-[r1:REL]->(b:Node {id: '2'})-[r2:REL]->(c:Node {id: '3'})",
     )
@@ -17,7 +17,7 @@ fn test_variable_length() {
 
 #[test]
 fn test_variable_length_with_label_and_props() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute("CREATE (a:Node {id: '1'})-[r1:REL {prop: 'A'}]->(b:Node {id: '2'})-[r2:REL {prop: 'B'}]->(c:Node {id: '3'})").unwrap();
     let res = g
         .execute("MATCH (a:Node {id: '1'})-[:REL *1..2]->(c) RETURN c")
@@ -29,7 +29,7 @@ fn test_variable_length_with_label_and_props() {
 
 #[test]
 fn test_variable_length_bind_var() {
-    let mut g = Graph::new();
+    let g = Graph::new();
     g.execute(
         "CREATE (a:Node {id: '1'})-[r1:REL]->(b:Node {id: '2'})-[r2:REL]->(c:Node {id: '3'})",
     )

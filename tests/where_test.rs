@@ -2,7 +2,7 @@ use yagdb::graph::Graph;
 
 #[test]
 fn test_match_where_evaluation() {
-    let mut graph = Graph::new();
+    let graph = Graph::new();
     let q_create = "CREATE (a:Person {name: 'Alice', age: '30'}), (b:Person {name: 'Bob', age: '25'}), (c:Person {name: 'Charlie', age: '35'})";
     graph.execute(q_create).unwrap();
 
@@ -38,7 +38,7 @@ fn test_match_where_evaluation() {
 
 #[test]
 fn test_where_pushdown() {
-    let mut graph = Graph::new();
+    let graph = Graph::new();
     graph.execute("CREATE HASH INDEX ON :Person(name)").unwrap();
     graph.execute("CREATE (p:Person {name: 'Alice', age: 30})").unwrap();
     graph.execute("CREATE (p:Person {name: 'Bob', age: 40})").unwrap();
