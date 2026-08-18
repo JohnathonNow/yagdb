@@ -35,3 +35,6 @@
 ## 2026-08-12 - Passing Empty Iterators to Generic Bounds
 **Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
 **Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
+## 2024-08-18 - Optimize ResultSet allocations in Match/CrossProduct
+**Learning:** In yagdb's query execution engine (`ExecutionStep::Match`, `PlanNode::CrossProduct`), instantiating new `ResultSet` structures inside per-row processing loops causes significant memory allocation overhead. Because `ResultSet` manages hash maps and vectors, repeated initialization leads to high heap churn.
+**Action:** Always declare `ResultSet::new()` outside of row processing loops in query pipelines. Reuse these structures by calling `result_set.clear()` at the start of each iteration, preserving the underlying memory capacity and eliminating redundant allocations.
