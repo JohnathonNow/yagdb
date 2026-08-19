@@ -150,6 +150,9 @@ impl Graph {
                     WalEntry::CreateIndex { label, property, index_type } => {
                         graph.create_index_internal(label, property, index_type);
                     }
+                    WalEntry::DropIndex { label, property } => {
+                        graph.drop_index_internal(label, &property);
+                    }
                     WalEntry::SetNodeProperty {
                         node_id,
                         key,
@@ -681,6 +684,20 @@ impl Graph {
     pub fn create_index(&mut self, label: usize, property: String, index_type: IndexType) {
         self.create_index_internal(label, property.clone(), index_type.clone());
         self.log_wal(&WalEntry::CreateIndex { label, property, index_type });
+    }
+
+    pub fn drop_index(&mut self, label: usize, property: String) {
+        self.drop_index_internal(label, &property);
+        self.log_wal(&WalEntry::DropIndex { label, property });
+    }
+
+    fn drop_index_internal(&mut self, label: usize, property: &str) {
+        if let Some(label_indices) = self.indices.get_mut(&label) {
+            label_indices.remove(property);
+            if label_indices.is_empty() {
+                self.indices.remove(&label);
+            }
+        }
     }
 
     fn create_index_internal(&mut self, label: usize, property: String, index_type: IndexType) {
@@ -1520,6 +1537,10 @@ impl Graph {
                 ExecutionStep::CreateIndex { label, property, index_type } => {
                     let label_id = self.get_or_add_label(&label);
                     self.create_index(label_id, property, index_type);
+                }
+                ExecutionStep::DropIndex { label, property } => {
+                    let label_id = self.get_or_add_label(&label);
+                    self.drop_index(label_id, property);
                 }
             }
         }

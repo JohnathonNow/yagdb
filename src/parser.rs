@@ -109,6 +109,7 @@ pub enum Clause {
     Set(String, String, Expression),
     Remove(Vec<RemoveItem>),
     CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
+    DropIndex { label: String, property: String },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
     Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
@@ -244,6 +245,21 @@ fn path(input: &str) -> IResult<&str, Path> {
             bound_variable,
             start,
             edges,
+        },
+    ))
+}
+
+fn drop_index_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("DROP"), tag("drop"))))(input)?;
+    let (input, _) = ws(alt((tag("INDEX ON"), tag("index on"))))(input)?;
+    let (input, label) = preceded(ws(char(':')), ws(identifier))(input)?;
+    let (input, property) = delimited(ws(char('(')), ws(identifier), ws(char(')')))(input)?;
+
+    Ok((
+        input,
+        Clause::DropIndex {
+            label: label.to_string(),
+            property: property.to_string(),
         },
     ))
 }
@@ -630,6 +646,7 @@ fn delete_clause(input: &str) -> IResult<&str, Clause> {
 fn clause(input: &str) -> IResult<&str, Clause> {
     alt((
         create_index_clause,
+        drop_index_clause,
         create_clause,
         match_clause,
         merge_clause,

@@ -35,6 +35,10 @@ pub enum WalEntry {
         property: String,
         index_type: IndexType,
     },
+    DropIndex {
+        label: usize,
+        property: String,
+    },
     SetNodeProperty {
         node_id: usize,
         key: String,
