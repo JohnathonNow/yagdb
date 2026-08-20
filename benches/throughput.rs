@@ -20,6 +20,9 @@ fn benchmark_throughput(c: &mut Criterion) {
     ];
 
     for scenario in scenarios {
+        let mut group = c.benchmark_group(format!("throughput_{}", scenario.name));
+        group.throughput(criterion::Throughput::Elements(100));
+
         // Pre-generate a sequence of 100 operations based on the ratios
         let mut operations = Vec::new();
         for i in 0..scenario.read_prop {
@@ -45,7 +48,7 @@ fn benchmark_throughput(c: &mut Criterion) {
             operations.swap(i, swap_idx);
         }
 
-        c.bench_function(&format!("throughput_{}", scenario.name), |b| {
+        group.bench_function("ops", |b| {
             b.iter_batched(
                 || {
                     let mut g = Graph::new();
@@ -63,8 +66,10 @@ fn benchmark_throughput(c: &mut Criterion) {
                 BatchSize::SmallInput,
             )
         });
+        group.finish();
     }
 }
 
 criterion_group!(benches, benchmark_throughput);
 criterion_main!(benches);
+
