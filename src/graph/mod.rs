@@ -67,6 +67,12 @@ pub struct Graph {
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
 
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Graph {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load_or_create(snapshot_path: &str, wal_path: &str) -> Self {
@@ -430,8 +436,8 @@ impl Graph {
             GraphElement::Number(n) => format!("{}", n),
             GraphElement::String(ref s) => format!("\"{}\"", s),
             GraphElement::Boolean(b) => format!("{}", b),
-            GraphElement::Date(d) => format!("{}", d.to_string()),
-            GraphElement::DateTime(dt) => format!("{}", dt.to_rfc3339()),
+            GraphElement::Date(d) => format!("{}", d),
+            GraphElement::DateTime(dt) => dt.to_rfc3339().to_string(),
             GraphElement::Null => "null".to_string(),
         }
     }
@@ -684,9 +690,7 @@ impl Graph {
     }
 
     fn create_index_internal(&mut self, label: usize, property: String, index_type: IndexType) {
-        if !self.indices.contains_key(&label) {
-            self.indices.insert(label, HashMap::new());
-        }
+        self.indices.entry(label).or_insert_with(HashMap::new);
         let label_indices = self.indices.get_mut(&label).unwrap();
         if !label_indices.contains_key(&property) {
             let index_map = match index_type {
@@ -1176,38 +1180,29 @@ impl Graph {
                             match item {
                                 ProjectionItem::Variable(var) => {
                                     if let Some(val) = result_set.get(i, var) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, [(var.as_str(), x.clone())]);
-                                                }
+                                        if let GraphElement::List(v) = val {
+                                            for x in v {
+                                                new_result_set.push_row_from(&result_set, i, [(var.as_str(), x.clone())]);
                                             }
-                                            _ => {}
                                         }
                                     }
                                 }
                                 ProjectionItem::Property(var, prop) => {
                                     if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    let key = format!("{}.{}", var, prop);
-                                                    new_result_set.push_row_from(&result_set, i, [(key.as_str(), x.clone())]);
-                                                }
+                                        if let GraphElement::List(v) = val {
+                                            for x in v {
+                                                let key = format!("{}.{}", var, prop);
+                                                new_result_set.push_row_from(&result_set, i, [(key.as_str(), x.clone())]);
                                             }
-                                            _ => {}
                                         }
                                     }
                                 }
                                 ProjectionItem::AliasedProperty(var, prop, alias) => {
                                     if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
-                                        match val {
-                                            GraphElement::List(v) => {
-                                                for x in v {
-                                                    new_result_set.push_row_from(&result_set, i, [(alias.as_str(), x.clone())]);
-                                                }
+                                        if let GraphElement::List(v) = val {
+                                            for x in v {
+                                                new_result_set.push_row_from(&result_set, i, [(alias.as_str(), x.clone())]);
                                             }
-                                            _ => {}
                                         }
                                     }
                                 }
@@ -1282,11 +1277,11 @@ impl Graph {
                                 }).collect();
 
                             // ⚡ Bolt: Use IndexMap for O(1) hash-based grouping while preserving deterministic insertion order
-                            groups.entry(key).or_insert_with(Vec::new).push(i);
+                            groups.entry(key).or_default().push(i);
                         }
 
                         // Compute aggregates per group
-                        for (_idx_group, (_group_key, group_rows)) in groups.into_iter().enumerate() {
+                        for (_group_key, group_rows) in groups.into_iter() {
                             let mut bindings = Vec::new();
                             for item in &items {
                                 match item {
