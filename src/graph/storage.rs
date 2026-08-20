@@ -77,8 +77,8 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
             let mut file = self.file.write();
             file.seek(std::io::SeekFrom::Start(offset)).unwrap();
             let item: T = bincode::deserialize_from(&mut *file).unwrap();
-            item
-        });
+            return Some(item)
+        }
         cache.get(&index).cloned()
     }
 
