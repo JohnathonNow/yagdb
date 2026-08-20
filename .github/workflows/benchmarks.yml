@@ -20,13 +20,14 @@ jobs:
     - name: Ensure benchmarks branch exists
       run: |
         git ls-remote --exit-code --heads origin benchmarks || (
+          PREV=$(git rev-parse HEAD)
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git checkout --orphan benchmarks
           git rm -rf .
           git commit --allow-empty -m "Init benchmarks branch"
           git push origin benchmarks
-          git checkout -
+          git checkout $PREV
         )
     - name: Store benchmark result
       uses: benchmark-action/github-action-benchmark@v1
