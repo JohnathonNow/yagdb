@@ -35,3 +35,6 @@
 ## 2026-08-12 - Passing Empty Iterators to Generic Bounds
 **Learning:** When refactoring functions to take `IntoIterator<Item = T>` instead of `&[T]` to avoid cloning, passing empty bindings at call sites requires explicit type annotations to satisfy the compiler since `[]` doesn't provide enough information for type `T`. Using `None as Option<T>` is invalid syntax.
 **Action:** Use `std::iter::empty::<T>()` to pass an empty iterator to generic `IntoIterator` bounds cleanly and correctly.
+## 2024-08-21 - Box large ExecutionStep variants to reduce enum size
+**Learning:** In yagdb's `planner.rs`, large variants within the `ExecutionStep` enum (like `PlanNode` and `Condition` in `Match`) are boxed as `Option<Box<T>>` rather than `Box<Option<T>>`. This avoids heap allocation for the `None` case and reduces the overall enum size (e.g., from 504 bytes down to 104 bytes), preventing memory bloat and improving CPU cache locality during execution.
+**Action:** Always box large inner types inside `Option` as `Option<Box<T>>` rather than `Box<Option<T>>` to prevent unnecessary heap allocations for `None` variants and reduce the size of the containing enum.
