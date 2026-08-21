@@ -796,7 +796,9 @@ impl Graph {
                     }
                     result_set = new_result_set;
                 }
-                ExecutionStep::Match(is_optional, plan_opt, paths, condition_opt, skip_opt, limit_opt) => {
+                ExecutionStep::Match(is_optional, box_plan_opt, paths, box_condition_opt, skip_opt, limit_opt) => {
+                    let plan_opt = box_plan_opt.map(|b| *b);
+                    let condition_opt = box_condition_opt.map(|b| *b);
                     if let Some(plan) = plan_opt {
                         let mut new_result_set = ResultSet::new();
                         let limit_for_plan = if condition_opt.is_none() {
