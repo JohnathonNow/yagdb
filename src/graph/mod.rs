@@ -604,6 +604,17 @@ impl Graph {
             }
             Err("Invalid arguments to floor()".to_string())
         }));
+
+        self.register_function("id", std::sync::Arc::new(|args| {
+            if args.len() == 1 {
+                match &args[0] {
+                    GraphElement::Node(id) => return Ok(GraphElement::Number(*id as f64)),
+                    GraphElement::Edge(id) => return Ok(GraphElement::Number(*id as f64)),
+                    _ => {}
+                }
+            }
+            Err("Invalid arguments to id()".to_string())
+        }));
     }
 
     pub fn clear(&self) {
