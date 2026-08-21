@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787349044809,
+  "lastUpdate": 1787349341172,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -663,6 +663,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 377688,
             "range": "± 2065",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "457359dc7b1b71dc1e0478d5c5c857ef6aa9cf6f",
+          "message": "Merge pull request #133 from JohnathonNow/george/add-id-function-10263779521681525921\n\n⚡ Bolt: [feature improvement] Add id() function for retrieving node and edge identifiers",
+          "timestamp": "2026-08-21T14:42:42-07:00",
+          "tree_id": "a79fff812867d06be81206db285b7d5f5dcd46b6",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/457359dc7b1b71dc1e0478d5c5c857ef6aa9cf6f"
+        },
+        "date": 1787349340434,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 33783,
+            "range": "± 3968",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 34738,
+            "range": "± 444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 61511,
+            "range": "± 1638",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 45855,
+            "range": "± 250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 132628,
+            "range": "± 6786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 107708,
+            "range": "± 213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 133626,
+            "range": "± 1939",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 108519,
+            "range": "± 586",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 69519,
+            "range": "± 2721",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 56162,
+            "range": "± 2528",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 133578,
+            "range": "± 464",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 107756,
+            "range": "± 988",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 3273743303,
+            "range": "± 30111035",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 4116,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 7481,
+            "range": "± 108",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 5316,
+            "range": "± 233",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 8503,
+            "range": "± 298",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 8604,
+            "range": "± 291",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 14296,
+            "range": "± 368",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 431734,
+            "range": "± 6446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 422835,
+            "range": "± 3624",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 471411,
+            "range": "± 6807",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 540959,
+            "range": "± 2087",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 383720,
+            "range": "± 5164",
             "unit": "ns/iter"
           }
         ]
