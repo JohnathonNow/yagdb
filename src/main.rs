@@ -1,10 +1,11 @@
-#[cfg(feature = "dhat-heap")]
+#[cfg(all(feature = "dhat-heap", not(target_arch = "wasm32")))]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 use tower_http::services::ServeFile;
+#[cfg(not(target_arch = "wasm32"))]
 use axum::{
     extract::State,
     http::StatusCode,

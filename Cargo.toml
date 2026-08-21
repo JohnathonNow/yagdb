@@ -31,6 +31,7 @@ parking_lot = { version = "0.12.5", features = ["serde"] }
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
 dhat-heap = []
+export-import = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
@@ -41,6 +42,22 @@ tower-http = { version = "0.4.0", features = ["fs"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = "0.5.1"
 reqwest = { version = "0.13.4", features = ["json"] }
+
+[[bin]]
+name = "import_csv"
+required-features = ["export-import"]
+
+[[bin]]
+name = "import_json"
+required-features = ["export-import"]
+
+[[bin]]
+name = "export_csv"
+required-features = ["export-import"]
+
+[[bin]]
+name = "export_json"
+required-features = ["export-import"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1.23", features = ["js"] }

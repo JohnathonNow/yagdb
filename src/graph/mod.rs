@@ -41,8 +41,6 @@ use crate::{
     },
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-
 pub type CustomFunction = std::sync::Arc<dyn Fn(&[GraphElement]) -> Result<GraphElement, String> + Send + Sync>;
 
 #[derive(Serialize, Deserialize)]
