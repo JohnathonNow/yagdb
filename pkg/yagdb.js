@@ -28,7 +28,7 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_bb96b2010945f0bc: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_getRandomValues_eb590f34c5dc8fa0: function() { return handleError(function (arg0, arg1) {
+        __wbg_getRandomValues_e446ea5ffdd14ee5: function() { return handleError(function (arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
         }, arguments); },
         __wbindgen_init_externref_table: function() {
