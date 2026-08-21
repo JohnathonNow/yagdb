@@ -8,3 +8,6 @@
 ## 2024-08-12 - Implement OPTIONAL MATCH
 **Learning:** Adding OPTIONAL MATCH support requires row-by-row nested loop evaluation for missing matches to properly fallback and pad new bound variables with `null`s, instead of discarding the row like a standard MATCH.
 **Action:** When implementing outer-join like functionality in standard set-based engines, carefully branch execution logic to preserve incoming row integrity if the sub-plan returns empty.
+## 2024-10-24 - Implement id() function
+**Learning:** `yagdb` relies heavily on internal `usize` identifiers for indexing nodes and edges. Because these identifiers are bundled directly in `GraphElement::Node(usize)` and `GraphElement::Edge(usize)`, Cypher functions can trivially unpack these identifiers without needing a reference to the core graph state.
+**Action:** When implementing Cypher features related to meta-data mapping (like ids or types), always check if the information is already stored on the `GraphElement` variant to avoid complex state borrows.

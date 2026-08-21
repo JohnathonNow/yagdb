@@ -55,3 +55,17 @@ fn test_substring_unicode() {
     let res = g.execute("RETURN substring('🍎🍌🍇🍉', 1.0, 2.0) AS sub").unwrap();
     assert!(res.contains(r#""sub": "🍌🍇""#) || res.contains(r#""sub":"🍌🍇""#));
 }
+
+#[test]
+fn test_id_function() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})").unwrap();
+
+    // Test node id
+    let res = g.execute("MATCH (n:Person {name: 'Alice'}) RETURN id(n) AS node_id").unwrap();
+    assert!(res.contains(r#""node_id": 0"#) || res.contains(r#""node_id":0"#));
+
+    // Test edge id
+    let res = g.execute("MATCH (a)-[r:KNOWS]->(b) RETURN id(r) AS edge_id").unwrap();
+    assert!(res.contains(r#""edge_id": 0"#) || res.contains(r#""edge_id":0"#));
+}
