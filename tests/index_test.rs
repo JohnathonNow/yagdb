@@ -66,8 +66,39 @@ fn test_index_usage() {
             .unwrap();
         assert!(result2.contains("\"u\":"));
         assert!(result2.contains(r#""username": "charlie""#));
+
+        // Drop the index
+        g.execute("DROP INDEX ON :User(username)").unwrap();
+    }
+
+    // Reload graph to test drop index recovery
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+
+        // Verify index is removed by checking if it exists internally.
+        // We can't easily check internal indices without exposing them,
+        // but we can execute a query that would have used it and ensure it still works (fallback to full scan).
+        let result3 = g
+            .execute("MATCH (u:User {username: 'bob'}) RETURN u")
+            .unwrap();
+        assert!(result3.contains("\"u\":"));
+        assert!(result3.contains(r#""username": "bob""#));
     }
 
     let _ = fs::remove_file(snapshot_path);
     let _ = fs::remove_file(wal_path);
+}
+
+#[test]
+fn test_parse_drop_index() {
+    let query = "DROP INDEX ON :Person(name)";
+    let (rest, ast) = parse_query(query).unwrap();
+    assert_eq!(rest, "");
+    match &ast.clauses[0] {
+        Clause::DropIndex { label, property } => {
+            assert_eq!(label, "Person");
+            assert_eq!(property, "name");
+        }
+        _ => panic!("Expected DropIndex clause"),
+    }
 }
