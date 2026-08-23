@@ -134,6 +134,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => false,
         }
     }
 
@@ -145,6 +146,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => false,
         }
     }
 
@@ -156,6 +158,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => !l & r,
             CompareOp::Lte => l <= r,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => false,
         }
     }
 
@@ -167,6 +170,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => false,
         }
     }
 
@@ -178,6 +182,9 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
+            CompareOp::StartsWith => l.starts_with(r),
+            CompareOp::EndsWith => l.ends_with(r),
+            CompareOp::Contains => l.contains(r),
         }
     }
 }

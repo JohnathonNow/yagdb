@@ -58,6 +58,9 @@ pub enum CompareOp {
     Gte,
     Lt,
     Lte,
+    StartsWith,
+    EndsWith,
+    Contains,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -353,6 +356,9 @@ fn compare_op(input: &str) -> IResult<&str, CompareOp> {
         map(tag(">"), |_| CompareOp::Gt),
         map(tag("<"), |_| CompareOp::Lt),
         map(tag("="), |_| CompareOp::Eq),
+        map(nom::bytes::complete::tag_no_case("STARTS WITH"), |_| CompareOp::StartsWith),
+        map(nom::bytes::complete::tag_no_case("ENDS WITH"), |_| CompareOp::EndsWith),
+        map(nom::bytes::complete::tag_no_case("CONTAINS"), |_| CompareOp::Contains),
     ))(input)
 }
 

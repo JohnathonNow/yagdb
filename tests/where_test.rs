@@ -49,3 +49,28 @@ fn test_where_pushdown() {
     assert!(result.contains("Person.name"), "Expected Person.name in index lookup");
     assert!(result.contains("Alice"), "Expected Alice in index lookup");
 }
+
+#[test]
+fn test_string_operators_execution() {
+    let graph = Graph::new();
+    let q_create = "CREATE (a:Item {name: 'Apple'}), (b:Item {name: 'Banana'}), (c:Item {name: 'Cherry'})";
+    graph.execute(q_create).unwrap();
+
+    let q_starts = "MATCH (n:Item) WHERE n.name STARTS WITH 'A' RETURN n.name";
+    let res_starts = graph.execute(q_starts).unwrap();
+    assert!(res_starts.contains("Apple"));
+    assert!(!res_starts.contains("Banana"));
+    assert!(!res_starts.contains("Cherry"));
+
+    let q_ends = "MATCH (n:Item) WHERE n.name ENDS WITH 'a' RETURN n.name";
+    let res_ends = graph.execute(q_ends).unwrap();
+    assert!(!res_ends.contains("Apple"));
+    assert!(res_ends.contains("Banana"));
+    assert!(!res_ends.contains("Cherry"));
+
+    let q_contains = "MATCH (n:Item) WHERE n.name CONTAINS 'err' RETURN n.name";
+    let res_contains = graph.execute(q_contains).unwrap();
+    assert!(!res_contains.contains("Apple"));
+    assert!(!res_contains.contains("Banana"));
+    assert!(res_contains.contains("Cherry"));
+}
