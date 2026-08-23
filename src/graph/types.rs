@@ -50,4 +50,8 @@ pub enum WalEntry {
         node_id: usize,
         label_id: usize,
     },
+    DropIndex {
+        label: usize,
+        property: String,
+    },
 }
