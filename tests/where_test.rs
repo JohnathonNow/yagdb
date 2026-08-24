@@ -28,6 +28,30 @@ fn test_match_where_evaluation() {
     assert!(results2.contains("Alice"));
     assert!(results2.contains("Bob"));
     assert!(!results2.contains("Charlie"));
+
+    // Test STARTS WITH
+    let results3 = graph.execute("MATCH (n:Person) WHERE n.name STARTS WITH 'Al' RETURN n").unwrap();
+    assert!(results3.contains("Alice"));
+    assert!(!results3.contains("Bob"));
+    assert!(!results3.contains("Charlie"));
+    let parsed3: serde_json::Value = serde_json::from_str(&results3).unwrap();
+    assert_eq!(parsed3.as_array().unwrap().len(), 1);
+
+    // Test ENDS WITH
+    let results4 = graph.execute("MATCH (n:Person) WHERE n.name ENDS WITH 'ie' RETURN n").unwrap();
+    assert!(!results4.contains("Alice"));
+    assert!(!results4.contains("Bob"));
+    assert!(results4.contains("Charlie"));
+    let parsed4: serde_json::Value = serde_json::from_str(&results4).unwrap();
+    assert_eq!(parsed4.as_array().unwrap().len(), 1);
+
+    // Test CONTAINS
+    let results5 = graph.execute("MATCH (n:Person) WHERE n.name CONTAINS 'o' RETURN n").unwrap();
+    assert!(!results5.contains("Alice"));
+    assert!(results5.contains("Bob"));
+    assert!(!results5.contains("Charlie"));
+    let parsed5: serde_json::Value = serde_json::from_str(&results5).unwrap();
+    assert_eq!(parsed5.as_array().unwrap().len(), 1);
 }
 
 

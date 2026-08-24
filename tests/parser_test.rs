@@ -62,6 +62,19 @@ fn test_where_clause() {
         }
         _ => panic!("Expected Match clause with condition"),
     }
+
+    let string_ops_input = "MATCH (n) WHERE n.name STARTS WITH 'Al' OR n.name ENDS WITH 'ice' OR n.name CONTAINS 'li' RETURN n";
+    let (rest, query) = parse_query(string_ops_input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => {
+            match condition {
+                Condition::Or(_, _) => {} // successfully parsed ORs
+                _ => panic!("Expected Or"),
+            }
+        }
+        _ => panic!("Expected Match clause with condition"),
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use nom::{
     multi::{many0, separated_list1},
     branch::alt,
-    bytes::complete::{tag, take_while},
+    bytes::complete::{tag, take_while, tag_no_case},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
     combinator::{all_consuming, map, opt, recognize},
     error::Error,
@@ -51,6 +51,7 @@ pub enum Expression {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// Represents the comparison operators supported in Cypher WHERE clauses.
 pub enum CompareOp {
     Eq,
     Neq,
@@ -58,6 +59,12 @@ pub enum CompareOp {
     Gte,
     Lt,
     Lte,
+    /// Checks if a string starts with a given prefix. Case-sensitive.
+    StartsWith,
+    /// Checks if a string ends with a given suffix. Case-sensitive.
+    EndsWith,
+    /// Checks if a string contains a given substring. Case-sensitive.
+    Contains,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -353,6 +360,9 @@ fn compare_op(input: &str) -> IResult<&str, CompareOp> {
         map(tag(">"), |_| CompareOp::Gt),
         map(tag("<"), |_| CompareOp::Lt),
         map(tag("="), |_| CompareOp::Eq),
+        map(tag_no_case("STARTS WITH"), |_| CompareOp::StartsWith),
+        map(tag_no_case("ENDS WITH"), |_| CompareOp::EndsWith),
+        map(tag_no_case("CONTAINS"), |_| CompareOp::Contains),
     ))(input)
 }
 
