@@ -879,11 +879,15 @@ impl Graph {
                             let mut overall_skipped = 0;
                             let overall_skip = skip_opt.unwrap_or(0);
 
+                            // ⚡ Bolt: Reuse ResultSet allocations across iterations to avoid repeated memory allocations.
+                            let mut single_res = ResultSet::new();
+                            let mut matches = ResultSet::new();
+
                             for i in 0..result_set.rows {
-                                let mut single_res = ResultSet::new();
+                                single_res.clear();
                                 single_res.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
 
-                                let mut matches = ResultSet::new();
+                                matches.clear();
                                 self.execute_plan_and_bind_paths(
                                     &plan,
                                     &paths,
@@ -1893,16 +1897,20 @@ impl Graph {
                 op_name = "CrossProduct".to_string();
                 // To preserve incoming row associations correctly when cross joining independent paths
                 // evaluated on the SAME incoming row, we process each incoming row separately for cross-product.
+
+                // ⚡ Bolt: Reuse ResultSet allocations across iterations to avoid repeated memory allocations.
                 let mut single_res = ResultSet::new();
+                let mut left_res = ResultSet::new();
+                let mut right_res = ResultSet::new();
                 for i in 0..in_res.rows {
                     single_res.clear();
                     single_res.push_row_from(in_res, i, std::iter::empty::<(&str, GraphElement)>());
 
-                    let mut left_res = ResultSet::new();
+                    left_res.clear();
                     self.execute_plan(left, &single_res, &mut left_res, profile, depth + 1, None, txid);
 
                     let mut right_prof = if profile.is_some() { Some(String::new()) } else { None };
-                    let mut right_res = ResultSet::new();
+                    right_res.clear();
                     self.execute_plan(right, &single_res, &mut right_res, &mut right_prof, depth + 1, None, txid);
 
                     if let Some(prof) = profile {

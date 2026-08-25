@@ -38,3 +38,6 @@
 ## 2024-08-21 - Box large ExecutionStep variants to reduce enum size
 **Learning:** In yagdb's `planner.rs`, large variants within the `ExecutionStep` enum (like `PlanNode` and `Condition` in `Match`) are boxed as `Option<Box<T>>` rather than `Box<Option<T>>`. This avoids heap allocation for the `None` case and reduces the overall enum size (e.g., from 504 bytes down to 104 bytes), preventing memory bloat and improving CPU cache locality during execution.
 **Action:** Always box large inner types inside `Option` as `Option<Box<T>>` rather than `Box<Option<T>>` to prevent unnecessary heap allocations for `None` variants and reduce the size of the containing enum.
+## 2024-08-07 - Optimize HashJoin ResultSet Allocations
+**Learning:** `ResultSet` structures within `yagdb`'s execution loops inside `PlanNode::HashJoin`, `CrossProduct`, and `ExecutionStep::Merge` incur high allocation overhead when re-instantiated on every iteration.
+**Action:** Reuse existing `ResultSet` memory allocations by instantiating them outside hot loops and calling `.clear()` inside the loop, preserving vector capacities.
