@@ -237,3 +237,38 @@ fn test_parse_remove() {
         ])
     );
 }
+
+#[test]
+fn test_string_operators() {
+    let input = "MATCH (n) WHERE n.name STARTS WITH 'A' AND n.name ENDS WITH 'z' AND n.name CONTAINS 'li' RETURN n";
+    use yagdb::parser::{Condition, CompareOp, Clause};
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => {
+            match condition {
+                Condition::And(left, right) => {
+                    match &**left {
+                        Condition::And(inner_left, inner_right) => {
+                            match &**inner_left {
+                                Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::StartsWith),
+                                _ => panic!("Expected Compare StartsWith"),
+                            }
+                            match &**inner_right {
+                                Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::EndsWith),
+                                _ => panic!("Expected Compare EndsWith"),
+                            }
+                        }
+                        _ => panic!("Expected And"),
+                    }
+                    match &**right {
+                        Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::Contains),
+                        _ => panic!("Expected Compare Contains"),
+                    }
+                }
+                _ => panic!("Expected And at the root"),
+            }
+        }
+        _ => panic!("Expected Match clause with condition"),
+    }
+}
