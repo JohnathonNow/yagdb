@@ -41,3 +41,6 @@
 ## 2024-08-07 - Optimize HashJoin ResultSet Allocations
 **Learning:** `ResultSet` structures within `yagdb`'s execution loops inside `PlanNode::HashJoin`, `CrossProduct`, and `ExecutionStep::Merge` incur high allocation overhead when re-instantiated on every iteration.
 **Action:** Reuse existing `ResultSet` memory allocations by instantiating them outside hot loops and calling `.clear()` inside the loop, preserving vector capacities.
+## 2026-08-25 - Pre-resolve labels to optimize matching
+**Learning:** In yagdb, `node_matches` and `edge_matches` evaluated `self.labels.read().get(l)` on every call. In tight loops like `find_nodes` which iterate over all items, this introduced massive read lock overhead.
+**Action:** Label IDs should be resolved from strings once prior to iterating and passed down to match functions.

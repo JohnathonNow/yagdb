@@ -1676,15 +1676,18 @@ impl Graph {
             PlanNode::NodeLabelLookup { label, pattern } => {
                 op_name = format!("NodeLabelLookup({})", label);
                 let mut matched_nodes = Vec::new();
-                if let Some(label_id) = self.labels.read().get(label) {
-                    for id in 0..self.nodes.len_items() {
-                        self.nodes.with_item(id, |node| {
-                            if node.labels.contains(label_id)
-                                && self.node_matches(node, pattern, txid)
-                            {
-                                matched_nodes.push(id);
-                            }
-                        }).unwrap();
+                if let Some(label_id) = self.labels.read().get(label).copied() {
+                    let pattern_label_id = self.resolve_node_label(pattern);
+                    if let Some(pattern_label_id) = pattern_label_id {
+                        for id in 0..self.nodes.len_items() {
+                            self.nodes.with_item(id, |node| {
+                                if node.labels.contains(&label_id)
+                                    && self.node_matches(node, pattern, pattern_label_id, txid)
+                                {
+                                    matched_nodes.push(id);
+                                }
+                            }).unwrap();
+                        }
                     }
                 }
 
@@ -1721,12 +1724,15 @@ impl Graph {
                         }
                     }
                 }
-                for id in candidate_ids {
-                    self.nodes.with_item(id, |node| {
-                        if self.node_matches(node, pattern, txid) {
-                            matched_nodes.push(id);
-                        }
-                    }).unwrap();
+
+                if let Some(pattern_label_id) = self.resolve_node_label(pattern) {
+                    for id in candidate_ids {
+                        self.nodes.with_item(id, |node| {
+                            if self.node_matches(node, pattern, pattern_label_id, txid) {
+                                matched_nodes.push(id);
+                            }
+                        }).unwrap();
+                    }
                 }
 
                 for i in 0..in_res.rows {
@@ -2102,7 +2108,12 @@ impl Graph {
             } else {
                 true
             } && {
-                self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern, u64::MAX)).unwrap()
+                let target_label_id = self.resolve_node_label(target_node_pattern);
+                if let Some(target_label_id) = target_label_id {
+                    self.nodes.with_item(current_node_id, |node| self.node_matches(node, target_node_pattern, target_label_id, u64::MAX)).unwrap()
+                } else {
+                    false
+                }
             };
 
             if matches_target {
@@ -2126,6 +2137,11 @@ impl Graph {
             }
         }
 
+        let rel_label_id = match self.resolve_rel_label(rel_pattern) {
+            Some(id) => id,
+            None => return,
+        };
+
         let start_node_edges = self.nodes.with_item(current_node_id, |n| n.edges.clone()).unwrap();
 
         for &edge_id in &start_node_edges {
@@ -2136,7 +2152,7 @@ impl Graph {
                 if path_edges.contains(&edge_id) {
                     return None;
                 }
-                if !self.edge_matches(edge, rel_pattern) {
+                if !self.edge_matches(edge, rel_pattern, rel_label_id) {
                     return None;
                 }
                 Some(edge.end)
@@ -2165,11 +2181,32 @@ impl Graph {
         }
     }
 
+    fn resolve_node_label(&self, pattern: &NodePattern) -> Option<Option<usize>> {
+        if let Some(l) = &pattern.label {
+            self.labels.read().get(l).copied().map(Some)
+        } else {
+            Some(None)
+        }
+    }
+
+    fn resolve_rel_label(&self, pattern: &RelPattern) -> Option<Option<usize>> {
+        if let Some(l) = &pattern.label {
+            self.labels.read().get(l).copied().map(Some)
+        } else {
+            Some(None)
+        }
+    }
+
     fn find_nodes(&self, pattern: &NodePattern, in_res: &ResultSet, row_idx: usize, txid: u64) -> Vec<usize> {
+        let pattern_label_id = match self.resolve_node_label(pattern) {
+            Some(id) => id,
+            None => return vec![], // Label constraint exists but not in graph
+        };
+
         // If node is already bound in env, return just that node if it matches the pattern
         if let Some(var) = &pattern.variable {
             if let Some(GraphElement::Node(id)) = in_res.get(row_idx, var) {
-                if self.nodes.with_item(*id, |node| self.node_matches(node, pattern, txid)).unwrap() {
+                if self.nodes.with_item(*id, |node| self.node_matches(node, pattern, pattern_label_id, txid)).unwrap() {
                     return vec![*id];
                 } else {
                     return vec![];
@@ -2192,7 +2229,7 @@ impl Graph {
                                 let mut matched_nodes = Vec::new();
                                 for &id in node_ids {
                                     self.nodes.with_item(id, |node| {
-                                        if self.node_matches(node, pattern, txid) {
+                                        if self.node_matches(node, pattern, pattern_label_id, txid) {
                                             matched_nodes.push(id);
                                         }
                                     }).unwrap();
@@ -2211,7 +2248,7 @@ impl Graph {
         let mut matched_nodes = Vec::new();
         for id in 0..self.nodes.len_items() {
             self.nodes.with_item(id, |node| {
-                if self.node_matches(node, pattern, txid) {
+                if self.node_matches(node, pattern, pattern_label_id, txid) {
                     matched_nodes.push(id);
                 }
             }).unwrap();
@@ -2219,19 +2256,9 @@ impl Graph {
         matched_nodes
     }
 
-    fn node_matches(&self, node: &Node, pattern: &NodePattern, txid: u64) -> bool {
+    fn node_matches(&self, node: &Node, pattern: &NodePattern, label_id: Option<usize>, txid: u64) -> bool {
 
         if node.deleted || node.created_by > txid || node.deleted_by.is_some_and(|d| d <= txid) { return false; }
-
-        let label_id = if let Some(l) = &pattern.label {
-            if let Some(id) = self.labels.read().get(l) {
-                Some(*id)
-            } else {
-                return false; // label not even in graph
-            }
-        } else {
-            None
-        };
 
         if let Some(lid) = label_id {
             if !node.labels.contains(&lid) {
@@ -2257,6 +2284,17 @@ impl Graph {
         row_idx: usize,
     ) -> Vec<(usize, usize)> {
         let mut matches = Vec::new();
+
+        let rel_label_id = match self.resolve_rel_label(rel_pattern) {
+            Some(id) => id,
+            None => return matches,
+        };
+
+        let target_label_id = match self.resolve_node_label(target_node_pattern) {
+            Some(id) => id,
+            None => return matches,
+        };
+
         let start_node_edges = self.nodes.with_item(start_id, |n| n.edges.clone()).unwrap();
 
         // Pre-check if target is bound
@@ -2282,7 +2320,7 @@ impl Graph {
                         }
                     }
                 }
-                if !self.edge_matches(edge, rel_pattern) {
+                if !self.edge_matches(edge, rel_pattern, rel_label_id) {
                     return None;
                 }
                 Some(edge.end)
@@ -2297,7 +2335,7 @@ impl Graph {
                 }
 
                 self.nodes.with_item(end_node_id, |end_node| {
-                    if self.node_matches(end_node, target_node_pattern, u64::MAX) {
+                    if self.node_matches(end_node, target_node_pattern, target_label_id, u64::MAX) {
                         matches.push((end_node_id, edge_id));
                     }
                 }).unwrap();
@@ -2307,19 +2345,9 @@ impl Graph {
         matches
     }
 
-    fn edge_matches(&self, edge: &Edge, pattern: &RelPattern) -> bool {
+    fn edge_matches(&self, edge: &Edge, pattern: &RelPattern, label_id: Option<usize>) -> bool {
 
         if edge.deleted { return false; }
-
-        let label_id = if let Some(l) = &pattern.label {
-            if let Some(id) = self.labels.read().get(l) {
-                Some(*id)
-            } else {
-                return false;
-            }
-        } else {
-            None
-        };
 
         if let Some(lid) = label_id {
             if !edge.labels.contains(&lid) {
