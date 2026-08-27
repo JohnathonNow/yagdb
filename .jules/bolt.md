@@ -44,3 +44,7 @@
 ## 2026-08-25 - Pre-resolve labels to optimize matching
 **Learning:** In yagdb, `node_matches` and `edge_matches` evaluated `self.labels.read().get(l)` on every call. In tight loops like `find_nodes` which iterate over all items, this introduced massive read lock overhead.
 **Action:** Label IDs should be resolved from strings once prior to iterating and passed down to match functions.
+
+## 2024-05-30 - Prevent Double Cloning in Grouping Aggregations
+**Learning:** When reusing a `Vec` buffer (like `key_buf`) in a hot loop to perform lookups in a map, using `map.insert(key_buf.clone(), value)` on a cache miss will clone both the vector and all its elements, even if they were just constructed. For types with deep cloning semantics (like AST nodes or recursive graph elements), this double-clone creates a significant performance regression in high-cardinality queries.
+**Action:** Instead of cloning the buffer on insertion, transfer ownership of it into the map and leave a fresh buffer in its place using `std::mem::replace`: `let new_key = std::mem::replace(&mut key_buf, Vec::with_capacity(expected_len)); map.insert(new_key, value);`. This completely avoids double-cloning on insertions while still reusing the buffer for lookups.

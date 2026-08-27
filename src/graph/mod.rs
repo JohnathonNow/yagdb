@@ -1297,23 +1297,32 @@ impl Graph {
 
                     if has_aggregate {
                         let mut groups: indexmap::IndexMap<Vec<Option<GraphElement>>, Vec<usize>> = indexmap::IndexMap::new();
+                        // ⚡ BOLT: Reuse allocation buffer to avoid continuous vec creation in grouping aggregations.
+                        let mut key_buf = Vec::with_capacity(grouping_items.len());
 
                         for i in 0..result_set.rows {
-                            let key: Vec<Option<GraphElement>> =
-                                grouping_items.iter().map(|item| {
-                                    match item {
-                                        ProjectionItem::Variable(var) | ProjectionItem::AliasedVariable(var, _) => {
-                                            result_set.get(i, var).cloned()
-                                        }
-                                        ProjectionItem::Property(var, prop) | ProjectionItem::AliasedProperty(var, prop, _) => {
-                                            self.get_property_as_element(&result_set, i, var, prop)
-                                        }
-                                        _ => None
+                            key_buf.clear();
+                            for item in &grouping_items {
+                                let key_part = match item {
+                                    ProjectionItem::Variable(var) | ProjectionItem::AliasedVariable(var, _) => {
+                                        result_set.get(i, var).cloned()
                                     }
-                                }).collect();
+                                    ProjectionItem::Property(var, prop) | ProjectionItem::AliasedProperty(var, prop, _) => {
+                                        self.get_property_as_element(&result_set, i, var, prop)
+                                    }
+                                    _ => None
+                                };
+                                key_buf.push(key_part);
+                            }
 
-                            // ⚡ Bolt: Use IndexMap for O(1) hash-based grouping while preserving deterministic insertion order
-                            groups.entry(key).or_default().push(i);
+                            // ⚡ BOLT: Avoid unconditional key cloning for cache hits. Use IndexMap for O(1) hash-based grouping.
+                            if let Some(indices) = groups.get_mut(&key_buf) {
+                                indices.push(i);
+                            } else {
+                                // Transfer ownership of the buffer to the map and create a fresh one for the next loop to avoid double-cloning
+                                let new_key = std::mem::replace(&mut key_buf, Vec::with_capacity(grouping_items.len()));
+                                groups.insert(new_key, vec![i]);
+                            }
                         }
 
                         // Compute aggregates per group
