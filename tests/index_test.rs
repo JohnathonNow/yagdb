@@ -1,0 +1,104 @@
+use yagdb::parser::{parse_query, Clause};
+
+#[test]
+fn test_parse_create_index() {
+    let query = "CREATE INDEX ON :Person(name)";
+    let (rest, ast) = parse_query(query).unwrap();
+    assert_eq!(rest, "");
+    match &ast.clauses[0] {
+        Clause::CreateIndex { label, property, index_type } => {
+            assert_eq!(label, "Person");
+            assert_eq!(property, "name");
+            assert_eq!(*index_type, yagdb::graph::IndexType::Hash);
+        }
+        _ => panic!("Expected CreateIndex clause"),
+    }
+}
+
+use std::fs;
+use yagdb::graph::Graph;
+
+#[test]
+fn test_index_usage() {
+    let snapshot_path = "test_index_graph.bin";
+    let wal_path = "test_index_wal.bin";
+
+    let _ = fs::remove_file(snapshot_path);
+    let _ = fs::remove_file(wal_path);
+
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+        g.execute("CREATE (a:User {username: 'alice'}), (b:User {username: 'bob'})")
+            .unwrap();
+
+        // Create an index on the username property
+        g.execute("CREATE INDEX ON :User(username)").unwrap();
+
+        // Add another node after index creation to ensure it gets added to index
+        g.execute("CREATE (c:User {username: 'charlie'})").unwrap();
+    }
+
+    // Reload graph to test recovery
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+
+        // Create an index on the username property
+        g.execute("CREATE INDEX ON :User(username)").unwrap();
+
+        // Add another node after index creation to ensure it gets added to index
+        g.execute("CREATE (c:User {username: 'charlie'})").unwrap();
+    }
+
+    // Reload graph to test recovery
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+
+        let result = g
+            .execute("MATCH (u:User {username: 'bob'}) RETURN u")
+            .unwrap();
+        assert!(result.contains("\"u\":"));
+        assert!(result.contains(r#""username": "bob""#));
+        assert!(!result.contains("alice"));
+        assert!(!result.contains("charlie"));
+
+        let result2 = g
+            .execute("MATCH (u:User {username: 'charlie'}) RETURN u")
+            .unwrap();
+        assert!(result2.contains("\"u\":"));
+        assert!(result2.contains(r#""username": "charlie""#));
+
+        // Drop the index
+        g.execute("DROP INDEX ON :User(username)").unwrap();
+    }
+
+    // Reload graph to test drop index recovery
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+
+        // Verify index is removed by checking if it exists internally.
+        // We can't easily check internal indices without exposing them,
+        // but we can execute a query that would have used it and ensure it still works (fallback to full scan).
+        let result3 = g
+            .execute("MATCH (u:User {username: 'bob'}) RETURN u")
+            .unwrap();
+        assert!(result3.contains("\"u\":"));
+        assert!(result3.contains(r#""username": "bob""#));
+    }
+
+    let _ = fs::remove_file(snapshot_path);
+    let _ = fs::remove_file(wal_path);
+}
+
+#[test]
+fn test_parse_drop_index() {
+    let query = "DROP INDEX ON :Person(name)";
+    let (rest, ast) = parse_query(query).unwrap();
+    assert_eq!(rest, "");
+    match &ast.clauses[0] {
+        Clause::DropIndex { label, property } => {
+            assert_eq!(label, "Person");
+            assert_eq!(property, "name");
+        }
+        _ => panic!("Expected DropIndex clause"),
+    }
+}

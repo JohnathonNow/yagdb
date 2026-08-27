@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-and-bench:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Check
+      run: cargo check
+    - name: Run tests
+      run: cargo test
+    - name: Check with cluster
+      run: cargo check --features cluster
+    - name: Run tests with cluster
+      run: cargo test --features cluster
+    - name: Run benchmarks
+      run: cargo bench

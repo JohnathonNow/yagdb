@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YAGDB WASM REPL</title>
+    <title>YAGDB Console</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 2rem; background: #f4f4f9;}
@@ -14,21 +14,15 @@
     </style>
 </head>
 <body>
-    <h1>YAGDB REPL</h1>
-    <p>Try running some cypher queries in the WASM version of the graph database!</p>
-    <p><a href="https://github.com/JohnathonNow/yagdb/tree/benchmarks/benchmarks" target="_blank">View Benchmarks</a></p>
-    <textarea id="queryInput" placeholder="CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
-MATCH (n)-[r]->(m) RETURN n, r, m"></textarea>
+    <h1>YAGDB Console</h1>
+    <p>Run cypher queries against the remote database!</p>
+    <textarea id="queryInput" placeholder="MATCH (n)-[r]->(m) RETURN n, r, m"></textarea>
     <button id="runBtn">Run Query</button>
-    <button id="randomBtn">Populate Random Graph</button>
-    <button id="clearBtn">Clear Graph</button>
 
     <div id="output">Output will appear here...</div>
     <div id="network"></div>
 
-    <script type="module">
-        import init, { execute_query, clear_graph } from './pkg/yagdb.js';
-
+    <script>
         let network = null;
         let nodesData = new vis.DataSet([]);
         let edgesData = new vis.DataSet([]);
@@ -112,26 +106,34 @@ MATCH (n)-[r]->(m) RETURN n, r, m"></textarea>
         }
 
         async function run() {
-            await init();
-            console.log("WASM Initialized!");
-
             initNetwork();
 
             const runBtn = document.getElementById('runBtn');
             const queryInput = document.getElementById('queryInput');
             const outputDiv = document.getElementById('output');
-            const randomBtn = document.getElementById('randomBtn');
-            const clearBtn = document.getElementById('clearBtn');
 
-            runBtn.addEventListener('click', () => {
+            runBtn.addEventListener('click', async () => {
                 const queries = queryInput.value.trim().split('\n').filter(q => q.trim() !== '');
                 if (queries.length === 0) return;
 
                 let fullResult = "";
                 for (let q of queries) {
                     try {
-                        const result = execute_query(q);
-                        fullResult += "Query: " + q + "\n" + (result || "(Empty Result)") + "\n\n";
+                        const response = await fetch('/query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'text/plain'
+                            },
+                            body: q
+                        });
+
+                        const result = await response.text();
+
+                        if (response.ok) {
+                            fullResult += "Query: " + q + "\n" + (result || "(Empty Result)") + "\n\n";
+                        } else {
+                            fullResult += "Query: " + q + "\nError: " + result + "\n\n";
+                        }
                     } catch (e) {
                         fullResult += "Query: " + q + "\nError: " + e + "\n\n";
                     }
@@ -139,25 +141,6 @@ MATCH (n)-[r]->(m) RETURN n, r, m"></textarea>
 
                 outputDiv.textContent = fullResult;
                 updateGraphFromOutput(fullResult);
-            });
-
-            clearBtn.addEventListener('click', () => {
-                clear_graph();
-                nodesData.clear();
-                edgesData.clear();
-                outputDiv.textContent = "Graph cleared.";
-            });
-
-            randomBtn.addEventListener('click', () => {
-                let queries = "";
-                for (let i = 0; i < 5; i++) {
-                    const n1 = "Node" + Math.floor(Math.random() * 1000);
-                    const n2 = "Node" + Math.floor(Math.random() * 1000);
-                    const val = Math.floor(Math.random() * 100);
-                    queries += `CREATE (a:Random {name: '${n1}', val: ${val}})-[:CONNECTS]->(b:Random {name: '${n2}'})\n`;
-                }
-                queryInput.value = queries + "MATCH (n)-[r]->(m) RETURN n, r, m";
-                runBtn.click();
             });
         }
         run();
