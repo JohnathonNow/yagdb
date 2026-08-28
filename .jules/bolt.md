@@ -44,3 +44,6 @@
 ## 2026-08-25 - Pre-resolve labels to optimize matching
 **Learning:** In yagdb, `node_matches` and `edge_matches` evaluated `self.labels.read().get(l)` on every call. In tight loops like `find_nodes` which iterate over all items, this introduced massive read lock overhead.
 **Action:** Label IDs should be resolved from strings once prior to iterating and passed down to match functions.
+## 2026-08-28 - Optimize aggregation grouping key allocation
+**Learning:** In yagdb's query grouping loop (`ExecutionStep::Return` and `With`), re-allocating a `Vec` on every row iteration causes significant memory allocation overhead. Rust's `indexmap` provides `get_mut` which can be used to check for cache hits without consuming the key, allowing for ownership transfer (`std::mem::replace`) only on cache misses.
+**Action:** Pre-allocate a reusable `key_buf` vector outside the grouping loop. Populate it per row, check for a match with `get_mut`, and use `std::mem::replace` to insert it only when a new group is encountered, avoiding costly per-row heap allocations.

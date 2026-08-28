@@ -1297,23 +1297,29 @@ impl Graph {
 
                     if has_aggregate {
                         let mut groups: indexmap::IndexMap<Vec<Option<GraphElement>>, Vec<usize>> = indexmap::IndexMap::new();
+                        let mut key_buf = Vec::with_capacity(grouping_items.len());
 
                         for i in 0..result_set.rows {
-                            let key: Vec<Option<GraphElement>> =
-                                grouping_items.iter().map(|item| {
-                                    match item {
-                                        ProjectionItem::Variable(var) | ProjectionItem::AliasedVariable(var, _) => {
-                                            result_set.get(i, var).cloned()
-                                        }
-                                        ProjectionItem::Property(var, prop) | ProjectionItem::AliasedProperty(var, prop, _) => {
-                                            self.get_property_as_element(&result_set, i, var, prop)
-                                        }
-                                        _ => None
+                            key_buf.clear();
+                            for item in &grouping_items {
+                                let val = match item {
+                                    ProjectionItem::Variable(var) | ProjectionItem::AliasedVariable(var, _) => {
+                                        result_set.get(i, var).cloned()
                                     }
-                                }).collect();
+                                    ProjectionItem::Property(var, prop) | ProjectionItem::AliasedProperty(var, prop, _) => {
+                                        self.get_property_as_element(&result_set, i, var, prop)
+                                    }
+                                    _ => None,
+                                };
+                                key_buf.push(val);
+                            }
 
-                            // ⚡ Bolt: Use IndexMap for O(1) hash-based grouping while preserving deterministic insertion order
-                            groups.entry(key).or_default().push(i);
+                            // ⚡ Bolt: Avoid re-allocating Vec for group key. Use get_mut on cache hit, replace for ownership transfer on miss.
+                            if let Some(group_rows) = groups.get_mut(&key_buf) {
+                                group_rows.push(i);
+                            } else {
+                                groups.insert(std::mem::replace(&mut key_buf, Vec::with_capacity(grouping_items.len())), vec![i]);
+                            }
                         }
 
                         // Compute aggregates per group
