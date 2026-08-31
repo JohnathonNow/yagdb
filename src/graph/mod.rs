@@ -157,6 +157,13 @@ impl Graph {
                     WalEntry::DropIndex { label, property } => {
                         graph.drop_index_internal(label, property);
                     }
+                    WalEntry::SetEdgeProperty {
+                        edge_id,
+                        key,
+                        value,
+                    } => {
+                        graph.edges.with_mut_item(edge_id, |e| e.properties.insert(key.clone(), value.clone())).unwrap();
+                    }
                     WalEntry::SetNodeProperty {
                         node_id,
                         key,
@@ -983,6 +990,7 @@ impl Graph {
                 }
                 ExecutionStep::Set(var, key, value_expr) => {
                     let mut updated_nodes = std::collections::HashSet::new();
+                    let mut updated_edges = std::collections::HashSet::new();
                     for i in 0..result_set.rows {
                         if let Some(GraphElement::Node(node_id)) = result_set.get(i, &var) {
                             let node_id = *node_id;
@@ -1038,6 +1046,22 @@ impl Graph {
 
                                     self.log_wal(&WalEntry::SetNodeProperty {
                                         node_id,
+                                        key: key.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
+                            }
+                        } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, &var) {
+                            let edge_id = *edge_id;
+                            let evaluated_value = self.evaluate_expression_to_element(&value_expr, &result_set, i);
+                            if let Some(value) = evaluated_value.to_property_value() {
+                                if updated_edges.insert(edge_id) {
+                                    self.edges.with_mut_item(edge_id, |e| {
+                                        e.properties.insert(key.clone(), value.clone());
+                                    }).unwrap();
+
+                                    self.log_wal(&WalEntry::SetEdgeProperty {
+                                        edge_id,
                                         key: key.clone(),
                                         value: value.clone(),
                                     });

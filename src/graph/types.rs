@@ -54,4 +54,9 @@ pub enum WalEntry {
         label: usize,
         property: String,
     },
+    SetEdgeProperty {
+        edge_id: usize,
+        key: String,
+        value: crate::property::PropertyValue,
+    },
 }
