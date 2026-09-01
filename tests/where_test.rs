@@ -37,6 +37,32 @@ fn test_match_where_evaluation() {
 
 
 #[test]
+fn test_match_where_in() {
+    let graph = Graph::new();
+    let q_create = "CREATE (a:Person {name: 'Alice', age: 30}), (b:Person {name: 'Bob', age: 25}), (c:Person {name: 'Charlie', age: 35})";
+    graph.execute(q_create).unwrap();
+
+    let q_match = "MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] RETURN n";
+    let results = graph.execute(q_match).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&results).unwrap();
+    let count = parsed.as_array().unwrap().len();
+    assert_eq!(count, 2);
+    assert!(results.contains("Alice"));
+    assert!(results.contains("Bob"));
+    assert!(!results.contains("Charlie"));
+
+    let q_match_nums = "MATCH (n:Person) WHERE n.age IN [25, 35] RETURN n";
+    let results_nums = graph.execute(q_match_nums).unwrap();
+    let parsed_nums: serde_json::Value = serde_json::from_str(&results_nums).unwrap();
+    let count_nums = parsed_nums.as_array().unwrap().len();
+    assert_eq!(count_nums, 2);
+    assert!(!results_nums.contains("Alice"));
+    assert!(results_nums.contains("Bob"));
+    assert!(results_nums.contains("Charlie"));
+}
+
+#[test]
 fn test_where_pushdown() {
     let graph = Graph::new();
     graph.execute("CREATE HASH INDEX ON :Person(name)").unwrap();

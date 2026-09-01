@@ -36,7 +36,7 @@ use crate::{
     edge::Edge,
     node::Node,
     parser::{
-        parse_query, Condition, Expression, NodePattern, Path, ProjectionItem,
+        parse_query, CompareOp, Condition, Expression, NodePattern, Path, ProjectionItem,
         RelPattern,
     },
 };
@@ -2382,6 +2382,17 @@ impl Graph {
             }
             Condition::Not(inner) => !self.evaluate_condition(inner, in_res, row_idx),
             Condition::Compare { left, op, right } => {
+                if let CompareOp::In = op {
+                    if let Expression::List(elements) = right {
+                        let l_val = self.evaluate_expression(left, in_res, row_idx);
+                        return elements.iter().any(|item| {
+                            let item_val = self.evaluate_expression(item, in_res, row_idx);
+                            l_val.compare(&item_val, &CompareOp::Eq)
+                        });
+                    }
+                    return false;
+                }
+
                 let l_val = self.evaluate_expression(left, in_res, row_idx);
                 let r_val = self.evaluate_expression(right, in_res, row_idx);
                 l_val.compare(&r_val, op)
