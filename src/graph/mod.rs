@@ -1325,8 +1325,10 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
+                        // ⚡ Bolt: Avoid allocating bindings inside loop to reduce memory allocations overhead
+                        let mut bindings = Vec::with_capacity(items.len());
                         for (_group_key, group_rows) in groups.into_iter() {
-                            let mut bindings = Vec::new();
+                            bindings.clear();
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
@@ -1421,12 +1423,15 @@ impl Graph {
                                     ProjectionItem::Star => {}
                                 }
                             }
-                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
+                            // ⚡ Bolt: Drain the bindings vector instead of iterating and cloning strings/elements, avoiding extra allocations.
+                            final_res.push_row_from(&empty_res, 0, bindings.drain(..));
                         }
                     } else {
                         // Simple projection without aggregation
+                        // ⚡ Bolt: Avoid allocating bindings inside loop to reduce memory allocations overhead
+                        let mut bindings = Vec::with_capacity(items.len());
                         for i in 0..result_set.rows {
-                            let mut bindings = Vec::new();
+                            bindings.clear();
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
@@ -1471,7 +1476,8 @@ impl Graph {
                                     _ => {}
                                 }
                             }
-                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
+                            // ⚡ Bolt: Drain the bindings vector instead of iterating and cloning strings/elements, avoiding extra allocations.
+                            final_res.push_row_from(&empty_res, 0, bindings.drain(..));
                         }
                     }
 

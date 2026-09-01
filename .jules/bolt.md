@@ -48,3 +48,6 @@
 ## 2024-08-29 - Optimize Aggregation Grouping Allocation
 **Learning:** In yagdb's `ExecutionStep::Return`/`ExecutionStep::With` grouping aggregation, creating a new `Vec` for every row to use as an IndexMap key using `.collect()` caused unnecessary allocations. Using a pre-allocated `key_buf` with `.clear()` inside the loop, and combining `groups.get_mut` with `groups.insert(std::mem::replace(&mut key_buf, ...))` significantly reduces allocations.
 **Action:** When creating composite keys for mapping structures inside hot loops, avoid repeated instantiation by using a reused buffer (`Vec::with_capacity` / `.clear()`) and inserting into maps without double-cloning using `std::mem::replace`.
+## 2026-09-01 - Refactoring repeated Vec allocations in query projections
+**Learning:** In yagdb's query execution pipeline, repeated allocation of a new `Vec` for row bindings inside hot projection loops (like `ExecutionStep::Return`, `With`, and path mapping loops) incurs high memory allocation overhead, limiting performance on dense or complex queries.
+**Action:** When working with row aggregations or variable bindings, always allocate the vector once outside the loop using `Vec::with_capacity(items.len())`, `.clear()` it in the loop, and use `.drain(..)` when transferring items to avoid cloning data elements.
