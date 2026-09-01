@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788186043997,
+  "lastUpdate": 1788262302438,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -3311,6 +3311,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 365148,
             "range": "± 6599",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1486aecd3559a13a561c6e4252bb41e39a55d048",
+          "message": "Merge pull request #143 from JohnathonNow/george/add-set-edge-property-12731896127900064602\n\n⚡ George: Add support for updating edge properties with SET",
+          "timestamp": "2026-09-01T04:20:46-07:00",
+          "tree_id": "e00f029ff53fbb5174a265eb23d897270f84fdb5",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/1486aecd3559a13a561c6e4252bb41e39a55d048"
+        },
+        "date": 1788262301270,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 23799,
+            "range": "± 837",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 25036,
+            "range": "± 670",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 42858,
+            "range": "± 908",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 31811,
+            "range": "± 958",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 99002,
+            "range": "± 2352",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 80209,
+            "range": "± 1313",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 99534,
+            "range": "± 1691",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 79817,
+            "range": "± 1209",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 50508,
+            "range": "± 2052",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 41924,
+            "range": "± 1585",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 99065,
+            "range": "± 3314",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 81095,
+            "range": "± 2906",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2329207174,
+            "range": "± 24538622",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 2662,
+            "range": "± 119",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 5005,
+            "range": "± 493",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 4326,
+            "range": "± 168",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 6311,
+            "range": "± 165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 7006,
+            "range": "± 251",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 11892,
+            "range": "± 337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 296050,
+            "range": "± 17092",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 301207,
+            "range": "± 11406",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 343455,
+            "range": "± 8901",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 405372,
+            "range": "± 18360",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 262356,
+            "range": "± 4341",
             "unit": "ns/iter"
           }
         ]
