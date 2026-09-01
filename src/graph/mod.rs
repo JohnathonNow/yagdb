@@ -821,12 +821,13 @@ impl Graph {
             match step {
                 ExecutionStep::Create(paths) => {
                     let mut new_result_set = ResultSet::new();
+                    let mut bindings = Vec::new();
                     for i in 0..result_set.rows {
-                        let mut bindings = Vec::new();
+                        bindings.clear();
                         for path in &paths {
                             self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
                         }
-                        new_result_set.push_row_from(&result_set, i, bindings);
+                        new_result_set.push_row_from(&result_set, i, bindings.drain(..));
                     }
                     result_set = new_result_set;
                 }
@@ -954,6 +955,7 @@ impl Graph {
                     let mut new_result_set = ResultSet::new();
                     let mut single_res = ResultSet::new();
                     let mut matches = ResultSet::new();
+                    let mut bindings = Vec::new();
                     for i in 0..result_set.rows {
                         for (plan_opt, path) in &planned_paths {
                             if let Some(plan) = plan_opt {
@@ -975,14 +977,14 @@ impl Graph {
                                         new_result_set.push_row_from(&matches, m_idx, std::iter::empty::<(&str, GraphElement)>());
                                     }
                                 } else {
-                                    let mut bindings = Vec::new();
+                                    bindings.clear();
                                     self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
-                                    new_result_set.push_row_from(&result_set, i, bindings);
+                                    new_result_set.push_row_from(&result_set, i, bindings.drain(..));
                                 }
                             } else {
-                                let mut bindings = Vec::new();
+                                bindings.clear();
                                 self.execute_create_path(path.clone(), &result_set, i, &mut bindings, txid);
-                                new_result_set.push_row_from(&result_set, i, bindings);
+                                new_result_set.push_row_from(&result_set, i, bindings.drain(..));
                             }
                         }
                     }
@@ -1349,8 +1351,9 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
+                        let mut bindings = Vec::with_capacity(items.len());
                         for (_group_key, group_rows) in groups.into_iter() {
-                            let mut bindings = Vec::new();
+                            bindings.clear();
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
@@ -1445,12 +1448,13 @@ impl Graph {
                                     ProjectionItem::Star => {}
                                 }
                             }
-                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
+                            final_res.push_row_from(&empty_res, 0, bindings.drain(..));
                         }
                     } else {
                         // Simple projection without aggregation
+                        let mut bindings = Vec::with_capacity(items.len());
                         for i in 0..result_set.rows {
-                            let mut bindings = Vec::new();
+                            bindings.clear();
                             for item in &items {
                                 match item {
                                     ProjectionItem::Variable(var) => {
@@ -1495,7 +1499,7 @@ impl Graph {
                                     _ => {}
                                 }
                             }
-                            final_res.push_row_from(&empty_res, 0, bindings.iter().map(|(k, v)| (k.as_str(), v.clone())));
+                            final_res.push_row_from(&empty_res, 0, bindings.drain(..));
                         }
                     }
 
@@ -2087,16 +2091,17 @@ impl Graph {
         );
 
         let mut single_res = ResultSet::new();
+        let mut bindings = Vec::with_capacity(2);
         for (next_node_id, edge_id) in matches {
             single_res.clear();
-            let mut bindings = Vec::new();
+            bindings.clear();
             if let Some(var) = &rel_pattern.variable {
                 bindings.push((var.as_str(), GraphElement::Edge(edge_id)));
             }
             if let Some(var) = &target_node_pattern.variable {
                 bindings.push((var.as_str(), GraphElement::Node(next_node_id)));
             }
-            single_res.push_row_from(in_res, row_idx, bindings);
+            single_res.push_row_from(in_res, row_idx, bindings.drain(..));
 
             self.match_edges_recursive(edges, edge_idx + 1, next_node_id, &single_res, 0, out, limit);
             if limit.is_some_and(|l| out.rows >= l) { return; }
@@ -2150,14 +2155,14 @@ impl Graph {
 
             if matches_target {
                 let mut single_res = ResultSet::new();
-                let mut bindings = Vec::new();
+                let mut bindings = Vec::with_capacity(2);
                 if let Some(var) = &rel_pattern.variable {
                     bindings.push((var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
                 }
                 if let Some(var) = &target_node_pattern.variable {
                     bindings.push((var.as_str(), GraphElement::Node(current_node_id)));
                 }
-                single_res.push_row_from(in_res, row_idx, bindings);
+                single_res.push_row_from(in_res, row_idx, bindings.drain(..));
 
                 self.match_edges_recursive(edges, edge_idx + 1, current_node_id, &single_res, 0, out, limit);
             }
