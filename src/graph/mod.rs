@@ -1252,8 +1252,9 @@ impl Graph {
                                 ProjectionItem::Property(var, prop) => {
                                     if let Some(val) = self.get_property_as_element(&result_set, i, var, prop) {
                                         if let GraphElement::List(v) = val {
+                                            // ⚡ BOLT: Hoist string formatting out of hot loop
+                                            let key = format!("{}.{}", var, prop);
                                             for x in v {
-                                                let key = format!("{}.{}", var, prop);
                                                 new_result_set.push_row_from(&result_set, i, [(key.as_str(), x.clone())]);
                                             }
                                         }
