@@ -1,10 +1,10 @@
 use nom::{
-    multi::{many0, separated_list1},
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
     combinator::{all_consuming, map, opt, recognize},
     error::Error,
+    multi::{many0, many1, separated_list1},
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
@@ -108,16 +108,40 @@ pub enum RemoveItem {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
-    Match(bool, Vec<Path>, Option<Condition>, Option<usize>, Option<usize>),
+    Match(
+        bool,
+        Vec<Path>,
+        Option<Condition>,
+        Option<usize>,
+        Option<usize>,
+    ),
     Merge(Vec<Path>),
     Set(String, String, Expression),
     Remove(Vec<RemoveItem>),
-    CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
-    DropIndex { label: String, property: String },
+    CreateIndex {
+        label: String,
+        property: String,
+        index_type: crate::graph::IndexType,
+    },
+    DropIndex {
+        label: String,
+        property: String,
+    },
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
-    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
+    Call(Box<Query>),
+    Return(
+        Vec<ProjectionItem>,
+        Option<Vec<OrderItem>>,
+        Option<usize>,
+        Option<usize>,
+    ),
+    With(
+        Vec<ProjectionItem>,
+        Option<Vec<OrderItem>>,
+        Option<usize>,
+        Option<usize>,
+    ),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -330,14 +354,17 @@ fn expression(input: &str) -> IResult<&str, Expression> {
         |i| {
             let (i, pairs) = delimited(
                 ws(char('{')),
-                nom::multi::separated_list0(ws(char(',')), tuple((
-                    ws(alt((
-                        map(identifier, |s| s.to_string()),
-                        map(string_literal, |s| s.to_string())
-                    ))),
-                    ws(char(':')),
-                    expression
-                ))),
+                nom::multi::separated_list0(
+                    ws(char(',')),
+                    tuple((
+                        ws(alt((
+                            map(identifier, |s| s.to_string()),
+                            map(string_literal, |s| s.to_string()),
+                        ))),
+                        ws(char(':')),
+                        expression,
+                    )),
+                ),
                 ws(char('}')),
             )(i)?;
             let mut map = std::collections::HashMap::new();
@@ -357,9 +384,15 @@ fn compare_op(input: &str) -> IResult<&str, CompareOp> {
         map(tag(">"), |_| CompareOp::Gt),
         map(tag("<"), |_| CompareOp::Lt),
         map(tag("="), |_| CompareOp::Eq),
-        map(nom::bytes::complete::tag_no_case("STARTS WITH"), |_| CompareOp::StartsWith),
-        map(nom::bytes::complete::tag_no_case("ENDS WITH"), |_| CompareOp::EndsWith),
-        map(nom::bytes::complete::tag_no_case("CONTAINS"), |_| CompareOp::Contains),
+        map(nom::bytes::complete::tag_no_case("STARTS WITH"), |_| {
+            CompareOp::StartsWith
+        }),
+        map(nom::bytes::complete::tag_no_case("ENDS WITH"), |_| {
+            CompareOp::EndsWith
+        }),
+        map(nom::bytes::complete::tag_no_case("CONTAINS"), |_| {
+            CompareOp::Contains
+        }),
         map(nom::bytes::complete::tag_no_case("IN"), |_| CompareOp::In),
     ))(input)
 }
@@ -449,7 +482,10 @@ fn match_clause(input: &str) -> IResult<&str, Clause> {
     let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Match(is_optional, paths, condition, skip_val, limit_val)))
+    Ok((
+        input,
+        Clause::Match(is_optional, paths, condition, skip_val, limit_val),
+    ))
 }
 
 fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
@@ -498,24 +534,18 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
 
             match (prop, alias) {
-                (Some(p), Some(a)) => {
-                    Ok((
-                        i,
-                        ProjectionItem::AliasedProperty(var.to_string(), p.to_string(), a.to_string()),
-                    ))
-                }
+                (Some(p), Some(a)) => Ok((
+                    i,
+                    ProjectionItem::AliasedProperty(var.to_string(), p.to_string(), a.to_string()),
+                )),
                 (Some(p), None) => {
                     Ok((i, ProjectionItem::Property(var.to_string(), p.to_string())))
                 }
-                (None, Some(a)) => {
-                    Ok((
-                        i,
-                        ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
-                    ))
-                }
-                (None, None) => {
-                    Ok((i, ProjectionItem::Variable(var.to_string())))
-                }
+                (None, Some(a)) => Ok((
+                    i,
+                    ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
+                )),
+                (None, None) => Ok((i, ProjectionItem::Variable(var.to_string()))),
             }
         },
         |i| {
@@ -558,8 +588,10 @@ fn create_index_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("CREATE"), tag("create"))))(input)?;
 
     let (input, index_type_opt) = opt(ws(alt((
-        tag("BTREE"), tag("btree"),
-        tag("HASH"), tag("hash")
+        tag("BTREE"),
+        tag("btree"),
+        tag("HASH"),
+        tag("hash"),
     ))))(input)?;
 
     let (input, _) = ws(alt((tag("INDEX ON"), tag("index on"))))(input)?;
@@ -650,7 +682,24 @@ fn remove_clause(input: &str) -> IResult<&str, Clause> {
 fn delete_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("DELETE"), tag("delete"))))(input)?;
     let (input, vars) = separated_list1(ws(char(',')), ws(identifier))(input)?;
-    Ok((input, Clause::Delete(vars.into_iter().map(|s| s.to_string()).collect())))
+    Ok((
+        input,
+        Clause::Delete(vars.into_iter().map(|s| s.to_string()).collect()),
+    ))
+}
+
+fn call_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("CALL"), tag("call"))))(input)?;
+    let (input, _) = ws(char('{'))(input)?;
+    let (input, clauses) = many1(ws(clause))(input)?;
+    let (input, _) = ws(char('}'))(input)?;
+    Ok((
+        input,
+        Clause::Call(Box::new(Query {
+            profile: false,
+            clauses,
+        })),
+    ))
 }
 
 fn clause(input: &str) -> IResult<&str, Clause> {
@@ -666,6 +715,7 @@ fn clause(input: &str) -> IResult<&str, Clause> {
         return_clause,
         unwind_clause,
         delete_clause,
+        call_clause,
     ))(input)
 }
 

@@ -24,7 +24,8 @@ struct GraphGuard {
 }
 impl Drop for GraphGuard {
     fn drop(&mut self) {
-        *self.g.cancel_flag.write() = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *self.g.cancel_flag.write() =
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     }
 }
 
@@ -121,17 +122,14 @@ async fn handle_query(
         let g = app.graph.clone();
         *g.cancel_flag.write() = cancel;
         let mut guard = GraphGuard { g };
-        let res = tokio::task::spawn_blocking(move || {
-            guard.g.execute(&body)
-        }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+        let res = tokio::task::spawn_blocking(move || guard.g.execute(&body))
+            .await
+            .unwrap_or_else(|_| Err("Query cancelled".to_string()));
         Ok(Json(QueryRes { result: res }))
     }
 }
 
-async fn handle_query_stream(
-    State(app): State<AppState>,
-    body: String,
-) -> impl IntoResponse {
+async fn handle_query_stream(State(app): State<AppState>, body: String) -> impl IntoResponse {
     let q = crate::parser::parse_query(&body);
     let is_write = match q {
         Ok((_, query)) => query
@@ -164,12 +162,10 @@ async fn handle_query_stream(
                             let url = format!("http://127.0.0.1:{}/query", 3000 + leader_node_id);
                             let client = reqwest::Client::new();
                             match client.post(&url).body(body).send().await {
-                                Ok(resp) => {
-                                    match resp.json::<QueryRes>().await {
-                                        Ok(res) => res.result,
-                                        Err(e) => Err(format!("Failed to parse response: {}", e)),
-                                    }
-                                }
+                                Ok(resp) => match resp.json::<QueryRes>().await {
+                                    Ok(res) => res.result,
+                                    Err(e) => Err(format!("Failed to parse response: {}", e)),
+                                },
                                 Err(e) => Err(format!("Failed to forward: {}", e)),
                             }
                         } else {
@@ -186,29 +182,32 @@ async fn handle_query_stream(
         let g = app.graph.clone();
         *g.cancel_flag.write() = cancel;
         let mut guard = GraphGuard { g };
-        tokio::task::spawn_blocking(move || {
-            guard.g.execute(&body)
-        }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()))
+        tokio::task::spawn_blocking(move || guard.g.execute(&body))
+            .await
+            .unwrap_or_else(|_| Err("Query cancelled".to_string()))
     };
 
     match result_to_stream {
         Ok(result) => {
             if result.trim().is_empty() {
-                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+                return Sse::new(futures::stream::empty::<
+                    Result<Event, std::convert::Infallible>,
+                >())
+                .into_response();
             }
 
             match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
                 Ok(arr) => {
                     let stream = futures::stream::iter(arr.into_iter().map(|val| {
                         Ok::<_, std::convert::Infallible>(
-                            Event::default().data(serde_json::to_string(&val).unwrap())
+                            Event::default().data(serde_json::to_string(&val).unwrap()),
                         )
                     }));
                     Sse::new(stream).into_response()
                 }
                 Err(_) => {
                     let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
-                        Event::default().data(result)
+                        Event::default().data(result),
                     )]);
                     Sse::new(stream).into_response()
                 }

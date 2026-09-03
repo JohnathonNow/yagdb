@@ -6,7 +6,10 @@ use yagdb::graph::Graph;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 4 {
-        eprintln!("Usage: {} <input_json_path> <snapshot_path> <wal_path>", args[0]);
+        eprintln!(
+            "Usage: {} <input_json_path> <snapshot_path> <wal_path>",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -32,20 +35,18 @@ fn main() {
 
     println!("Saving graph to snapshot {}", snapshot_path);
     match bincode::serialize(&graph) {
-        Ok(encoded) => {
-            match File::create(snapshot_path) {
-                Ok(mut file) => {
-                    if let Err(e) = file.write_all(&encoded) {
-                        eprintln!("Error writing snapshot to {}: {}", snapshot_path, e);
-                        std::process::exit(1);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error creating snapshot {}: {}", snapshot_path, e);
+        Ok(encoded) => match File::create(snapshot_path) {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(&encoded) {
+                    eprintln!("Error writing snapshot to {}: {}", snapshot_path, e);
                     std::process::exit(1);
                 }
             }
-        }
+            Err(e) => {
+                eprintln!("Error creating snapshot {}: {}", snapshot_path, e);
+                std::process::exit(1);
+            }
+        },
         Err(e) => {
             eprintln!("Error serializing graph: {}", e);
             std::process::exit(1);

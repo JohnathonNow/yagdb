@@ -1,7 +1,7 @@
 #![allow(unused)]
-use std::collections::HashMap;
-use std::borrow::Cow;
 use crate::parser::CompareOp;
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphElement {
@@ -24,11 +24,26 @@ impl Eq for GraphElement {}
 impl std::hash::Hash for GraphElement {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            GraphElement::Node(id) => { state.write_u8(0); id.hash(state); }
-            GraphElement::Edge(id) => { state.write_u8(1); id.hash(state); }
-            GraphElement::EdgeArray(arr) => { state.write_u8(2); arr.hash(state); }
-            GraphElement::Path(p) => { state.write_u8(3); p.hash(state); }
-            GraphElement::List(l) => { state.write_u8(4); l.hash(state); }
+            GraphElement::Node(id) => {
+                state.write_u8(0);
+                id.hash(state);
+            }
+            GraphElement::Edge(id) => {
+                state.write_u8(1);
+                id.hash(state);
+            }
+            GraphElement::EdgeArray(arr) => {
+                state.write_u8(2);
+                arr.hash(state);
+            }
+            GraphElement::Path(p) => {
+                state.write_u8(3);
+                p.hash(state);
+            }
+            GraphElement::List(l) => {
+                state.write_u8(4);
+                l.hash(state);
+            }
             GraphElement::Map(m) => {
                 state.write_u8(5);
                 let mut pairs: Vec<_> = m.iter().collect();
@@ -42,11 +57,25 @@ impl std::hash::Hash for GraphElement {
                 state.write_u8(6);
                 n.to_bits().hash(state);
             }
-            GraphElement::String(s) => { state.write_u8(7); s.hash(state); }
-            GraphElement::Boolean(b) => { state.write_u8(8); b.hash(state); }
-            GraphElement::Null => { state.write_u8(9); }
-            GraphElement::Date(d) => { state.write_u8(10); d.hash(state); }
-            GraphElement::DateTime(d) => { state.write_u8(11); d.hash(state); }
+            GraphElement::String(s) => {
+                state.write_u8(7);
+                s.hash(state);
+            }
+            GraphElement::Boolean(b) => {
+                state.write_u8(8);
+                b.hash(state);
+            }
+            GraphElement::Null => {
+                state.write_u8(9);
+            }
+            GraphElement::Date(d) => {
+                state.write_u8(10);
+                d.hash(state);
+            }
+            GraphElement::DateTime(d) => {
+                state.write_u8(11);
+                d.hash(state);
+            }
         }
     }
 }
@@ -134,11 +163,17 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => false,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+                false
+            }
         }
     }
 
-    fn compare_datetime(l: &chrono::DateTime<chrono::Utc>, r: &chrono::DateTime<chrono::Utc>, op: &CompareOp) -> bool {
+    fn compare_datetime(
+        l: &chrono::DateTime<chrono::Utc>,
+        r: &chrono::DateTime<chrono::Utc>,
+        op: &CompareOp,
+    ) -> bool {
         match op {
             CompareOp::Eq => l == r,
             CompareOp::Neq => l != r,
@@ -146,7 +181,9 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => false,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+                false
+            }
         }
     }
 
@@ -158,7 +195,9 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => !l & r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => false,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+                false
+            }
         }
     }
 
@@ -170,7 +209,9 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => false,
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+                false
+            }
         }
     }
 

@@ -12,11 +12,41 @@ struct Ratios {
 
 fn benchmark_throughput(c: &mut Criterion) {
     let scenarios = vec![
-        Ratios { name: "read_heavy", read_prop: 80, read_path: 10, insert_node: 5, modify_prop: 5 },
-        Ratios { name: "write_heavy", read_prop: 10, read_path: 10, insert_node: 40, modify_prop: 40 },
-        Ratios { name: "balanced", read_prop: 25, read_path: 25, insert_node: 25, modify_prop: 25 },
-        Ratios { name: "read_only", read_prop: 50, read_path: 50, insert_node: 0, modify_prop: 0 },
-        Ratios { name: "write_only", read_prop: 0, read_path: 0, insert_node: 50, modify_prop: 50 },
+        Ratios {
+            name: "read_heavy",
+            read_prop: 80,
+            read_path: 10,
+            insert_node: 5,
+            modify_prop: 5,
+        },
+        Ratios {
+            name: "write_heavy",
+            read_prop: 10,
+            read_path: 10,
+            insert_node: 40,
+            modify_prop: 40,
+        },
+        Ratios {
+            name: "balanced",
+            read_prop: 25,
+            read_path: 25,
+            insert_node: 25,
+            modify_prop: 25,
+        },
+        Ratios {
+            name: "read_only",
+            read_prop: 50,
+            read_path: 50,
+            insert_node: 0,
+            modify_prop: 0,
+        },
+        Ratios {
+            name: "write_only",
+            read_prop: 0,
+            read_path: 0,
+            insert_node: 50,
+            modify_prop: 50,
+        },
     ];
 
     for scenario in scenarios {
@@ -29,13 +59,20 @@ fn benchmark_throughput(c: &mut Criterion) {
             operations.push(format!("MATCH (n:Node {{id: '{}'}}) RETURN n.prop", i % 10));
         }
         for i in 0..scenario.read_path {
-            operations.push(format!("MATCH (n:Node {{id: '{}'}})-[:REL]->(m) RETURN m", i % 10));
+            operations.push(format!(
+                "MATCH (n:Node {{id: '{}'}})-[:REL]->(m) RETURN m",
+                i % 10
+            ));
         }
         for i in 0..scenario.insert_node {
             operations.push(format!("CREATE (n:Node {{id: 'new_{}', prop: 'val'}})", i));
         }
         for i in 0..scenario.modify_prop {
-            operations.push(format!("MATCH (n:Node {{id: '{}'}}) SET n.prop = 'new_val_{}'", i % 10, i));
+            operations.push(format!(
+                "MATCH (n:Node {{id: '{}'}}) SET n.prop = 'new_val_{}'",
+                i % 10,
+                i
+            ));
         }
 
         // Shuffle operations with a simple custom PRNG to avoid external dependencies
@@ -72,4 +109,3 @@ fn benchmark_throughput(c: &mut Criterion) {
 
 criterion_group!(benches, benchmark_throughput);
 criterion_main!(benches);
-

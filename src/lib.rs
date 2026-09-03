@@ -1,10 +1,10 @@
 pub mod edge;
+pub mod export;
 pub mod graph;
 pub mod node;
 pub mod parser;
 pub mod planner;
 pub mod property;
-pub mod export;
 
 #[cfg(feature = "cluster")]
 pub mod raft;
@@ -15,8 +15,7 @@ pub mod wasm {
     use std::sync::Mutex;
     use wasm_bindgen::prelude::*;
 
-    static GRAPH: once_cell::sync::Lazy<Graph> =
-        once_cell::sync::Lazy::new(|| Graph::new());
+    static GRAPH: once_cell::sync::Lazy<Graph> = once_cell::sync::Lazy::new(|| Graph::new());
 
     #[wasm_bindgen]
     pub fn execute_query(query: &str) -> String {

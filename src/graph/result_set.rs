@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::graph::element::{Environment, GraphElement};
+use std::collections::HashMap;
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct ResultSet {
@@ -63,8 +63,14 @@ impl ResultSet {
         }
     }
 
-    pub fn push_row_from<K: AsRef<str>, I>(&mut self, other: &ResultSet, row_idx: usize, bindings: I)
-    where I: IntoIterator<Item = (K, GraphElement)> {
+    pub fn push_row_from<K: AsRef<str>, I>(
+        &mut self,
+        other: &ResultSet,
+        row_idx: usize,
+        bindings: I,
+    ) where
+        I: IntoIterator<Item = (K, GraphElement)>,
+    {
         let current_rows = self.rows;
         for (k, v) in &other.columns {
             let val = &v[row_idx];
@@ -103,7 +109,13 @@ impl ResultSet {
         }
     }
 
-    pub fn push_merged_row(&mut self, left: &ResultSet, l_idx: usize, right: &ResultSet, r_idx: usize) {
+    pub fn push_merged_row(
+        &mut self,
+        left: &ResultSet,
+        l_idx: usize,
+        right: &ResultSet,
+        r_idx: usize,
+    ) {
         let current_rows = self.rows;
         for (k, v) in &left.columns {
             let val = &v[l_idx];
@@ -144,7 +156,6 @@ impl ResultSet {
             }
         }
     }
-
 }
 
 impl ResultSet {
@@ -156,7 +167,9 @@ impl ResultSet {
     }
 
     pub fn truncate(&mut self, len: usize) {
-        if len >= self.rows { return; }
+        if len >= self.rows {
+            return;
+        }
         self.rows = len;
         for col in self.columns.values_mut() {
             col.truncate(len);
@@ -164,7 +177,9 @@ impl ResultSet {
     }
 
     pub fn skip(&mut self, amount: usize) {
-        if amount == 0 { return; }
+        if amount == 0 {
+            return;
+        }
         if amount >= self.rows {
             self.clear();
             return;
