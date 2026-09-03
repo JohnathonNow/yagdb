@@ -30,12 +30,6 @@ fn test_match_where_evaluation() {
     assert!(!results2.contains("Charlie"));
 }
 
-
-
-
-
-
-
 #[test]
 fn test_match_where_in() {
     let graph = Graph::new();
@@ -66,20 +60,34 @@ fn test_match_where_in() {
 fn test_where_pushdown() {
     let graph = Graph::new();
     graph.execute("CREATE HASH INDEX ON :Person(name)").unwrap();
-    graph.execute("CREATE (p:Person {name: 'Alice', age: 30})").unwrap();
-    graph.execute("CREATE (p:Person {name: 'Bob', age: 40})").unwrap();
+    graph
+        .execute("CREATE (p:Person {name: 'Alice', age: 30})")
+        .unwrap();
+    graph
+        .execute("CREATE (p:Person {name: 'Bob', age: 40})")
+        .unwrap();
 
-    let result = graph.execute("PROFILE MATCH (p:Person) WHERE p.name = 'Alice' RETURN p.age").unwrap();
+    let result = graph
+        .execute("PROFILE MATCH (p:Person) WHERE p.name = 'Alice' RETURN p.age")
+        .unwrap();
 
-    assert!(result.contains("NodeIndexLookup"), "Expected NodeIndexLookup in profile, got: {}", result);
-    assert!(result.contains("Person.name"), "Expected Person.name in index lookup");
+    assert!(
+        result.contains("NodeIndexLookup"),
+        "Expected NodeIndexLookup in profile, got: {}",
+        result
+    );
+    assert!(
+        result.contains("Person.name"),
+        "Expected Person.name in index lookup"
+    );
     assert!(result.contains("Alice"), "Expected Alice in index lookup");
 }
 
 #[test]
 fn test_string_operators_execution() {
     let graph = Graph::new();
-    let q_create = "CREATE (a:Item {name: 'Apple'}), (b:Item {name: 'Banana'}), (c:Item {name: 'Cherry'})";
+    let q_create =
+        "CREATE (a:Item {name: 'Apple'}), (b:Item {name: 'Banana'}), (c:Item {name: 'Cherry'})";
     graph.execute(q_create).unwrap();
 
     let q_starts = "MATCH (n:Item) WHERE n.name STARTS WITH 'A' RETURN n.name";
@@ -99,4 +107,29 @@ fn test_string_operators_execution() {
     assert!(!res_contains.contains("Apple"));
     assert!(!res_contains.contains("Banana"));
     assert!(res_contains.contains("Cherry"));
+}
+
+#[test]
+fn test_call_subquery() {
+    let g = Graph::new();
+    g.execute(
+        "CREATE (a:User {name: 'Alice'}), (b:User {name: 'Bob'}), (c:User {name: 'Charlie'})",
+    )
+    .unwrap();
+    g.execute("MATCH (a:User {name: 'Alice'}), (b:User {name: 'Bob'}) CREATE (a)-[:KNOWS]->(b)")
+        .unwrap();
+    g.execute("MATCH (b:User {name: 'Bob'}), (c:User {name: 'Charlie'}) CREATE (b)-[:KNOWS]->(c)")
+        .unwrap();
+
+    let query = "MATCH (n:User {name: 'Alice'}) CALL { WITH n MATCH (n)-[:KNOWS]->(m) RETURN m } RETURN n.name, m.name";
+    let result = g.execute(query).unwrap();
+
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let arr = val.as_array().unwrap();
+
+    // Alice knows Bob, so it should return Alice and Bob.
+    assert_eq!(arr.len(), 1);
+    let row = &arr[0];
+    assert_eq!(row["n.name"].as_str().unwrap(), "Alice");
+    assert_eq!(row["m.name"].as_str().unwrap(), "Bob");
 }

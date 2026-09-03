@@ -24,7 +24,7 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> Serialize for ItemStora
                     serde::ser::SerializeSeq::serialize_element(&mut seq, &*item.read())?;
                 }
                 serde::ser::SerializeSeq::end(seq)
-            },
+            }
             #[cfg(not(target_arch = "wasm32"))]
             ItemStorage::Disk(disk) => disk.read().to_vec().serialize(serializer),
         }
@@ -77,7 +77,7 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> DiskStorage<T> {
             let mut file = self.file.write();
             file.seek(std::io::SeekFrom::Start(offset)).unwrap();
             let item: T = bincode::deserialize_from(&mut *file).unwrap();
-            return Some(item)
+            return Some(item);
         }
         cache.get(&index).cloned()
     }
@@ -210,5 +210,4 @@ impl<T: Serialize + serde::de::DeserializeOwned + Clone> ItemStorage<T> {
             _ => {}
         }
     }
-
 }

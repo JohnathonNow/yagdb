@@ -1,6 +1,6 @@
-use crate::parser::{Clause, CompareOp, Condition, Expression, ProjectionItem, Query, OrderItem};
-use crate::property::{PropertyValue};
+use crate::parser::{Clause, CompareOp, Condition, Expression, OrderItem, ProjectionItem, Query};
 use crate::parser::{NodePattern, Path, RelPattern};
+use crate::property::PropertyValue;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,7 +117,8 @@ impl QueryPlanner {
         for path in paths.iter().skip(1) {
             let right_plan = Self::plan_match_path(path, labels, indices, extracted_props);
             let right_vars = Self::extract_variables(path);
-            let mut join_keys: Vec<String> = planned_vars.intersection(&right_vars).cloned().collect();
+            let mut join_keys: Vec<String> =
+                planned_vars.intersection(&right_vars).cloned().collect();
             join_keys.sort(); // For determinism
 
             if !join_keys.is_empty() {
@@ -193,16 +194,41 @@ pub enum ExecutionStep {
     // ⚡ Bolt Optimization: Boxing `PlanNode` (320 bytes) and `Condition` (120 bytes) options
     // reduces the overall size of `ExecutionStep` from 504 bytes to 104 bytes,
     // saving memory on large query plans and improving CPU cache locality during execution.
-    Match(bool, Option<Box<PlanNode>>, Vec<Path>, Option<Box<Condition>>, Option<usize>, Option<usize>),
+    Match(
+        bool,
+        Option<Box<PlanNode>>,
+        Vec<Path>,
+        Option<Box<Condition>>,
+        Option<usize>,
+        Option<usize>,
+    ),
     Merge(Vec<(Option<PlanNode>, Path)>),
     Set(String, String, Expression),
     Remove(Vec<crate::parser::RemoveItem>),
-    CreateIndex { label: String, property: String, index_type: crate::graph::IndexType },
-    DropIndex { label: String, property: String },
-    Return(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
-    With(Vec<ProjectionItem>, Option<Vec<OrderItem>>, Option<usize>, Option<usize>),
+    CreateIndex {
+        label: String,
+        property: String,
+        index_type: crate::graph::IndexType,
+    },
+    DropIndex {
+        label: String,
+        property: String,
+    },
+    Return(
+        Vec<ProjectionItem>,
+        Option<Vec<OrderItem>>,
+        Option<usize>,
+        Option<usize>,
+    ),
+    With(
+        Vec<ProjectionItem>,
+        Option<Vec<OrderItem>>,
+        Option<usize>,
+        Option<usize>,
+    ),
     Unwind(Vec<ProjectionItem>),
     Delete(Vec<String>),
+    Call(Box<QueryPlan>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,25 +302,51 @@ impl QueryPlanner {
                         Self::extract_props_from_condition(cond, &mut extracted_props);
                     }
                     let plan = Self::plan_match_paths(&paths, labels, indices, &extracted_props);
-                    ExecutionStep::Match(is_optional, plan.map(Box::new), paths, condition.map(Box::new), skip, limit)
+                    ExecutionStep::Match(
+                        is_optional,
+                        plan.map(Box::new),
+                        paths,
+                        condition.map(Box::new),
+                        skip,
+                        limit,
+                    )
                 }
                 Clause::Merge(paths) => {
                     let mut planned_paths = Vec::new();
                     let empty_props = HashMap::new();
                     for path in paths {
-                        let plan = Self::plan_match_paths(&[path.clone()], labels, indices, &empty_props);
+                        let plan =
+                            Self::plan_match_paths(&[path.clone()], labels, indices, &empty_props);
                         planned_paths.push((plan, path));
                     }
                     ExecutionStep::Merge(planned_paths)
                 }
                 Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
                 Clause::Remove(items) => ExecutionStep::Remove(items),
-                Clause::CreateIndex { label, property, index_type } => ExecutionStep::CreateIndex { label, property, index_type },
-                Clause::DropIndex { label, property } => ExecutionStep::DropIndex { label, property },
-                Clause::Return(items, order, skip, limit) => ExecutionStep::Return(items, order, skip, limit),
-                Clause::With(items, order, skip, limit) => ExecutionStep::With(items, order, skip, limit),
+                Clause::CreateIndex {
+                    label,
+                    property,
+                    index_type,
+                } => ExecutionStep::CreateIndex {
+                    label,
+                    property,
+                    index_type,
+                },
+                Clause::DropIndex { label, property } => {
+                    ExecutionStep::DropIndex { label, property }
+                }
+                Clause::Return(items, order, skip, limit) => {
+                    ExecutionStep::Return(items, order, skip, limit)
+                }
+                Clause::With(items, order, skip, limit) => {
+                    ExecutionStep::With(items, order, skip, limit)
+                }
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
                 Clause::Delete(items) => ExecutionStep::Delete(items),
+                Clause::Call(query) => {
+                    let plan = Self::plan_query(*query, labels, indices);
+                    ExecutionStep::Call(Box::new(plan))
+                }
             };
             steps.push(step);
         }

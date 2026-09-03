@@ -1,12 +1,13 @@
-use yagdb::graph::Graph;
 use serde_json::Value;
+use yagdb::graph::Graph;
 
 #[test]
 fn test_remove_property() {
     let g = Graph::new();
 
     // Create node with properties
-    g.execute("CREATE (n:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (n:Person {name: 'Alice', age: 30})")
+        .unwrap();
 
     // Verify properties exist
     let result1 = g.execute("MATCH (n:Person) RETURN n").unwrap();

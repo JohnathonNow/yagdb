@@ -1,5 +1,5 @@
-use yagdb::graph::Graph;
 use serde_json::Value;
+use yagdb::graph::Graph;
 
 #[test]
 fn test_order_by() {
@@ -7,7 +7,9 @@ fn test_order_by() {
     g.execute("CREATE (a:Test {v: '1'})").unwrap();
     g.execute("CREATE (b:Test {v: '2'})").unwrap();
     g.execute("CREATE (c:Test {v: '3'})").unwrap();
-    let res = g.execute("MATCH (n:Test) RETURN n AS val ORDER BY val.v DESC").unwrap();
+    let res = g
+        .execute("MATCH (n:Test) RETURN n AS val ORDER BY val.v DESC")
+        .unwrap();
 
     let json: Vec<Value> = serde_json::from_str(&res).unwrap();
     assert_eq!(json.len(), 3);

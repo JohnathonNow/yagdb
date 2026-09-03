@@ -84,12 +84,15 @@ fn test_set_from_function() {
     g.execute("CREATE (n:Test {value: 'initial'})").unwrap();
 
     // Create a custom function to test deterministic return
-    let custom_func = std::sync::Arc::new(|_args: &[yagdb::graph::GraphElement]| -> Result<yagdb::graph::GraphElement, String> {
-        Ok(yagdb::graph::GraphElement::Number(42.0))
-    });
+    let custom_func = std::sync::Arc::new(
+        |_args: &[yagdb::graph::GraphElement]| -> Result<yagdb::graph::GraphElement, String> {
+            Ok(yagdb::graph::GraphElement::Number(42.0))
+        },
+    );
     g.register_function("custom_val", custom_func);
 
-    g.execute("MATCH (n:Test) SET n.value = custom_val()").unwrap();
+    g.execute("MATCH (n:Test) SET n.value = custom_val()")
+        .unwrap();
 
     let result = g.execute("MATCH (n:Test) RETURN n.value AS val").unwrap();
     assert!(result.contains("42"));

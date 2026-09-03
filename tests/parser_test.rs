@@ -118,7 +118,7 @@ fn test_parser_set() {
 
 #[test]
 fn test_return_star() {
-    use yagdb::parser::{parse_query, Clause};
+    use yagdb::parser::{parse_query, Clause, Query};
     let input = "RETURN *";
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
@@ -144,7 +144,7 @@ fn test_return_star_graph() {
 
 #[test]
 fn test_match_path_assignment() {
-    use yagdb::parser::{parse_query, Clause};
+    use yagdb::parser::{parse_query, Clause, Query};
     let input = "MATCH p=(a:Person)-[:is]->(x:Alias)";
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
@@ -241,34 +241,50 @@ fn test_parse_remove() {
 #[test]
 fn test_string_operators() {
     let input = "MATCH (n) WHERE n.name STARTS WITH 'A' AND n.name ENDS WITH 'z' AND n.name CONTAINS 'li' RETURN n";
-    use yagdb::parser::{Condition, CompareOp, Clause};
+    use yagdb::parser::{Clause, CompareOp, Condition, Query};
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Match(_, _, Some(condition), _, _) => {
-            match condition {
-                Condition::And(left, right) => {
-                    match &**left {
-                        Condition::And(inner_left, inner_right) => {
-                            match &**inner_left {
-                                Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::StartsWith),
-                                _ => panic!("Expected Compare StartsWith"),
-                            }
-                            match &**inner_right {
-                                Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::EndsWith),
-                                _ => panic!("Expected Compare EndsWith"),
-                            }
+        Clause::Match(_, _, Some(condition), _, _) => match condition {
+            Condition::And(left, right) => {
+                match &**left {
+                    Condition::And(inner_left, inner_right) => {
+                        match &**inner_left {
+                            Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::StartsWith),
+                            _ => panic!("Expected Compare StartsWith"),
                         }
-                        _ => panic!("Expected And"),
+                        match &**inner_right {
+                            Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::EndsWith),
+                            _ => panic!("Expected Compare EndsWith"),
+                        }
                     }
-                    match &**right {
-                        Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::Contains),
-                        _ => panic!("Expected Compare Contains"),
-                    }
+                    _ => panic!("Expected And"),
                 }
-                _ => panic!("Expected And at the root"),
+                match &**right {
+                    Condition::Compare { op, .. } => assert_eq!(*op, CompareOp::Contains),
+                    _ => panic!("Expected Compare Contains"),
+                }
             }
-        }
+            _ => panic!("Expected And at the root"),
+        },
         _ => panic!("Expected Match clause with condition"),
+    }
+}
+
+#[test]
+fn test_parse_call() {
+    let q = "CALL { WITH n MATCH (n)-[:KNOWS]->(m) RETURN m }";
+    let (rest, query) = parse_query(q).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 1);
+
+    match &query.clauses[0] {
+        Clause::Call(sub_q) => {
+            assert_eq!(sub_q.clauses.len(), 3);
+            assert!(matches!(sub_q.clauses[0], Clause::With(..)));
+            assert!(matches!(sub_q.clauses[1], Clause::Match(..)));
+            assert!(matches!(sub_q.clauses[2], Clause::Return(..)));
+        }
+        _ => panic!("Expected CALL clause"),
     }
 }

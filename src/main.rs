@@ -3,9 +3,6 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(not(feature = "cluster"))]
-use tower_http::services::ServeFile;
-#[cfg(not(target_arch = "wasm32"))]
 use axum::{
     extract::State,
     http::StatusCode,
@@ -15,6 +12,9 @@ use axum::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+use tower_http::services::ServeFile;
 
 #[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
@@ -46,7 +46,8 @@ struct GraphGuard {
 #[cfg(not(feature = "cluster"))]
 impl Drop for GraphGuard {
     fn drop(&mut self) {
-        *self.g.cancel_flag.write() = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *self.g.cancel_flag.write() =
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     }
 }
 
@@ -66,7 +67,10 @@ async fn main() {
         .route("/query", post(handle_query))
         .route("/query_stream", post(handle_query_stream))
         .route("/backup", axum::routing::get(handle_backup))
-        .route("/console", axum::routing::get_service(ServeFile::new("console.html")))
+        .route(
+            "/console",
+            axum::routing::get_service(ServeFile::new("console.html")),
+        )
         .with_state(graph);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -83,7 +87,6 @@ async fn main() {
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
 
-
         tokio::spawn(async move {
             _shutdown_signal().await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
@@ -94,7 +97,6 @@ async fn main() {
             .serve(app.into_make_service())
             .await
             .unwrap();
-
     } else {
         axum::Server::bind(&addr)
             .serve(app.into_make_service())
@@ -150,9 +152,9 @@ async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl In
     let g = graph.clone();
     *g.cancel_flag.write() = cancel;
     let guard = GraphGuard { g };
-    let res = tokio::task::spawn_blocking(move || {
-        guard.g.execute(&body)
-    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+    let res = tokio::task::spawn_blocking(move || guard.g.execute(&body))
+        .await
+        .unwrap_or_else(|_| Err("Query cancelled".to_string()));
 
     match res {
         Ok(result) => (StatusCode::OK, result).into_response(),
@@ -167,8 +169,14 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
     match g.backup() {
         Ok(bytes) => {
             let mut headers = axum::http::HeaderMap::new();
-            headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/octet-stream"));
-            headers.insert(axum::http::header::CONTENT_DISPOSITION, axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""));
+            headers.insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/octet-stream"),
+            );
+            headers.insert(
+                axum::http::header::CONTENT_DISPOSITION,
+                axum::http::HeaderValue::from_static("attachment; filename=\"backup.bin\""),
+            );
             (StatusCode::OK, headers, bytes).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)).into_response(),
@@ -183,28 +191,31 @@ async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> 
     let g = graph.clone();
     *g.cancel_flag.write() = cancel;
     let guard = GraphGuard { g };
-    let res = tokio::task::spawn_blocking(move || {
-        guard.g.execute(&body)
-    }).await.unwrap_or_else(|_| Err("Query cancelled".to_string()));
+    let res = tokio::task::spawn_blocking(move || guard.g.execute(&body))
+        .await
+        .unwrap_or_else(|_| Err("Query cancelled".to_string()));
 
     match res {
         Ok(result) => {
             if result.trim().is_empty() {
-                return Sse::new(futures::stream::empty::<Result<Event, std::convert::Infallible>>()).into_response();
+                return Sse::new(futures::stream::empty::<
+                    Result<Event, std::convert::Infallible>,
+                >())
+                .into_response();
             }
 
             match serde_json::from_str::<Vec<serde_json::Value>>(&result) {
                 Ok(arr) => {
                     let stream = futures::stream::iter(arr.into_iter().map(|val| {
                         Ok::<_, std::convert::Infallible>(
-                            Event::default().data(serde_json::to_string(&val).unwrap())
+                            Event::default().data(serde_json::to_string(&val).unwrap()),
                         )
                     }));
                     Sse::new(stream).into_response()
                 }
                 Err(_) => {
                     let stream = futures::stream::iter(vec![Ok::<_, std::convert::Infallible>(
-                        Event::default().data(result)
+                        Event::default().data(result),
                     )]);
                     Sse::new(stream).into_response()
                 }
@@ -261,7 +272,8 @@ mod tests {
     fn test_optional_match() {
         let g = Graph::new();
         g.execute("CREATE (a:User {id: '1'})").unwrap();
-        g.execute("CREATE (a:User {id: '2'})-[r:FOLLOWS]->(b:User {id: '3'})").unwrap();
+        g.execute("CREATE (a:User {id: '2'})-[r:FOLLOWS]->(b:User {id: '3'})")
+            .unwrap();
 
         let result = g.execute("MATCH (u:User) OPTIONAL MATCH (u)-[r:FOLLOWS]->(v) RETURN u.id, v.id ORDER BY u.id").unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -303,7 +315,6 @@ mod tests {
         assert_eq!(parsed_limit_large.as_array().unwrap().len(), 3);
     }
 }
-
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]

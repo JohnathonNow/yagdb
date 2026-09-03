@@ -1,6 +1,6 @@
-use crate::graph::{Graph, IndexType, IndexMap};
-use crate::node::Node;
 use crate::edge::Edge;
+use crate::graph::{Graph, IndexMap, IndexType};
+use crate::node::Node;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -65,7 +65,8 @@ impl Graph {
                     id: node.id.clone(),
                     labels: serde_json::to_string(&node.labels).map_err(|e| e.to_string())?,
                     edges: serde_json::to_string(&node.edges).map_err(|e| e.to_string())?,
-                    properties: serde_json::to_string(&node.properties).map_err(|e| e.to_string())?,
+                    properties: serde_json::to_string(&node.properties)
+                        .map_err(|e| e.to_string())?,
                     deleted: node.deleted,
                     created_by: node.created_by,
                     deleted_by: node.deleted_by,
@@ -86,7 +87,8 @@ impl Graph {
                     labels: serde_json::to_string(&edge.labels).map_err(|e| e.to_string())?,
                     start: edge.start,
                     end: edge.end,
-                    properties: serde_json::to_string(&edge.properties).map_err(|e| e.to_string())?,
+                    properties: serde_json::to_string(&edge.properties)
+                        .map_err(|e| e.to_string())?,
                     deleted: edge.deleted,
                     deleted_by: edge.deleted_by,
                     created_by: edge.created_by,
@@ -123,15 +125,25 @@ impl Graph {
             }
         }
 
-        let nodes_csv = String::from_utf8(nodes_wtr.into_inner().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let edges_csv = String::from_utf8(edges_wtr.into_inner().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let labels_csv = String::from_utf8(labels_wtr.into_inner().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let indices_csv = String::from_utf8(indices_wtr.into_inner().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let nodes_csv = String::from_utf8(nodes_wtr.into_inner().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let edges_csv = String::from_utf8(edges_wtr.into_inner().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let labels_csv = String::from_utf8(labels_wtr.into_inner().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let indices_csv = String::from_utf8(indices_wtr.into_inner().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
 
         Ok((nodes_csv, edges_csv, labels_csv, indices_csv))
     }
 
-    pub fn import_csv(&mut self, nodes_csv: &str, edges_csv: &str, labels_csv: &str, indices_csv: &str) -> Result<(), String> {
+    pub fn import_csv(
+        &mut self,
+        nodes_csv: &str,
+        edges_csv: &str,
+        labels_csv: &str,
+        indices_csv: &str,
+    ) -> Result<(), String> {
         self.nodes.clear_items();
         self.edges.clear_items();
         self.labels.write().clear();

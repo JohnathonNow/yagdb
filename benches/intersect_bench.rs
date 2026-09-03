@@ -12,10 +12,12 @@ fn bench_intersect(c: &mut Criterion) {
         let _ = graph.execute(&format!("CREATE (n:B {{id: {}}})", i));
     }
 
-    c.bench_function("intersect_slow", |b| b.iter(|| {
-        let query = "MATCH (n:A) WITH n MATCH (n:B) RETURN n";
-        let _ = graph.execute(black_box(query));
-    }));
+    c.bench_function("intersect_slow", |b| {
+        b.iter(|| {
+            let query = "MATCH (n:A) WITH n MATCH (n:B) RETURN n";
+            let _ = graph.execute(black_box(query));
+        })
+    });
 }
 
 criterion_group!(benches, bench_intersect);

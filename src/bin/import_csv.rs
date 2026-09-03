@@ -40,21 +40,19 @@ fn main() {
 
     println!("Saving graph to snapshot {}", snapshot_path);
     match bincode::serialize(&graph) {
-        Ok(encoded) => {
-            match fs::File::create(snapshot_path) {
-                Ok(mut file) => {
-                    use std::io::Write;
-                    if let Err(e) = file.write_all(&encoded) {
-                        eprintln!("Error writing snapshot to {}: {}", snapshot_path, e);
-                        std::process::exit(1);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error creating snapshot {}: {}", snapshot_path, e);
+        Ok(encoded) => match fs::File::create(snapshot_path) {
+            Ok(mut file) => {
+                use std::io::Write;
+                if let Err(e) = file.write_all(&encoded) {
+                    eprintln!("Error writing snapshot to {}: {}", snapshot_path, e);
                     std::process::exit(1);
                 }
             }
-        }
+            Err(e) => {
+                eprintln!("Error creating snapshot {}: {}", snapshot_path, e);
+                std::process::exit(1);
+            }
+        },
         Err(e) => {
             eprintln!("Error serializing graph: {}", e);
             std::process::exit(1);
