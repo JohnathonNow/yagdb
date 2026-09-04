@@ -1530,12 +1530,6 @@ impl Graph {
                                                     [(var.as_str(), x.clone())],
                                                 );
                                             }
-                                        } else {
-                                            new_result_set.push_row_from(
-                                                &result_set,
-                                                i,
-                                                [(var.as_str(), val.clone())],
-                                            );
                                         }
                                     }
                                 }
@@ -1550,19 +1544,13 @@ impl Graph {
                                             // ⚡ BOLT: Hoist string formatting out of hot loop
                                             let key = format!("{}.{}", var, prop);
                                             for x in v {
+                                                let key = format!("{}.{}", var, prop);
                                                 new_result_set.push_row_from(
                                                     &result_set,
                                                     i,
                                                     [(key.as_str(), x.clone())],
                                                 );
                                             }
-                                        } else {
-                                            let key = format!("{}.{}", var, prop);
-                                            new_result_set.push_row_from(
-                                                &result_set,
-                                                i,
-                                                [(key.as_str(), val.clone())],
-                                            );
                                         }
                                     }
                                 }
@@ -1581,34 +1569,7 @@ impl Graph {
                                                     [(alias.as_str(), x.clone())],
                                                 );
                                             }
-                                        } else {
-                                            new_result_set.push_row_from(
-                                                &result_set,
-                                                i,
-                                                [(alias.as_str(), val.clone())],
-                                            );
                                         }
-                                    }
-                                }
-                                ProjectionItem::Expression { expr, alias } => {
-                                    let val =
-                                        self.evaluate_expression_to_element(expr, &result_set, i);
-                                    let out_key =
-                                        alias.clone().unwrap_or_else(|| "expr".to_string());
-                                    if let GraphElement::List(v) = val {
-                                        for x in v {
-                                            new_result_set.push_row_from(
-                                                &result_set,
-                                                i,
-                                                [(out_key.as_str(), x.clone())],
-                                            );
-                                        }
-                                    } else {
-                                        new_result_set.push_row_from(
-                                            &result_set,
-                                            i,
-                                            [(out_key.as_str(), val)],
-                                        );
                                     }
                                 }
                                 _ => {}
