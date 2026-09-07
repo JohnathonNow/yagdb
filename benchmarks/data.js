@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788808702881,
+  "lastUpdate": 1788808755720,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -6955,6 +6955,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 225122,
             "range": "± 2265",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1369313afbaadc714db527fc7f1859abcf141347",
+          "message": "Merge pull request #153 from JohnathonNow/perf-unwind-precompute-10297576665523751214\n\n⚡ Bolt: [performance improvement] Precompute destination keys in Unwind",
+          "timestamp": "2026-09-07T15:08:09-04:00",
+          "tree_id": "27cf40d1fa861b1a8bb05adf0674427762f27104",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/1369313afbaadc714db527fc7f1859abcf141347"
+        },
+        "date": 1788808755243,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 25834,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 26427,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 47976,
+            "range": "± 293",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 34976,
+            "range": "± 446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 104764,
+            "range": "± 715",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 87965,
+            "range": "± 251",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 104766,
+            "range": "± 247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 89105,
+            "range": "± 254",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 53962,
+            "range": "± 192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 44490,
+            "range": "± 97",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 104887,
+            "range": "± 254",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 88333,
+            "range": "± 2795",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2673077146,
+            "range": "± 18011524",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 3135,
+            "range": "± 60",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 5653,
+            "range": "± 72",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 4274,
+            "range": "± 104",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 6710,
+            "range": "± 93",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 7049,
+            "range": "± 198",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 11736,
+            "range": "± 250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 366071,
+            "range": "± 3931",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 351488,
+            "range": "± 2009",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 399739,
+            "range": "± 2459",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 466439,
+            "range": "± 3115",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 314471,
+            "range": "± 5739",
             "unit": "ns/iter"
           }
         ]
