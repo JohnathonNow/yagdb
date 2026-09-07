@@ -11,3 +11,6 @@
 ## 2026-09-06 - Hoist String Formatting out of Projection Loops
 **Learning:** In yagdb's query execution pipeline (specifically projections in `ExecutionStep::With` and `ExecutionStep::Return`), using `format!` inside hot loops causes a significant performance bottleneck due to redundant heap allocations on every iteration.
 **Action:** When a string key is based on a struct definition that doesn't change during iteration (like `ProjectionItem`), map the items into a `Vec<String>` of precomputed keys before the loop and access them by index to replace runtime formatting with cheap `clone()`s.
+## 2026-09-07 - Precompute output keys in Unwind
+**Learning:** In yagdb's `ExecutionStep::Unwind`, string formatting (`format!`) and cloning string references inside inner row loops create redundant heap allocations per row and per unwound item, acting as a performance bottleneck during list unwinding operations.
+**Action:** Always precompute static destination output keys outside hot iterators and loop bodies, caching them into a `Vec<String>` and passing them down by reference to inner mapping methods to preserve memory stability and optimize CPU execution times.
