@@ -1520,8 +1520,21 @@ impl Graph {
                 }
                 ExecutionStep::Unwind(ref items) => {
                     let mut new_result_set = ResultSet::new();
+
+                    // ⚡ BOLT: Precompute output keys outside the hot loops to avoid redundant heap allocations
+                    let precomputed_keys: Vec<String> = items.iter().map(|item| {
+                        match item {
+                            ProjectionItem::Variable(var) => var.clone(),
+                            ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
+                            ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
+                            ProjectionItem::Expression { alias, .. } => alias.clone().unwrap_or_else(|| "expr".to_string()),
+                            _ => String::new(),
+                        }
+                    }).collect();
+
                     for i in 0..result_set.rows {
-                        for item in items.iter() {
+                        for (idx, item) in items.iter().enumerate() {
+                            let out_key = &precomputed_keys[idx];
                             match item {
                                 ProjectionItem::Variable(var) => {
                                     if let Some(val) = result_set.get(i, var.as_str()) {
@@ -1530,14 +1543,14 @@ impl Graph {
                                                 new_result_set.push_row_from(
                                                     &result_set,
                                                     i,
-                                                    [(var.as_str(), x.clone())],
+                                                    [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
                                             new_result_set.push_row_from(
                                                 &result_set,
                                                 i,
-                                                [(var.as_str(), val.clone())],
+                                                [(out_key.as_str(), val.clone())],
                                             );
                                         }
                                     }
@@ -1550,26 +1563,23 @@ impl Graph {
                                         prop.as_str(),
                                     ) {
                                         if let GraphElement::List(v) = val {
-                                            // ⚡ BOLT: Hoist string formatting out of hot loop
-                                            let key = format!("{}.{}", var, prop);
                                             for x in v {
                                                 new_result_set.push_row_from(
                                                     &result_set,
                                                     i,
-                                                    [(key.as_str(), x.clone())],
+                                                    [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
-                                            let key = format!("{}.{}", var, prop);
                                             new_result_set.push_row_from(
                                                 &result_set,
                                                 i,
-                                                [(key.as_str(), val.clone())],
+                                                [(out_key.as_str(), val.clone())],
                                             );
                                         }
                                     }
                                 }
-                                ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                ProjectionItem::AliasedProperty(var, prop, _) => {
                                     if let Some(val) = self.get_property_as_element(
                                         result_set,
                                         i,
@@ -1581,23 +1591,21 @@ impl Graph {
                                                 new_result_set.push_row_from(
                                                     &result_set,
                                                     i,
-                                                    [(alias.as_str(), x.clone())],
+                                                    [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
                                             new_result_set.push_row_from(
                                                 &result_set,
                                                 i,
-                                                [(alias.as_str(), val.clone())],
+                                                [(out_key.as_str(), val.clone())],
                                             );
                                         }
                                     }
                                 }
-                                ProjectionItem::Expression { expr, alias } => {
+                                ProjectionItem::Expression { expr, .. } => {
                                     let val =
                                         self.evaluate_expression_to_element(expr, &result_set, i);
-                                    let out_key =
-                                        alias.clone().unwrap_or_else(|| "expr".to_string());
                                     if let GraphElement::List(v) = val {
                                         for x in v {
                                             new_result_set.push_row_from(
