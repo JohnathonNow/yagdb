@@ -118,7 +118,7 @@ fn test_parser_set() {
 
 #[test]
 fn test_return_star() {
-    use yagdb::parser::{parse_query, Clause, Query};
+    use yagdb::parser::{parse_query, Clause};
     let input = "RETURN *";
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
@@ -144,7 +144,7 @@ fn test_return_star_graph() {
 
 #[test]
 fn test_match_path_assignment() {
-    use yagdb::parser::{parse_query, Clause, Query};
+    use yagdb::parser::{parse_query, Clause};
     let input = "MATCH p=(a:Person)-[:is]->(x:Alias)";
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
@@ -241,7 +241,7 @@ fn test_parse_remove() {
 #[test]
 fn test_string_operators() {
     let input = "MATCH (n) WHERE n.name STARTS WITH 'A' AND n.name ENDS WITH 'z' AND n.name CONTAINS 'li' RETURN n";
-    use yagdb::parser::{Clause, CompareOp, Condition, Query};
+    use yagdb::parser::{Clause, CompareOp, Condition};
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {

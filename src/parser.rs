@@ -152,6 +152,7 @@ pub struct OrderItem {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Query {
+    pub explain: bool,
     pub profile: bool,
     pub clauses: Vec<Clause>,
 }
@@ -696,6 +697,7 @@ fn call_clause(input: &str) -> IResult<&str, Clause> {
     Ok((
         input,
         Clause::Call(Box::new(Query {
+            explain: false,
             profile: false,
             clauses,
         })),
@@ -720,11 +722,13 @@ fn clause(input: &str) -> IResult<&str, Clause> {
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
+    let (input, explain_opt) = opt(ws(alt((tag("EXPLAIN"), tag("explain")))))(input)?;
     let (input, profile_opt) = opt(ws(alt((tag("PROFILE"), tag("profile")))))(input)?;
     let (input, clauses) = all_consuming(many0(ws(clause)))(input)?;
     Ok((
         input,
         Query {
+            explain: explain_opt.is_some(),
             profile: profile_opt.is_some(),
             clauses,
         },
