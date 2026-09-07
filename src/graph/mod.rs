@@ -1620,6 +1620,27 @@ impl Graph {
                             items.clone()
                         };
 
+                    // ⚡ BOLT: Precompute output keys outside the hot loops to avoid redundant heap allocations
+                    let precomputed_keys: Vec<String> = items_vec
+                        .iter()
+                        .map(|item| match item {
+                            ProjectionItem::Variable(var) => var.clone(),
+                            ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
+                            ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
+                            ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
+                            ProjectionItem::Aggregate { func, var, alias } => {
+                                alias.clone().unwrap_or_else(|| format!("{}({})", func, var))
+                            }
+                            ProjectionItem::Function { func, alias, .. } => {
+                                alias.clone().unwrap_or_else(|| format!("{}()", func))
+                            }
+                            ProjectionItem::Expression { alias, .. } => {
+                                alias.clone().unwrap_or_else(|| "expr".to_string())
+                            }
+                            ProjectionItem::Star => "".to_string(),
+                        })
+                        .collect();
+
                     let mut has_aggregate = false;
                     let mut grouping_items = Vec::new();
 
@@ -1693,23 +1714,24 @@ impl Graph {
                         let mut bindings = Vec::with_capacity(items_vec.len());
                         for (_group_key, group_rows) in groups.into_iter() {
                             bindings.clear();
-                            for item in &items_vec {
+                            for (idx, item) in items_vec.iter().enumerate() {
+                                let out_key = &precomputed_keys[idx];
                                 match item {
                                     ProjectionItem::Variable(var) => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             if let Some(val) =
                                                 result_set.get(group_rows[0], var.as_str())
                                             {
-                                                bindings.push((var.clone(), val.clone()));
+                                                bindings.push((out_key.clone(), val.clone()));
                                             }
                                         }
                                     }
-                                    ProjectionItem::AliasedVariable(var, alias) => {
+                                    ProjectionItem::AliasedVariable(var, _) => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             if let Some(val) =
                                                 result_set.get(group_rows[0], var.as_str())
                                             {
-                                                bindings.push((alias.clone(), val.clone()));
+                                                bindings.push((out_key.clone(), val.clone()));
                                             }
                                         }
                                     }
@@ -1721,11 +1743,11 @@ impl Graph {
                                                 var.as_str(),
                                                 prop.as_str(),
                                             ) {
-                                                bindings.push((format!("{}.{}", var, prop), val));
+                                                bindings.push((out_key.clone(), val));
                                             }
                                         }
                                     }
-                                    ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                    ProjectionItem::AliasedProperty(var, prop, _) => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             if let Some(val) = self.get_property_as_element(
                                                 &result_set,
@@ -1733,27 +1755,21 @@ impl Graph {
                                                 var.as_str(),
                                                 prop.as_str(),
                                             ) {
-                                                bindings.push((alias.clone(), val));
+                                                bindings.push((out_key.clone(), val));
                                             }
                                         }
                                     }
-                                    ProjectionItem::Expression { expr, alias } => {
+                                    ProjectionItem::Expression { expr, .. } => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             let val = self.evaluate_expression_to_element(
                                                 &expr,
                                                 &result_set,
                                                 group_rows[0],
                                             );
-                                            let out_key =
-                                                alias.clone().unwrap_or_else(|| "expr".to_string());
-                                            bindings.push((out_key, val));
+                                            bindings.push((out_key.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::Aggregate { func, var, alias } => {
-                                        let out_key = alias
-                                            .clone()
-                                            .unwrap_or_else(|| format!("{}({})", func, var));
-
+                                    ProjectionItem::Aggregate { func, var, .. } => {
                                         match func.as_str() {
                                             "COUNT" => {
                                                 let count = if var == "*" {
@@ -1769,7 +1785,7 @@ impl Graph {
                                                         .count()
                                                 };
                                                 bindings.push((
-                                                    out_key,
+                                                    out_key.clone(),
                                                     GraphElement::Number(count as f64),
                                                 ));
                                             }
@@ -1783,7 +1799,7 @@ impl Graph {
                                                     }
                                                 }
                                                 bindings
-                                                    .push((out_key, GraphElement::List(elements)));
+                                                    .push((out_key.clone(), GraphElement::List(elements)));
                                             }
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
@@ -1797,15 +1813,12 @@ impl Graph {
                                                     }
                                                 }
                                                 bindings
-                                                    .push((out_key, GraphElement::List(elements)));
+                                                    .push((out_key.clone(), GraphElement::List(elements)));
                                             }
                                             _ => {}
                                         }
                                     }
-                                    ProjectionItem::Function { func, args, alias } => {
-                                        let out_key =
-                                            alias.clone().unwrap_or_else(|| format!("{}()", func));
-
+                                    ProjectionItem::Function { func, args, .. } => {
                                         let eval_args: Vec<GraphElement> = args
                                             .iter()
                                             .map(|arg| {
@@ -1820,10 +1833,10 @@ impl Graph {
                                             self.functions.read().get(&func.to_lowercase())
                                         {
                                             if let Ok(val) = f(&eval_args) {
-                                                bindings.push((out_key, val));
+                                                bindings.push((out_key.clone(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
+                                            bindings.push((out_key.clone(), GraphElement::Number(0f64)));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -1836,18 +1849,19 @@ impl Graph {
                         let mut bindings = Vec::with_capacity(items_vec.len());
                         for i in 0..result_set.rows {
                             bindings.clear();
-                            for item in &items_vec {
+                            for (idx, item) in items_vec.iter().enumerate() {
+                                let out_key = &precomputed_keys[idx];
                                 match item {
                                     ProjectionItem::Variable(var) => {
                                         if let Some(val) = result_set.get(i, var.as_str()).cloned()
                                         {
-                                            bindings.push((var.clone(), val));
+                                            bindings.push((out_key.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::AliasedVariable(var, alias) => {
+                                    ProjectionItem::AliasedVariable(var, _) => {
                                         if let Some(val) = result_set.get(i, var.as_str()).cloned()
                                         {
-                                            bindings.push((alias.clone(), val));
+                                            bindings.push((out_key.clone(), val));
                                         }
                                     }
                                     ProjectionItem::Property(var, prop) => {
@@ -1857,23 +1871,20 @@ impl Graph {
                                             var.as_str(),
                                             prop.as_str(),
                                         ) {
-                                            bindings.push((format!("{}.{}", var, prop), val));
+                                            bindings.push((out_key.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::AliasedProperty(var, prop, alias) => {
+                                    ProjectionItem::AliasedProperty(var, prop, _) => {
                                         if let Some(val) = self.get_property_as_element(
                                             result_set,
                                             i,
                                             var.as_str(),
                                             prop.as_str(),
                                         ) {
-                                            bindings.push((alias.clone(), val));
+                                            bindings.push((out_key.clone(), val));
                                         }
                                     }
-                                    ProjectionItem::Function { func, args, alias } => {
-                                        let out_key =
-                                            alias.clone().unwrap_or_else(|| format!("{}()", func));
-
+                                    ProjectionItem::Function { func, args, .. } => {
                                         let eval_args: Vec<GraphElement> = args
                                             .iter()
                                             .map(|arg| {
@@ -1888,18 +1899,16 @@ impl Graph {
                                             self.functions.read().get(&func.to_lowercase())
                                         {
                                             if let Ok(val) = f(&eval_args) {
-                                                bindings.push((out_key, val));
+                                                bindings.push((out_key.clone(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key, GraphElement::Number(0f64)));
+                                            bindings.push((out_key.clone(), GraphElement::Number(0f64)));
                                         }
                                     }
-                                    ProjectionItem::Expression { expr, alias } => {
+                                    ProjectionItem::Expression { expr, .. } => {
                                         let val = self
                                             .evaluate_expression_to_element(&expr, result_set, i);
-                                        let out_key =
-                                            alias.clone().unwrap_or_else(|| "expr".to_string());
-                                        bindings.push((out_key, val));
+                                        bindings.push((out_key.clone(), val));
                                     }
                                     _ => {}
                                 }
@@ -1960,31 +1969,15 @@ impl Graph {
                         let mut results_json = Vec::new();
                         for i in iter {
                             let mut row = serde_json::Map::new();
-                            for item in &items_vec {
-                                let key = match item {
-                                    ProjectionItem::Variable(var) => var.clone(),
-                                    ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
-                                    ProjectionItem::Property(var, prop) => {
-                                        format!("{}.{}", var, prop)
-                                    }
-                                    ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                                    ProjectionItem::Aggregate { func, var, alias } => alias
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{}({})", func, var)),
-                                    ProjectionItem::Function {
-                                        func,
-                                        args: _,
-                                        alias,
-                                    } => alias.clone().unwrap_or_else(|| format!("{}()", func)),
-                                    ProjectionItem::Star => continue,
-                                    ProjectionItem::Expression { alias, .. } => {
-                                        alias.clone().unwrap_or_else(|| "expr".to_string())
-                                    }
-                                };
-                                if let Some(element) = final_res.get(i, &key) {
-                                    row.insert(key, self.element_to_json(element));
+                            for (idx, item) in items_vec.iter().enumerate() {
+                                if let ProjectionItem::Star = item {
+                                    continue;
+                                }
+                                let key = &precomputed_keys[idx];
+                                if let Some(element) = final_res.get(i, key) {
+                                    row.insert(key.clone(), self.element_to_json(element));
                                 } else {
-                                    row.insert(key, Value::Null);
+                                    row.insert(key.clone(), Value::Null);
                                 }
                             }
                             if !row.is_empty() {
