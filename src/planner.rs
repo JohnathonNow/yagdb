@@ -233,6 +233,7 @@ pub enum ExecutionStep {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueryPlan {
+    pub explain: bool,
     pub profile: bool,
     pub steps: Vec<ExecutionStep>,
 }
@@ -351,6 +352,7 @@ impl QueryPlanner {
             steps.push(step);
         }
         QueryPlan {
+            explain: query.explain,
             profile: query.profile,
             steps,
         }

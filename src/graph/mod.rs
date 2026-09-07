@@ -925,6 +925,9 @@ impl Graph {
         result_set.push_row(&HashMap::new());
 
         let plan = QueryPlanner::plan_query(query, &*self.labels.read(), &*self.indices.read());
+        if plan.explain {
+            return Ok(format!("{:#?}", plan.steps));
+        }
 
         self.execute_query_plan(
             &plan,
