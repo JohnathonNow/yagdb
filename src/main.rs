@@ -17,6 +17,11 @@ use std::sync::Arc;
 use tower_http::services::ServeFile;
 
 #[cfg(not(target_arch = "wasm32"))]
+use tower_http::trace::TraceLayer;
+#[cfg(not(target_arch = "wasm32"))]
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[cfg(not(target_arch = "wasm32"))]
 use yagdb::graph::Graph;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -55,6 +60,14 @@ impl Drop for GraphGuard {
 #[cfg(not(feature = "cluster"))]
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "yagdb=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
     let mut g = Graph::load_or_create("graph.bin", "wal.bin");
@@ -71,10 +84,12 @@ async fn main() {
             "/console",
             axum::routing::get_service(ServeFile::new("console.html")),
         )
+        .layer(TraceLayer::new_for_http())
         .with_state(graph);
 
+    tracing::info!("Starting server...");
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Listening on {}", addr);
+    tracing::info!("Listening on {}", addr);
 
     let cert = std::env::var("YAGDB_CERT").ok();
     let key = std::env::var("YAGDB_KEY").ok();

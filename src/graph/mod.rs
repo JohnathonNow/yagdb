@@ -907,11 +907,14 @@ impl Graph {
         Ok(encoded)
     }
 
+    #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute(&self, query_str: &str) -> Result<String, String> {
         let txid = self
             .next_txid
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        tracing::debug!(?query, "Parsed query");
 
         let mut output = String::new();
         let mut profile_out = if query.profile {
@@ -925,6 +928,9 @@ impl Graph {
         result_set.push_row(&HashMap::new());
 
         let plan = QueryPlanner::plan_query(query, &*self.labels.read(), &*self.indices.read());
+        #[cfg(not(target_arch = "wasm32"))]
+        tracing::debug!(?plan, "Planned query");
+
         if plan.explain {
             return Ok(format!("{:#?}", plan.steps));
         }
@@ -936,6 +942,9 @@ impl Graph {
             txid as u64,
             &mut output,
         )?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        tracing::debug!(?result_set, "Query executed");
         if let Some(prof) = profile_out {
             let results_str = if output.is_empty() { "[]" } else { &output };
             let prof_json = serde_json::to_string(&prof).unwrap_or_else(|_| "\"\"".to_string());
