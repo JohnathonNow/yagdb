@@ -27,6 +27,8 @@ csv = "1.4.0"
 chrono = { version = "0.4.45", features = ["serde"] }
 indexmap = "2.2.6"
 parking_lot = { version = "0.12.5", features = ["serde"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
@@ -37,7 +39,7 @@ export-import = []
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 axum = "0.6"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.4.0", features = ["fs"] }
+tower-http = { version = "0.4.0", features = ["fs", "trace"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = "0.5.1"
