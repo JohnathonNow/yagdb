@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788877035830,
+  "lastUpdate": 1788888644705,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -7287,6 +7287,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 325550,
             "range": "± 2518",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e661b653b5e01b876fb834b6b51920bb028aa4a",
+          "message": "Merge pull request #154 from JohnathonNow/feature/observability-6980146122117990567\n\n⚡ George: [feature improvement] add structured logging and tracing",
+          "timestamp": "2026-09-08T13:18:29-04:00",
+          "tree_id": "332e33b3493ff60a567736cb3e3e001efe5779a3",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/6e661b653b5e01b876fb834b6b51920bb028aa4a"
+        },
+        "date": 1788888644180,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 32424,
+            "range": "± 92",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 34172,
+            "range": "± 145",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 61094,
+            "range": "± 846",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 47384,
+            "range": "± 434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 130358,
+            "range": "± 402",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 107560,
+            "range": "± 1165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 130343,
+            "range": "± 363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 108529,
+            "range": "± 436",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 67978,
+            "range": "± 279",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 56698,
+            "range": "± 105",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 131071,
+            "range": "± 1024",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 108063,
+            "range": "± 385",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2790993920,
+            "range": "± 20969380",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 3636,
+            "range": "± 79",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 6425,
+            "range": "± 94",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 5517,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 8506,
+            "range": "± 101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 9099,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 15027,
+            "range": "± 296",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 470426,
+            "range": "± 5418",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 437832,
+            "range": "± 2931",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 511031,
+            "range": "± 2860",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 611107,
+            "range": "± 3065",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 378820,
+            "range": "± 2794",
             "unit": "ns/iter"
           }
         ]
