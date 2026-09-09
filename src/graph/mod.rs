@@ -1639,9 +1639,11 @@ impl Graph {
                 }
                 ExecutionStep::Call(subplan) => {
                     let mut new_result_set = ResultSet::new();
+                    // ⚡ Bolt: Reuse ResultSet allocations across iterations to avoid repeated memory allocations.
+                    let mut sub_result_set = ResultSet::new();
                     for i in 0..result_set.rows {
-                        let mut sub_result_set = ResultSet::new();
-                        sub_result_set.push_row(&result_set.get_row(i));
+                        sub_result_set.clear();
+                        sub_result_set.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
                         self.execute_query_plan(
                             subplan,
                             &mut sub_result_set,
@@ -1650,8 +1652,7 @@ impl Graph {
                             output,
                         )?;
                         for j in 0..sub_result_set.rows {
-                            let sub_env = sub_result_set.get_row(j);
-                            new_result_set.push_row(&sub_env);
+                            new_result_set.push_row_from(&sub_result_set, j, std::iter::empty::<(&str, GraphElement)>());
                         }
                     }
                     *result_set = new_result_set;
