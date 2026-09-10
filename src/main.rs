@@ -19,6 +19,8 @@ use tower_http::services::ServeFile;
 #[cfg(not(target_arch = "wasm32"))]
 use tower_http::trace::TraceLayer;
 #[cfg(not(target_arch = "wasm32"))]
+use tower_http::compression::CompressionLayer;
+#[cfg(not(target_arch = "wasm32"))]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -84,7 +86,7 @@ async fn main() {
             "/console",
             axum::routing::get_service(ServeFile::new("console.html")),
         )
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http()).layer(CompressionLayer::new())
         .with_state(graph);
 
     tracing::info!("Starting server...");
