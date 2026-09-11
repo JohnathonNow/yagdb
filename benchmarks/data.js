@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789169801031,
+  "lastUpdate": 1789171030500,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -9603,6 +9603,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 407687,
             "range": "± 1622",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9a1bf02ceefc57700ab78064ebab01c7c504679",
+          "message": "Merge pull request #160 from JohnathonNow/george/cypher-missing-math-and-coalesce-3665214507410905517\n\n⚡ George: Add `sqrt`, `power`, and `coalesce` functions",
+          "timestamp": "2026-09-11T19:46:23-04:00",
+          "tree_id": "86e08bbcf1def081b2018b9820499b75c231c8ec",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/d9a1bf02ceefc57700ab78064ebab01c7c504679"
+        },
+        "date": 1789171029641,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 18519,
+            "range": "± 601",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 19360,
+            "range": "± 1089",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 33761,
+            "range": "± 1717",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 26993,
+            "range": "± 1280",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 75850,
+            "range": "± 2998",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 64386,
+            "range": "± 2718",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 75547,
+            "range": "± 1887",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 62595,
+            "range": "± 2037",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 40523,
+            "range": "± 1124",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 33488,
+            "range": "± 937",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 75370,
+            "range": "± 1697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 61613,
+            "range": "± 481",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2232163718,
+            "range": "± 55091730",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 2421,
+            "range": "± 89",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 4331,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 3765,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 5652,
+            "range": "± 344",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 6326,
+            "range": "± 228",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 10709,
+            "range": "± 415",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 264277,
+            "range": "± 10241",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 265613,
+            "range": "± 5815",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 313474,
+            "range": "± 3361",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 383571,
+            "range": "± 11500",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 229157,
+            "range": "± 11030",
             "unit": "ns/iter"
           }
         ]
