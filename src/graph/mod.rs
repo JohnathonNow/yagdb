@@ -1808,7 +1808,7 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
-                        let mut bindings = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
                         for (_group_key, group_rows) in groups.into_iter() {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1819,7 +1819,7 @@ impl Graph {
                                             if let Some(val) =
                                                 result_set.get(group_rows[0], var.as_str())
                                             {
-                                                bindings.push((out_key.clone(), val.clone()));
+                                                bindings.push((out_key.as_str(), val.clone()));
                                             }
                                         }
                                     }
@@ -1828,7 +1828,7 @@ impl Graph {
                                             if let Some(val) =
                                                 result_set.get(group_rows[0], var.as_str())
                                             {
-                                                bindings.push((out_key.clone(), val.clone()));
+                                                bindings.push((out_key.as_str(), val.clone()));
                                             }
                                         }
                                     }
@@ -1840,7 +1840,7 @@ impl Graph {
                                                 var.as_str(),
                                                 prop.as_str(),
                                             ) {
-                                                bindings.push((out_key.clone(), val));
+                                                bindings.push((out_key.as_str(), val));
                                             }
                                         }
                                     }
@@ -1852,7 +1852,7 @@ impl Graph {
                                                 var.as_str(),
                                                 prop.as_str(),
                                             ) {
-                                                bindings.push((out_key.clone(), val));
+                                                bindings.push((out_key.as_str(), val));
                                             }
                                         }
                                     }
@@ -1863,7 +1863,7 @@ impl Graph {
                                                 &result_set,
                                                 group_rows[0],
                                             );
-                                            bindings.push((out_key.clone(), val));
+                                            bindings.push((out_key.as_str(), val));
                                         }
                                     }
                                     ProjectionItem::Aggregate { func, var, .. } => {
@@ -1882,7 +1882,7 @@ impl Graph {
                                                         .count()
                                                 };
                                                 bindings.push((
-                                                    out_key.clone(),
+                                                    out_key.as_str(),
                                                     GraphElement::Number(count as f64),
                                                 ));
                                             }
@@ -1896,7 +1896,7 @@ impl Graph {
                                                     }
                                                 }
                                                 bindings
-                                                    .push((out_key.clone(), GraphElement::List(elements)));
+                                                    .push((out_key.as_str(), GraphElement::List(elements)));
                                             }
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
@@ -1910,7 +1910,7 @@ impl Graph {
                                                     }
                                                 }
                                                 bindings
-                                                    .push((out_key.clone(), GraphElement::List(elements)));
+                                                    .push((out_key.as_str(), GraphElement::List(elements)));
                                             }
                                             _ => {}
                                         }
@@ -1930,10 +1930,10 @@ impl Graph {
                                             self.functions.read().get(&func.to_lowercase())
                                         {
                                             if let Ok(val) = f(&eval_args) {
-                                                bindings.push((out_key.clone(), val));
+                                                bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.clone(), GraphElement::Number(0f64)));
+                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -1943,7 +1943,7 @@ impl Graph {
                         }
                     } else {
                         // Simple projection without aggregation
-                        let mut bindings = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
                         for i in 0..result_set.rows {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1952,13 +1952,13 @@ impl Graph {
                                     ProjectionItem::Variable(var) => {
                                         if let Some(val) = result_set.get(i, var.as_str()).cloned()
                                         {
-                                            bindings.push((out_key.clone(), val));
+                                            bindings.push((out_key.as_str(), val));
                                         }
                                     }
                                     ProjectionItem::AliasedVariable(var, _) => {
                                         if let Some(val) = result_set.get(i, var.as_str()).cloned()
                                         {
-                                            bindings.push((out_key.clone(), val));
+                                            bindings.push((out_key.as_str(), val));
                                         }
                                     }
                                     ProjectionItem::Property(var, prop) => {
@@ -1968,7 +1968,7 @@ impl Graph {
                                             var.as_str(),
                                             prop.as_str(),
                                         ) {
-                                            bindings.push((out_key.clone(), val));
+                                            bindings.push((out_key.as_str(), val));
                                         }
                                     }
                                     ProjectionItem::AliasedProperty(var, prop, _) => {
@@ -1978,7 +1978,7 @@ impl Graph {
                                             var.as_str(),
                                             prop.as_str(),
                                         ) {
-                                            bindings.push((out_key.clone(), val));
+                                            bindings.push((out_key.as_str(), val));
                                         }
                                     }
                                     ProjectionItem::Function { func, args, .. } => {
@@ -1996,16 +1996,16 @@ impl Graph {
                                             self.functions.read().get(&func.to_lowercase())
                                         {
                                             if let Ok(val) = f(&eval_args) {
-                                                bindings.push((out_key.clone(), val));
+                                                bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.clone(), GraphElement::Number(0f64)));
+                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
                                         }
                                     }
                                     ProjectionItem::Expression { expr, .. } => {
                                         let val = self
                                             .evaluate_expression_to_element(&expr, result_set, i);
-                                        bindings.push((out_key.clone(), val));
+                                        bindings.push((out_key.as_str(), val));
                                     }
                                     _ => {}
                                 }
