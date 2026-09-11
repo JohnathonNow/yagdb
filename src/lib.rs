@@ -6,6 +6,9 @@ pub mod parser;
 pub mod planner;
 pub mod property;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod auth;
+
 #[cfg(feature = "cluster")]
 pub mod raft;
 

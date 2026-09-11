@@ -41,6 +41,8 @@ pub struct QueryRes {
 
 pub fn create_router() -> Router<AppState> {
     Router::new()
+        .route("/auth", post(crate::auth::handle_auth))
+        .route("/refresh", post(crate::auth::handle_refresh))
         .route("/query", post(handle_query))
         .route("/query_stream", post(handle_query_stream))
         .route("/raft/append", post(handle_append))
@@ -52,9 +54,14 @@ pub fn create_router() -> Router<AppState> {
 }
 
 async fn handle_query(
+    headers: axum::http::HeaderMap,
     State(app): State<AppState>,
     body: String,
 ) -> Result<Json<QueryRes>, (axum::http::StatusCode, String)> {
+    if let Err(e) = crate::auth::check_auth(&headers) {
+        return Err(e);
+    }
+
     let q = crate::parser::parse_query(&body);
     let is_write = match q {
         Ok((_, query)) => query
@@ -129,7 +136,11 @@ async fn handle_query(
     }
 }
 
-async fn handle_query_stream(State(app): State<AppState>, body: String) -> impl IntoResponse {
+async fn handle_query_stream(headers: axum::http::HeaderMap, State(app): State<AppState>, body: String) -> impl IntoResponse {
+    if let Err(e) = crate::auth::check_auth(&headers) {
+        return e.into_response();
+    }
+
     let q = crate::parser::parse_query(&body);
     let is_write = match q {
         Ok((_, query)) => query
