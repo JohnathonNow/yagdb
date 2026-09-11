@@ -35,14 +35,10 @@ use tokio::signal;
 type SharedGraph = Arc<Graph>;
 
 #[cfg(not(target_arch = "wasm32"))]
-use base64::Engine;
-
-#[cfg(not(target_arch = "wasm32"))]
 fn check_auth(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
-    let required_user = std::env::var("YAGDB_USER").ok();
-    let required_pass = std::env::var("YAGDB_PASSWORD").ok();
+    let required_token = std::env::var("YAGDB_TOKEN").ok();
 
-    if required_user.is_none() && required_pass.is_none() {
+    if required_token.is_none() {
         return Ok(());
     }
 
@@ -56,37 +52,13 @@ fn check_auth(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String
         Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
     };
 
-    if !auth_str.starts_with("Basic ") {
+    if !auth_str.starts_with("Bearer ") {
         return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string()));
     }
 
-    let encoded_credentials = &auth_str[6..];
-    let decoded_bytes = match base64::engine::general_purpose::STANDARD.decode(encoded_credentials) {
-        Ok(b) => b,
-        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
-    };
+    let token = &auth_str[7..];
 
-    let decoded_str = match String::from_utf8(decoded_bytes) {
-        Ok(s) => s,
-        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
-    };
-
-    let (user_id, password) = match decoded_str.split_once(':') {
-        Some((u, p)) => (u, Some(p)),
-        None => (decoded_str.as_str(), None),
-    };
-
-    let user_match = match &required_user {
-        Some(expected_user) => user_id == expected_user,
-        None => true,
-    };
-
-    let pass_match = match &required_pass {
-        Some(expected_pass) => password == Some(expected_pass.as_str()),
-        None => true,
-    };
-
-    if user_match && pass_match {
+    if Some(token) == required_token.as_deref() {
         Ok(())
     } else {
         Err((StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()))
