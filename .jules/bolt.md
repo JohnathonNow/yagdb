@@ -14,3 +14,6 @@
 ## 2026-09-07 - Precompute output keys in Unwind
 **Learning:** In yagdb's `ExecutionStep::Unwind`, string formatting (`format!`) and cloning string references inside inner row loops create redundant heap allocations per row and per unwound item, acting as a performance bottleneck during list unwinding operations.
 **Action:** Always precompute static destination output keys outside hot iterators and loop bodies, caching them into a `Vec<String>` and passing them down by reference to inner mapping methods to preserve memory stability and optimize CPU execution times.
+## 2024-05-18 - Avoid String Clone inside ResultSet Projection Loops
+**Learning:** During query execution in `ExecutionStep::With` and `ExecutionStep::Return`, populating projection bindings resulted in an unnecessary `String` heap allocation per column per row due to the use of `out_key.clone()` inside the hot loop. The `ResultSet::push_row_from` method, however, accepts a generic `K: AsRef<str>`, meaning the allocation can be avoided entirely by passing string slices (`&str`).
+**Action:** When populating bindings structures (`Vec<(K, GraphElement)>`) that are meant to be pushed into generic collections accepting `AsRef<str>`, always declare the collection to hold `&str` references to precomputed keys and use `.as_str()` instead of `.clone()` to eliminate hidden per-row heap allocations.
