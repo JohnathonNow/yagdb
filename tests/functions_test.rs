@@ -58,6 +58,26 @@ fn test_math_functions() {
     // floor
     let res = g.execute("RETURN floor(5.9) AS f").unwrap();
     assert!(res.contains(r#""f": 5.0"#) || res.contains(r#""f":5.0"#));
+
+    // sqrt
+    let res = g.execute("RETURN sqrt(25.0) AS sq").unwrap();
+    assert!(res.contains(r#""sq": 5.0"#) || res.contains(r#""sq":5.0"#));
+
+    // power
+    let res = g.execute("RETURN power(2.0, 3.0) AS p").unwrap();
+    assert!(res.contains(r#""p": 8.0"#) || res.contains(r#""p":8.0"#));
+}
+
+#[test]
+fn test_coalesce_function() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob'})").unwrap();
+    g.execute("CREATE (c:Person)").unwrap();
+
+    let res = g.execute("MATCH (n:Person) RETURN coalesce(n.age, 0.0) AS age ORDER BY age").unwrap();
+    assert!(res.contains(r#""age": 30.0"#));
+    assert!(res.contains(r#""age": 0.0"#)); // Bob and Charlie will have 0.0
 }
 
 #[test]

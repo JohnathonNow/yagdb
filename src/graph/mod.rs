@@ -704,6 +704,42 @@ impl Graph {
         );
 
         self.register_function(
+            "sqrt",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.sqrt()));
+                    }
+                }
+                Err("Invalid arguments to sqrt()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "power",
+            std::sync::Arc::new(|args| {
+                if args.len() == 2 {
+                    if let (GraphElement::Number(n), GraphElement::Number(p)) = (&args[0], &args[1]) {
+                        return Ok(GraphElement::Number(n.powf(*p)));
+                    }
+                }
+                Err("Invalid arguments to power()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "coalesce",
+            std::sync::Arc::new(|args| {
+                for arg in args {
+                    if *arg != GraphElement::Null {
+                        return Ok(arg.clone());
+                    }
+                }
+                Ok(GraphElement::Null)
+            }),
+        );
+
+        self.register_function(
             "id",
             std::sync::Arc::new(|args| {
                 if args.len() == 1 {
