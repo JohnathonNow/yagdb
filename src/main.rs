@@ -33,6 +33,65 @@ use tokio::signal;
 type SharedGraph = Arc<Graph>;
 
 #[cfg(not(target_arch = "wasm32"))]
+use base64::Engine;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_auth(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
+    let required_user = std::env::var("YAGDB_USER").ok();
+    let required_pass = std::env::var("YAGDB_PASSWORD").ok();
+
+    if required_user.is_none() && required_pass.is_none() {
+        return Ok(());
+    }
+
+    let auth_header = match headers.get(axum::http::header::AUTHORIZATION) {
+        Some(h) => h,
+        None => return Err((StatusCode::UNAUTHORIZED, "Missing credentials".to_string())),
+    };
+
+    let auth_str = match auth_header.to_str() {
+        Ok(s) => s,
+        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
+    };
+
+    if !auth_str.starts_with("Basic ") {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string()));
+    }
+
+    let encoded_credentials = &auth_str[6..];
+    let decoded_bytes = match base64::engine::general_purpose::STANDARD.decode(encoded_credentials) {
+        Ok(b) => b,
+        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
+    };
+
+    let decoded_str = match String::from_utf8(decoded_bytes) {
+        Ok(s) => s,
+        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
+    };
+
+    let (user_id, password) = match decoded_str.split_once(':') {
+        Some((u, p)) => (u, Some(p)),
+        None => (decoded_str.as_str(), None),
+    };
+
+    let user_match = match &required_user {
+        Some(expected_user) => user_id == expected_user,
+        None => true,
+    };
+
+    let pass_match = match &required_pass {
+        Some(expected_pass) => password == Some(expected_pass.as_str()),
+        None => true,
+    };
+
+    if user_match && pass_match {
+        Ok(())
+    } else {
+        Err((StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
 #[cfg(not(target_arch = "wasm32"))]
@@ -161,7 +220,11 @@ async fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+async fn handle_query(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
     let g = graph.clone();
@@ -179,7 +242,11 @@ async fn handle_query(State(graph): State<SharedGraph>, body: String) -> impl In
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
+async fn handle_backup(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
     let g = graph.clone();
     match g.backup() {
         Ok(bytes) => {
@@ -200,7 +267,11 @@ async fn handle_backup(State(graph): State<SharedGraph>) -> impl IntoResponse {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_query_stream(State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+async fn handle_query_stream(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
     let g = graph.clone();
