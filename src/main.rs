@@ -35,35 +35,7 @@ use tokio::signal;
 type SharedGraph = Arc<Graph>;
 
 #[cfg(not(target_arch = "wasm32"))]
-fn check_auth(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
-    let required_token = std::env::var("YAGDB_TOKEN").ok();
-
-    if required_token.is_none() {
-        return Ok(());
-    }
-
-    let auth_header = match headers.get(axum::http::header::AUTHORIZATION) {
-        Some(h) => h,
-        None => return Err((StatusCode::UNAUTHORIZED, "Missing credentials".to_string())),
-    };
-
-    let auth_str = match auth_header.to_str() {
-        Ok(s) => s,
-        Err(_) => return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string())),
-    };
-
-    if !auth_str.starts_with("Bearer ") {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials format".to_string()));
-    }
-
-    let token = &auth_str[7..];
-
-    if Some(token) == required_token.as_deref() {
-        Ok(())
-    } else {
-        Err((StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()))
-    }
-}
+use yagdb::auth::{check_auth, handle_auth, handle_refresh};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
@@ -119,6 +91,9 @@ async fn main() {
         )
         .layer(TraceLayer::new_for_http()).layer(CompressionLayer::new())
         .with_state(graph);
+
+    #[cfg(not(feature = "cluster"))]
+    let app = app.route("/auth", post(handle_auth)).route("/refresh", post(handle_refresh));
 
     tracing::info!("Starting server...");
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
