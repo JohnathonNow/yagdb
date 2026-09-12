@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tower_http::services::ServeFile;
 
 #[cfg(not(target_arch = "wasm32"))]
-use tower_http::trace::TraceLayer;
-#[cfg(not(target_arch = "wasm32"))]
 use tower_http::compression::CompressionLayer;
+#[cfg(not(target_arch = "wasm32"))]
+use tower_http::trace::TraceLayer;
 #[cfg(not(target_arch = "wasm32"))]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -89,11 +89,14 @@ async fn main() {
             "/console",
             axum::routing::get_service(ServeFile::new("console.html")),
         )
-        .layer(TraceLayer::new_for_http()).layer(CompressionLayer::new())
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
         .with_state(graph);
 
     #[cfg(not(feature = "cluster"))]
-    let app = app.route("/auth", post(handle_auth)).route("/refresh", post(handle_refresh));
+    let app = app
+        .route("/auth", post(handle_auth))
+        .route("/refresh", post(handle_refresh));
 
     tracing::info!("Starting server...");
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -169,7 +172,11 @@ async fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_query(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+async fn handle_query(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+    body: String,
+) -> impl IntoResponse {
     if let Err(e) = check_auth(&headers) {
         return e.into_response();
     }
@@ -191,7 +198,10 @@ async fn handle_query(headers: axum::http::HeaderMap, State(graph): State<Shared
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_backup(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>) -> impl IntoResponse {
+async fn handle_backup(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+) -> impl IntoResponse {
     if let Err(e) = check_auth(&headers) {
         return e.into_response();
     }
@@ -216,7 +226,11 @@ async fn handle_backup(headers: axum::http::HeaderMap, State(graph): State<Share
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
-async fn handle_query_stream(headers: axum::http::HeaderMap, State(graph): State<SharedGraph>, body: String) -> impl IntoResponse {
+async fn handle_query_stream(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+    body: String,
+) -> impl IntoResponse {
     if let Err(e) = check_auth(&headers) {
         return e.into_response();
     }
