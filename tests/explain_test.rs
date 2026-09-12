@@ -1,6 +1,5 @@
 use yagdb::graph::Graph;
 
-
 #[test]
 fn test_explain() {
     let graph = Graph::new();

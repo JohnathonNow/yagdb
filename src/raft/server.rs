@@ -136,7 +136,11 @@ async fn handle_query(
     }
 }
 
-async fn handle_query_stream(headers: axum::http::HeaderMap, State(app): State<AppState>, body: String) -> impl IntoResponse {
+async fn handle_query_stream(
+    headers: axum::http::HeaderMap,
+    State(app): State<AppState>,
+    body: String,
+) -> impl IntoResponse {
     if let Err(e) = crate::auth::check_auth(&headers) {
         return e.into_response();
     }

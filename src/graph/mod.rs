@@ -719,7 +719,8 @@ impl Graph {
             "power",
             std::sync::Arc::new(|args| {
                 if args.len() == 2 {
-                    if let (GraphElement::Number(n), GraphElement::Number(p)) = (&args[0], &args[1]) {
+                    if let (GraphElement::Number(n), GraphElement::Number(p)) = (&args[0], &args[1])
+                    {
                         return Ok(GraphElement::Number(n.powf(*p)));
                     }
                 }
@@ -1567,15 +1568,18 @@ impl Graph {
                     let mut new_result_set = ResultSet::new();
 
                     // ⚡ BOLT: Precompute output keys outside the hot loops to avoid redundant heap allocations
-                    let precomputed_keys: Vec<String> = items.iter().map(|item| {
-                        match item {
+                    let precomputed_keys: Vec<String> = items
+                        .iter()
+                        .map(|item| match item {
                             ProjectionItem::Variable(var) => var.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Expression { alias, .. } => alias.clone().unwrap_or_else(|| "expr".to_string()),
+                            ProjectionItem::Expression { alias, .. } => {
+                                alias.clone().unwrap_or_else(|| "expr".to_string())
+                            }
                             _ => String::new(),
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     for i in 0..result_set.rows {
                         for (idx, item) in items.iter().enumerate() {
@@ -1679,7 +1683,11 @@ impl Graph {
                     let mut sub_result_set = ResultSet::new();
                     for i in 0..result_set.rows {
                         sub_result_set.clear();
-                        sub_result_set.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
+                        sub_result_set.push_row_from(
+                            &result_set,
+                            i,
+                            std::iter::empty::<(&str, GraphElement)>(),
+                        );
                         self.execute_query_plan(
                             subplan,
                             &mut sub_result_set,
@@ -1688,7 +1696,11 @@ impl Graph {
                             output,
                         )?;
                         for j in 0..sub_result_set.rows {
-                            new_result_set.push_row_from(&sub_result_set, j, std::iter::empty::<(&str, GraphElement)>());
+                            new_result_set.push_row_from(
+                                &sub_result_set,
+                                j,
+                                std::iter::empty::<(&str, GraphElement)>(),
+                            );
                         }
                     }
                     *result_set = new_result_set;
@@ -1725,9 +1737,9 @@ impl Graph {
                             ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Aggregate { func, var, alias } => {
-                                alias.clone().unwrap_or_else(|| format!("{}({})", func, var))
-                            }
+                            ProjectionItem::Aggregate { func, var, alias } => alias
+                                .clone()
+                                .unwrap_or_else(|| format!("{}({})", func, var)),
                             ProjectionItem::Function { func, alias, .. } => {
                                 alias.clone().unwrap_or_else(|| format!("{}()", func))
                             }
@@ -1808,7 +1820,8 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
-                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> =
+                            Vec::with_capacity(items_vec.len());
                         for (_group_key, group_rows) in groups.into_iter() {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1895,8 +1908,10 @@ impl Graph {
                                                         elements.push(val.clone());
                                                     }
                                                 }
-                                                bindings
-                                                    .push((out_key.as_str(), GraphElement::List(elements)));
+                                                bindings.push((
+                                                    out_key.as_str(),
+                                                    GraphElement::List(elements),
+                                                ));
                                             }
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
@@ -1909,8 +1924,10 @@ impl Graph {
                                                         }
                                                     }
                                                 }
-                                                bindings
-                                                    .push((out_key.as_str(), GraphElement::List(elements)));
+                                                bindings.push((
+                                                    out_key.as_str(),
+                                                    GraphElement::List(elements),
+                                                ));
                                             }
                                             _ => {}
                                         }
@@ -1933,7 +1950,10 @@ impl Graph {
                                                 bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
+                                            bindings.push((
+                                                out_key.as_str(),
+                                                GraphElement::Number(0f64),
+                                            ));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -1943,7 +1963,8 @@ impl Graph {
                         }
                     } else {
                         // Simple projection without aggregation
-                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> =
+                            Vec::with_capacity(items_vec.len());
                         for i in 0..result_set.rows {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1999,7 +2020,10 @@ impl Graph {
                                                 bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
+                                            bindings.push((
+                                                out_key.as_str(),
+                                                GraphElement::Number(0f64),
+                                            ));
                                         }
                                     }
                                     ProjectionItem::Expression { expr, .. } => {
@@ -2665,18 +2689,18 @@ impl Graph {
 
         for path in paths {
             if let Some(bound_var) = &path.bound_variable {
-                for i in initial_rows..out.rows {
-                    let mut path_elements = Vec::new();
-                    let start_var = path
-                        .start
-                        .variable
-                        .clone()
-                        .unwrap_or_else(|| "_anon_start".to_string());
-                    if let Some(el) = out.get(i, &start_var) {
-                        path_elements.push(el.clone());
-                    }
+                // ⚡ BOLT: Precompute path variable names to avoid redundant cloning and formatting per row
+                let start_var = path
+                    .start
+                    .variable
+                    .clone()
+                    .unwrap_or_else(|| "_anon_start".to_string());
 
-                    for (idx, (rel, target)) in path.edges.iter().enumerate() {
+                let edge_vars: Vec<(String, String)> = path
+                    .edges
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (rel, target))| {
                         let rel_var = rel
                             .variable
                             .clone()
@@ -2685,11 +2709,21 @@ impl Graph {
                             .variable
                             .clone()
                             .unwrap_or_else(|| format!("_anon_node_{}", idx));
+                        (rel_var, target_var)
+                    })
+                    .collect();
 
-                        if let Some(el) = out.get(i, &rel_var) {
+                for i in initial_rows..out.rows {
+                    let mut path_elements = Vec::new();
+                    if let Some(el) = out.get(i, &start_var) {
+                        path_elements.push(el.clone());
+                    }
+
+                    for (rel_var, target_var) in &edge_vars {
+                        if let Some(el) = out.get(i, rel_var) {
                             path_elements.push(el.clone());
                         }
-                        if let Some(el) = out.get(i, &target_var) {
+                        if let Some(el) = out.get(i, target_var) {
                             path_elements.push(el.clone());
                         }
                     }
