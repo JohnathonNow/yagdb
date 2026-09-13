@@ -38,6 +38,13 @@ type SharedGraph = Arc<Graph>;
 use yagdb::auth::{check_auth, handle_auth, handle_refresh};
 
 #[cfg(not(target_arch = "wasm32"))]
+use axum::{error_handling::HandleErrorLayer, BoxError};
+#[cfg(not(target_arch = "wasm32"))]
+use tower::ServiceBuilder;
+#[cfg(not(target_arch = "wasm32"))]
+use tower_http::decompression::RequestDecompressionLayer;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
 struct CancelGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,7 +96,22 @@ async fn main() {
             "/console",
             axum::routing::get_service(ServeFile::new("console.html")),
         )
-        .layer(TraceLayer::new_for_http()).layer(CompressionLayer::new())
+        // ⚡ George Optimization:
+        // RequestDecompressionLayer does infallible decompression of incoming request bodies.
+        // It requires being wrapped in a HandleErrorLayer because the outer layer expects infallible BoxError
+        // mappings, which helps us ensure decompression errors turn into 400 Bad Request instead of 500.
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: BoxError| async move {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Unhandled error: {}", err),
+                    )
+                }))
+                .layer(RequestDecompressionLayer::new())
+        )
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
         .with_state(graph);
 
     #[cfg(not(feature = "cluster"))]
