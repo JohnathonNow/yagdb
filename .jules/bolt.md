@@ -17,3 +17,7 @@
 ## 2024-05-18 - Avoid String Clone inside ResultSet Projection Loops
 **Learning:** During query execution in `ExecutionStep::With` and `ExecutionStep::Return`, populating projection bindings resulted in an unnecessary `String` heap allocation per column per row due to the use of `out_key.clone()` inside the hot loop. The `ResultSet::push_row_from` method, however, accepts a generic `K: AsRef<str>`, meaning the allocation can be avoided entirely by passing string slices (`&str`).
 **Action:** When populating bindings structures (`Vec<(K, GraphElement)>`) that are meant to be pushed into generic collections accepting `AsRef<str>`, always declare the collection to hold `&str` references to precomputed keys and use `.as_str()` instead of `.clone()` to eliminate hidden per-row heap allocations.
+
+## 2026-09-08 - Hoist PathExpand Vec Allocations and AST Clones
+**Learning:** In yagdb's query execution pipeline (specifically pattern path matching in `ExecutionStep` for `PlanNode::PathExpand`), generating the edge mapping (`vec![(rel_pattern.clone(), target_node_pattern.clone())]`) inside the nested traversal hot loops causes severe redundant AST cloning and vector memory allocation on every matched source node.
+**Action:** When working with nested result iterations during graph path expansions, always precompute static mappings like path AST copies into variables outside of row loops (`i in 0..source_res.rows`) and source node loops, passing references downward.
