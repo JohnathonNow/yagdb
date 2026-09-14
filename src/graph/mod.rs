@@ -2706,18 +2706,18 @@ impl Graph {
 
         for path in paths {
             if let Some(bound_var) = &path.bound_variable {
-                for i in initial_rows..out.rows {
-                    let mut path_elements = Vec::new();
-                    let start_var = path
-                        .start
-                        .variable
-                        .clone()
-                        .unwrap_or_else(|| "_anon_start".to_string());
-                    if let Some(el) = out.get(i, &start_var) {
-                        path_elements.push(el.clone());
-                    }
+                // ⚡ BOLT: Precompute path variable names to avoid redundant cloning and formatting per row
+                let start_var = path
+                    .start
+                    .variable
+                    .clone()
+                    .unwrap_or_else(|| "_anon_start".to_string());
 
-                    for (idx, (rel, target)) in path.edges.iter().enumerate() {
+                let edge_vars: Vec<(String, String)> = path
+                    .edges
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (rel, target))| {
                         let rel_var = rel
                             .variable
                             .clone()
@@ -2726,11 +2726,21 @@ impl Graph {
                             .variable
                             .clone()
                             .unwrap_or_else(|| format!("_anon_node_{}", idx));
+                        (rel_var, target_var)
+                    })
+                    .collect();
 
-                        if let Some(el) = out.get(i, &rel_var) {
+                for i in initial_rows..out.rows {
+                    let mut path_elements = Vec::new();
+                    if let Some(el) = out.get(i, &start_var) {
+                        path_elements.push(el.clone());
+                    }
+
+                    for (rel_var, target_var) in &edge_vars {
+                        if let Some(el) = out.get(i, rel_var) {
                             path_elements.push(el.clone());
                         }
-                        if let Some(el) = out.get(i, &target_var) {
+                        if let Some(el) = out.get(i, target_var) {
                             path_elements.push(el.clone());
                         }
                     }
