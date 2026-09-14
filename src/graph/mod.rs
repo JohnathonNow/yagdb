@@ -719,7 +719,8 @@ impl Graph {
             "power",
             std::sync::Arc::new(|args| {
                 if args.len() == 2 {
-                    if let (GraphElement::Number(n), GraphElement::Number(p)) = (&args[0], &args[1]) {
+                    if let (GraphElement::Number(n), GraphElement::Number(p)) = (&args[0], &args[1])
+                    {
                         return Ok(GraphElement::Number(n.powf(*p)));
                     }
                 }
@@ -1235,110 +1236,125 @@ impl Graph {
                     }
                     *result_set = new_result_set;
                 }
-                ExecutionStep::Set(var, key, value_expr) => {
+                ExecutionStep::Set(items) => {
                     let mut updated_nodes = std::collections::HashSet::new();
                     let mut updated_edges = std::collections::HashSet::new();
-                    for i in 0..result_set.rows {
-                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var.as_str()) {
-                            let node_id = *node_id;
-                            let evaluated_value =
-                                self.evaluate_expression_to_element(&value_expr, &result_set, i);
-                            if let Some(value) = evaluated_value.to_property_value() {
-                                if updated_nodes.insert(node_id) {
-                                    // ⚡ Bolt: Use in-place mutation to set property without allocating memory for cloning the node.
-                                    let (old_value, has_label) = self
-                                        .nodes
-                                        .with_mut_item(node_id, |__node| {
-                                            (
-                                                __node
-                                                    .properties
-                                                    .insert(key.clone(), value.clone()),
-                                                __node.labels.clone(),
-                                            )
-                                        })
-                                        .unwrap();
+                    for (var, key, value_expr) in items {
+                        for i in 0..result_set.rows {
+                            if let Some(GraphElement::Node(node_id)) =
+                                result_set.get(i, var.as_str())
+                            {
+                                let node_id = *node_id;
+                                let evaluated_value = self.evaluate_expression_to_element(
+                                    &value_expr,
+                                    &result_set,
+                                    i,
+                                );
+                                if let Some(value) = evaluated_value.to_property_value() {
+                                    if updated_nodes.insert((node_id, key.clone())) {
+                                        // ⚡ Bolt: Use in-place mutation to set property without allocating memory for cloning the node.
+                                        let (old_value, has_label) = self
+                                            .nodes
+                                            .with_mut_item(node_id, |__node| {
+                                                (
+                                                    __node
+                                                        .properties
+                                                        .insert(key.clone(), value.clone()),
+                                                    __node.labels.clone(),
+                                                )
+                                            })
+                                            .unwrap();
 
-                                    // Update indices if necessary
-                                    for (label_id, label_indices) in self.indices.write().iter_mut()
-                                    {
-                                        if has_label.contains(label_id) {
-                                            if let Some(prop_index) =
-                                                label_indices.get_mut(key.as_str())
-                                            {
-                                                match prop_index {
-                                                    IndexMap::Hash(map) => {
-                                                        // Remove from old index
-                                                        if let Some(old_val) = &old_value {
-                                                            if let Some(vec) = map.get_mut(old_val)
+                                        // Update indices if necessary
+                                        for (label_id, label_indices) in
+                                            self.indices.write().iter_mut()
+                                        {
+                                            if has_label.contains(label_id) {
+                                                if let Some(prop_index) =
+                                                    label_indices.get_mut(key.as_str())
+                                                {
+                                                    match prop_index {
+                                                        IndexMap::Hash(map) => {
+                                                            // Remove from old index
+                                                            if let Some(old_val) = &old_value {
+                                                                if let Some(vec) =
+                                                                    map.get_mut(old_val)
+                                                                {
+                                                                    vec.retain(|&id| id != node_id);
+                                                                }
+                                                            }
+                                                            // Add to new index
+                                                            if let Some(entry_vec) =
+                                                                map.get_mut(&value)
                                                             {
-                                                                vec.retain(|&id| id != node_id);
+                                                                if !entry_vec.contains(&node_id) {
+                                                                    entry_vec.push(node_id);
+                                                                }
+                                                            } else {
+                                                                map.insert(
+                                                                    value.clone(),
+                                                                    vec![node_id],
+                                                                );
                                                             }
                                                         }
-                                                        // Add to new index
-                                                        if let Some(entry_vec) = map.get_mut(&value)
-                                                        {
-                                                            if !entry_vec.contains(&node_id) {
-                                                                entry_vec.push(node_id);
+                                                        IndexMap::BTree(map) => {
+                                                            // Remove from old index
+                                                            if let Some(old_val) = &old_value {
+                                                                if let Some(vec) =
+                                                                    map.get_mut(old_val)
+                                                                {
+                                                                    vec.retain(|&id| id != node_id);
+                                                                }
                                                             }
-                                                        } else {
-                                                            map.insert(
-                                                                value.clone(),
-                                                                vec![node_id],
-                                                            );
-                                                        }
-                                                    }
-                                                    IndexMap::BTree(map) => {
-                                                        // Remove from old index
-                                                        if let Some(old_val) = &old_value {
-                                                            if let Some(vec) = map.get_mut(old_val)
+                                                            // Add to new index
+                                                            if let Some(entry_vec) =
+                                                                map.get_mut(&value)
                                                             {
-                                                                vec.retain(|&id| id != node_id);
+                                                                if !entry_vec.contains(&node_id) {
+                                                                    entry_vec.push(node_id);
+                                                                }
+                                                            } else {
+                                                                map.insert(
+                                                                    value.clone(),
+                                                                    vec![node_id],
+                                                                );
                                                             }
-                                                        }
-                                                        // Add to new index
-                                                        if let Some(entry_vec) = map.get_mut(&value)
-                                                        {
-                                                            if !entry_vec.contains(&node_id) {
-                                                                entry_vec.push(node_id);
-                                                            }
-                                                        } else {
-                                                            map.insert(
-                                                                value.clone(),
-                                                                vec![node_id],
-                                                            );
                                                         }
                                                     }
                                                 }
                                             }
                                         }
+
+                                        self.log_wal(&WalEntry::SetNodeProperty {
+                                            node_id,
+                                            key: key.clone(),
+                                            value: value.clone(),
+                                        });
                                     }
-
-                                    self.log_wal(&WalEntry::SetNodeProperty {
-                                        node_id,
-                                        key: key.clone(),
-                                        value: value.clone(),
-                                    });
                                 }
-                            }
-                        } else if let Some(GraphElement::Edge(edge_id)) =
-                            result_set.get(i, var.as_str())
-                        {
-                            let edge_id = *edge_id;
-                            let evaluated_value =
-                                self.evaluate_expression_to_element(&value_expr, &result_set, i);
-                            if let Some(value) = evaluated_value.to_property_value() {
-                                if updated_edges.insert(edge_id) {
-                                    self.edges
-                                        .with_mut_item(edge_id, |e| {
-                                            e.properties.insert(key.clone(), value.clone());
-                                        })
-                                        .unwrap();
+                            } else if let Some(GraphElement::Edge(edge_id)) =
+                                result_set.get(i, var.as_str())
+                            {
+                                let edge_id = *edge_id;
+                                let evaluated_value = self.evaluate_expression_to_element(
+                                    &value_expr,
+                                    &result_set,
+                                    i,
+                                );
+                                if let Some(value) = evaluated_value.to_property_value() {
+                                    if updated_edges.insert((edge_id, key.clone())) {
+                                        self.edges
+                                            .with_mut_item(edge_id, |e| {
+                                                e.properties.insert(key.clone(), value.clone());
+                                            })
+                                            .unwrap();
 
-                                    self.log_wal(&WalEntry::SetEdgeProperty {
-                                        edge_id,
-                                        key: key.clone(),
-                                        value: value.clone(),
-                                    });
+                                        self.log_wal(&WalEntry::SetEdgeProperty {
+                                            edge_id,
+                                            key: key.clone(),
+                                            value: value.clone(),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -1567,15 +1583,18 @@ impl Graph {
                     let mut new_result_set = ResultSet::new();
 
                     // ⚡ BOLT: Precompute output keys outside the hot loops to avoid redundant heap allocations
-                    let precomputed_keys: Vec<String> = items.iter().map(|item| {
-                        match item {
+                    let precomputed_keys: Vec<String> = items
+                        .iter()
+                        .map(|item| match item {
                             ProjectionItem::Variable(var) => var.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Expression { alias, .. } => alias.clone().unwrap_or_else(|| "expr".to_string()),
+                            ProjectionItem::Expression { alias, .. } => {
+                                alias.clone().unwrap_or_else(|| "expr".to_string())
+                            }
                             _ => String::new(),
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     for i in 0..result_set.rows {
                         for (idx, item) in items.iter().enumerate() {
@@ -1679,7 +1698,11 @@ impl Graph {
                     let mut sub_result_set = ResultSet::new();
                     for i in 0..result_set.rows {
                         sub_result_set.clear();
-                        sub_result_set.push_row_from(&result_set, i, std::iter::empty::<(&str, GraphElement)>());
+                        sub_result_set.push_row_from(
+                            &result_set,
+                            i,
+                            std::iter::empty::<(&str, GraphElement)>(),
+                        );
                         self.execute_query_plan(
                             subplan,
                             &mut sub_result_set,
@@ -1688,7 +1711,11 @@ impl Graph {
                             output,
                         )?;
                         for j in 0..sub_result_set.rows {
-                            new_result_set.push_row_from(&sub_result_set, j, std::iter::empty::<(&str, GraphElement)>());
+                            new_result_set.push_row_from(
+                                &sub_result_set,
+                                j,
+                                std::iter::empty::<(&str, GraphElement)>(),
+                            );
                         }
                     }
                     *result_set = new_result_set;
@@ -1725,9 +1752,9 @@ impl Graph {
                             ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Aggregate { func, var, alias } => {
-                                alias.clone().unwrap_or_else(|| format!("{}({})", func, var))
-                            }
+                            ProjectionItem::Aggregate { func, var, alias } => alias
+                                .clone()
+                                .unwrap_or_else(|| format!("{}({})", func, var)),
                             ProjectionItem::Function { func, alias, .. } => {
                                 alias.clone().unwrap_or_else(|| format!("{}()", func))
                             }
@@ -1808,7 +1835,8 @@ impl Graph {
                         }
 
                         // Compute aggregates per group
-                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> =
+                            Vec::with_capacity(items_vec.len());
                         for (_group_key, group_rows) in groups.into_iter() {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1895,8 +1923,10 @@ impl Graph {
                                                         elements.push(val.clone());
                                                     }
                                                 }
-                                                bindings
-                                                    .push((out_key.as_str(), GraphElement::List(elements)));
+                                                bindings.push((
+                                                    out_key.as_str(),
+                                                    GraphElement::List(elements),
+                                                ));
                                             }
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
@@ -1909,8 +1939,10 @@ impl Graph {
                                                         }
                                                     }
                                                 }
-                                                bindings
-                                                    .push((out_key.as_str(), GraphElement::List(elements)));
+                                                bindings.push((
+                                                    out_key.as_str(),
+                                                    GraphElement::List(elements),
+                                                ));
                                             }
                                             _ => {}
                                         }
@@ -1933,7 +1965,10 @@ impl Graph {
                                                 bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
+                                            bindings.push((
+                                                out_key.as_str(),
+                                                GraphElement::Number(0f64),
+                                            ));
                                         }
                                     }
                                     ProjectionItem::Star => {}
@@ -1943,7 +1978,8 @@ impl Graph {
                         }
                     } else {
                         // Simple projection without aggregation
-                        let mut bindings: Vec<(&str, GraphElement)> = Vec::with_capacity(items_vec.len());
+                        let mut bindings: Vec<(&str, GraphElement)> =
+                            Vec::with_capacity(items_vec.len());
                         for i in 0..result_set.rows {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -1999,7 +2035,10 @@ impl Graph {
                                                 bindings.push((out_key.as_str(), val));
                                             }
                                         } else if func.eq_ignore_ascii_case("rand") {
-                                            bindings.push((out_key.as_str(), GraphElement::Number(0f64)));
+                                            bindings.push((
+                                                out_key.as_str(),
+                                                GraphElement::Number(0f64),
+                                            ));
                                         }
                                     }
                                     ProjectionItem::Expression { expr, .. } => {

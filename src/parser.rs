@@ -116,7 +116,7 @@ pub enum Clause {
         Option<usize>,
     ),
     Merge(Vec<Path>),
-    Set(String, String, Expression),
+    Set(Vec<(String, String, Expression)>),
     Remove(Vec<RemoveItem>),
     CreateIndex {
         label: String,
@@ -638,14 +638,19 @@ fn merge_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Merge(paths)))
 }
 
-fn set_clause(input: &str) -> IResult<&str, Clause> {
-    let (input, _) = ws(alt((tag("SET"), tag("set"))))(input)?;
+fn set_item(input: &str) -> IResult<&str, (String, String, Expression)> {
     let (input, var) = ws(identifier)(input)?;
     let (input, _) = ws(char('.'))(input)?;
     let (input, prop) = ws(identifier)(input)?;
     let (input, _) = ws(char('='))(input)?;
     let (input, val) = ws(expression)(input)?;
-    Ok((input, Clause::Set(var.to_string(), prop.to_string(), val)))
+    Ok((input, (var.to_string(), prop.to_string(), val)))
+}
+
+fn set_clause(input: &str) -> IResult<&str, Clause> {
+    let (input, _) = ws(alt((tag("SET"), tag("set"))))(input)?;
+    let (input, items) = separated_list1(ws(char(',')), set_item)(input)?;
+    Ok((input, Clause::Set(items)))
 }
 
 fn unwind_clause(input: &str) -> IResult<&str, Clause> {

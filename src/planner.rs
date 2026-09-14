@@ -203,7 +203,7 @@ pub enum ExecutionStep {
         Option<usize>,
     ),
     Merge(Vec<(Option<PlanNode>, Path)>),
-    Set(String, String, Expression),
+    Set(Vec<(String, String, Expression)>),
     Remove(Vec<crate::parser::RemoveItem>),
     CreateIndex {
         label: String,
@@ -322,7 +322,7 @@ impl QueryPlanner {
                     }
                     ExecutionStep::Merge(planned_paths)
                 }
-                Clause::Set(var, key, val) => ExecutionStep::Set(var, key, val),
+                Clause::Set(items) => ExecutionStep::Set(items),
                 Clause::Remove(items) => ExecutionStep::Remove(items),
                 Clause::CreateIndex {
                     label,
