@@ -20,3 +20,7 @@
 ## 2026-09-08 - Hoist Variable Formatting out of Execute Path Binding
 **Learning:** In yagdb's `execute_plan_and_bind_paths`, path variable strings like `start_var`, `rel_var`, and `target_var` were redundantly cloned and formatted via `format!` inside the row iteration loop (`for i in initial_rows..out.rows`). This triggered continuous heap allocation overhead during pattern matching.
 **Action:** When mapping logic evaluates elements row-by-row on a `ResultSet`, move generic schema or variable calculations (like path node/edge variable names) outside of the loop. Precompute these bounds into `Vec<(String, String)>` structures so that the loop only requires cheap variable references (`&rel_var`).
+
+## 2026-09-08 - Hoist PathExpand Vec Allocations and AST Clones
+**Learning:** In yagdb's query execution pipeline (specifically pattern path matching in `ExecutionStep` for `PlanNode::PathExpand`), generating the edge mapping (`vec![(rel_pattern.clone(), target_node_pattern.clone())]`) inside the nested traversal hot loops causes severe redundant AST cloning and vector memory allocation on every matched source node.
+**Action:** When working with nested result iterations during graph path expansions, always precompute static mappings like path AST copies into variables outside of row loops (`i in 0..source_res.rows`) and source node loops, passing references downward.

@@ -97,3 +97,37 @@ fn test_set_from_function() {
     let result = g.execute("MATCH (n:Test) RETURN n.value AS val").unwrap();
     assert!(result.contains("42"));
 }
+
+#[test]
+fn test_set_multiple_properties() {
+    let snapshot_path = "test_set_multiple_snapshot.bin";
+    let wal_path = "test_set_multiple_wal.bin";
+    let _ = std::fs::remove_file(snapshot_path);
+    let _ = std::fs::remove_file(wal_path);
+
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+        g.execute("CREATE (n:Person {name: 'Alice'})").unwrap();
+
+        // Update multiple properties in a single SET clause
+        g.execute("MATCH (n:Person {name: 'Alice'}) SET n.age = 30, n.city = 'London'")
+            .unwrap();
+
+        let result = g.execute("MATCH (n:Person) RETURN n").unwrap();
+        assert!(result.contains("30"));
+        assert!(result.contains("London"));
+        assert!(result.contains("Alice"));
+    }
+
+    // Verify WAL persistence
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+        let result = g.execute("MATCH (n:Person) RETURN n").unwrap();
+        assert!(result.contains("30"));
+        assert!(result.contains("London"));
+        assert!(result.contains("Alice"));
+    }
+
+    let _ = std::fs::remove_file(snapshot_path);
+    let _ = std::fs::remove_file(wal_path);
+}

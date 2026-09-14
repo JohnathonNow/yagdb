@@ -104,7 +104,8 @@ fn test_parser_set() {
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
-        Clause::Set(var, prop, val) => {
+        Clause::Set(items) => {
+            let (var, prop, val) = &items[0];
             assert_eq!(var, "n");
             assert_eq!(prop, "age");
             assert_eq!(
@@ -286,5 +287,27 @@ fn test_parse_call() {
             assert!(matches!(sub_q.clauses[2], Clause::Return(..)));
         }
         _ => panic!("Expected CALL clause"),
+    }
+}
+
+#[test]
+fn test_parser_set_multiple() {
+    let input = "SET n.age = 30, n.name = 'Bob'";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Set(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].0, "n");
+            assert_eq!(items[0].1, "age");
+            assert_eq!(items[0].2, yagdb::parser::Expression::NumberLiteral(30.0));
+            assert_eq!(items[1].0, "n");
+            assert_eq!(items[1].1, "name");
+            assert_eq!(
+                items[1].2,
+                yagdb::parser::Expression::StringLiteral("Bob".to_string())
+            );
+        }
+        _ => panic!("Expected Set clause"),
     }
 }
