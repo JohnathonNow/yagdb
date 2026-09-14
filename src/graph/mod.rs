@@ -2390,6 +2390,9 @@ impl Graph {
                     txid,
                 );
 
+                // ⚡ Bolt: Hoist path pattern allocation out of nested hot loops to prevent redundant clones and Vec allocations per match.
+                let precomputed_edges = vec![(rel_pattern.clone(), target_node_pattern.clone())];
+
                 for i in 0..source_res.rows {
                     let mut source_node_ids = Vec::new();
 
@@ -2405,9 +2408,8 @@ impl Graph {
                     }
 
                     for source_node_id in source_node_ids {
-                        let edges = vec![(rel_pattern.clone(), target_node_pattern.clone())];
                         self.match_edges_recursive(
-                            &edges,
+                            &precomputed_edges,
                             0,
                             source_node_id,
                             &source_res,
