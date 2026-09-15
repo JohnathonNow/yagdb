@@ -203,7 +203,7 @@ pub enum ExecutionStep {
         Option<usize>,
     ),
     Merge(Vec<(Option<PlanNode>, Path)>),
-    Set(Vec<(String, String, Expression)>),
+    Set(Vec<crate::parser::SetItem>),
     Remove(Vec<crate::parser::RemoveItem>),
     CreateIndex {
         label: String,

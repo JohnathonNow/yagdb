@@ -40,6 +40,10 @@ pub enum WalEntry {
         key: String,
         value: crate::property::PropertyValue,
     },
+    SetNodeLabel {
+        node_id: usize,
+        label_id: usize,
+    },
     DeleteNode {
         node_id: usize,
     },
