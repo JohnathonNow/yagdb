@@ -1061,7 +1061,7 @@ impl Graph {
                         bindings.clear();
                         for path in paths {
                             self.execute_create_path(
-                                path.clone(),
+                                path,
                                 result_set,
                                 i,
                                 &mut bindings,
@@ -1255,7 +1255,7 @@ impl Graph {
                                 } else {
                                     bindings.clear();
                                     self.execute_create_path(
-                                        path.clone(),
+                                        path,
                                         result_set,
                                         i,
                                         &mut bindings,
@@ -1266,7 +1266,7 @@ impl Graph {
                             } else {
                                 bindings.clear();
                                 self.execute_create_path(
-                                    path.clone(),
+                                    path,
                                     result_set,
                                     i,
                                     &mut bindings,
@@ -2260,7 +2260,7 @@ impl Graph {
 
     fn execute_create_path(
         &self,
-        path: Path,
+        path: &crate::parser::Path,
         in_res: &ResultSet,
         row_idx: usize,
         bindings: &mut Vec<(String, GraphElement)>,
@@ -2272,9 +2272,9 @@ impl Graph {
         let mut current_id = start_id;
 
         let bound_var = path.bound_variable.clone();
-        for (rel, target_node) in path.edges {
-            let next_id = self.create_node(&target_node, in_res, row_idx, bindings, txid);
-            let rel_id = self.create_rel(&rel, current_id, next_id, txid);
+        for (rel, target_node) in &path.edges {
+            let next_id = self.create_node(target_node, in_res, row_idx, bindings, txid);
+            let rel_id = self.create_rel(rel, current_id, next_id, txid);
             path_elements.push(GraphElement::Edge(rel_id));
             path_elements.push(GraphElement::Node(next_id));
             if let Some(var) = &rel.variable {
