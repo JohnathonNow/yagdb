@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789579043612,
+  "lastUpdate": 1789579047306,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -12411,6 +12411,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 413846,
             "range": "± 2059",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b868878739b7b113ef63c1333f9d84f895d9fc9d",
+          "message": "Merge pull request #167 from JohnathonNow/george-add-set-label-8910916816378744951\n\n⚡ George: [feature improvement] Support for SET node labels",
+          "timestamp": "2026-09-16T13:04:34-04:00",
+          "tree_id": "4580fda22f47abf388365ce78e15bf8c59a1071d",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/b868878739b7b113ef63c1333f9d84f895d9fc9d"
+        },
+        "date": 1789579046740,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 33310,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 34175,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 61453,
+            "range": "± 579",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 45878,
+            "range": "± 324",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 132666,
+            "range": "± 2267",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 108604,
+            "range": "± 613",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 133611,
+            "range": "± 1096",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 109361,
+            "range": "± 2894",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 69566,
+            "range": "± 1627",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 56869,
+            "range": "± 128",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 132397,
+            "range": "± 424",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 109742,
+            "range": "± 321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 3140415758,
+            "range": "± 45275217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 4351,
+            "range": "± 350",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 7595,
+            "range": "± 441",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 5688,
+            "range": "± 1313",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 8841,
+            "range": "± 785",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 9112,
+            "range": "± 303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 14863,
+            "range": "± 786",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 479574,
+            "range": "± 6187",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 469277,
+            "range": "± 29263",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 527244,
+            "range": "± 8177",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 617890,
+            "range": "± 4617",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 422153,
+            "range": "± 3406",
             "unit": "ns/iter"
           }
         ]
