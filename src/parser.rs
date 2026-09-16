@@ -106,6 +106,12 @@ pub enum RemoveItem {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum SetItem {
+    Property(String, String, Expression),
+    Label(String, Vec<String>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
     Create(Vec<Path>),
     Match(
@@ -116,7 +122,7 @@ pub enum Clause {
         Option<usize>,
     ),
     Merge(Vec<Path>),
-    Set(Vec<(String, String, Expression)>),
+    Set(Vec<SetItem>),
     Remove(Vec<RemoveItem>),
     CreateIndex {
         label: String,
@@ -638,13 +644,30 @@ fn merge_clause(input: &str) -> IResult<&str, Clause> {
     Ok((input, Clause::Merge(paths)))
 }
 
-fn set_item(input: &str) -> IResult<&str, (String, String, Expression)> {
+fn set_item_property(input: &str) -> IResult<&str, SetItem> {
     let (input, var) = ws(identifier)(input)?;
     let (input, _) = ws(char('.'))(input)?;
     let (input, prop) = ws(identifier)(input)?;
     let (input, _) = ws(char('='))(input)?;
     let (input, val) = ws(expression)(input)?;
-    Ok((input, (var.to_string(), prop.to_string(), val)))
+    Ok((input, SetItem::Property(var.to_string(), prop.to_string(), val)))
+}
+
+fn set_item_label(input: &str) -> IResult<&str, SetItem> {
+    let (input, var) = ws(identifier)(input)?;
+    let (input, labels) = nom::multi::many1(|i| {
+        let (i, _) = ws(char(':'))(i)?;
+        let (i, label) = ws(identifier)(i)?;
+        Ok((i, label))
+    })(input)?;
+    Ok((
+        input,
+        SetItem::Label(var.to_string(), labels.into_iter().map(|s| s.to_string()).collect()),
+    ))
+}
+
+fn set_item(input: &str) -> IResult<&str, SetItem> {
+    alt((set_item_property, set_item_label))(input)
 }
 
 fn set_clause(input: &str) -> IResult<&str, Clause> {

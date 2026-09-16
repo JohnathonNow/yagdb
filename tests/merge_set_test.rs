@@ -131,3 +131,38 @@ fn test_set_multiple_properties() {
     let _ = std::fs::remove_file(snapshot_path);
     let _ = std::fs::remove_file(wal_path);
 }
+
+
+
+
+#[test]
+fn test_set_labels() {
+    let snapshot_path = "test_set_labels_snapshot.bin";
+    let wal_path = "test_set_labels_wal.bin";
+    let _ = std::fs::remove_file(snapshot_path);
+    let _ = std::fs::remove_file(wal_path);
+
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+        g.execute("CREATE (n:Person {name: 'Alice'})").unwrap();
+
+        // Update labels
+        g.execute("MATCH (n:Person {name: 'Alice'}) SET n:Employee:Manager").unwrap();
+
+        let result = g.execute("MATCH (n:Employee) RETURN n").unwrap();
+        assert!(result.contains("Alice"));
+
+        let result2 = g.execute("MATCH (n:Manager) RETURN n").unwrap();
+        assert!(result2.contains("Alice"));
+    }
+
+    // Verify WAL persistence
+    {
+        let g = Graph::load_or_create(snapshot_path, wal_path);
+        let result = g.execute("MATCH (n:Employee) RETURN n").unwrap();
+        assert!(result.contains("Alice"));
+    }
+
+    let _ = std::fs::remove_file(snapshot_path);
+    let _ = std::fs::remove_file(wal_path);
+}
