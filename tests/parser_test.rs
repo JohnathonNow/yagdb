@@ -105,13 +105,16 @@ fn test_parser_set() {
     assert_eq!(rest, "");
     match &query.clauses[0] {
         Clause::Set(items) => {
-            let (var, prop, val) = &items[0];
-            assert_eq!(var, "n");
-            assert_eq!(prop, "age");
-            assert_eq!(
-                val,
-                &yagdb::parser::Expression::StringLiteral("30".to_string())
-            );
+            if let yagdb::parser::SetItem::Property(var, prop, val) = &items[0] {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+                assert_eq!(
+                    val,
+                    &yagdb::parser::Expression::StringLiteral("30".to_string())
+                );
+            } else {
+                panic!("Expected SetItem::Property");
+            }
         }
         _ => panic!("Expected Set clause"),
     }
@@ -292,21 +295,37 @@ fn test_parse_call() {
 
 #[test]
 fn test_parser_set_multiple() {
-    let input = "SET n.age = 30, n.name = 'Bob'";
+    let input = "SET n.age = 30, n.name = 'Bob', n:Person";
     let (rest, query) = parse_query(input).unwrap();
     assert_eq!(rest, "");
     match &query.clauses[0] {
         Clause::Set(items) => {
-            assert_eq!(items.len(), 2);
-            assert_eq!(items[0].0, "n");
-            assert_eq!(items[0].1, "age");
-            assert_eq!(items[0].2, yagdb::parser::Expression::NumberLiteral(30.0));
-            assert_eq!(items[1].0, "n");
-            assert_eq!(items[1].1, "name");
-            assert_eq!(
-                items[1].2,
-                yagdb::parser::Expression::StringLiteral("Bob".to_string())
-            );
+            assert_eq!(items.len(), 3);
+            if let yagdb::parser::SetItem::Property(var, prop, val) = &items[0] {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+                assert_eq!(val, &yagdb::parser::Expression::NumberLiteral(30.0));
+            } else {
+                panic!("Expected SetItem::Property");
+            }
+
+            if let yagdb::parser::SetItem::Property(var, prop, val) = &items[1] {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "name");
+                assert_eq!(
+                    val,
+                    &yagdb::parser::Expression::StringLiteral("Bob".to_string())
+                );
+            } else {
+                panic!("Expected SetItem::Property");
+            }
+
+            if let yagdb::parser::SetItem::Label(var, label) = &items[2] {
+                assert_eq!(var, "n");
+                assert_eq!(label, "Person");
+            } else {
+                panic!("Expected SetItem::Label");
+            }
         }
         _ => panic!("Expected Set clause"),
     }
