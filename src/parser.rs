@@ -654,10 +654,7 @@ fn set_item(input: &str) -> IResult<&str, SetItem> {
             let (i, prop) = ws(identifier)(i)?;
             let (i, _) = ws(char('='))(i)?;
             let (i, val) = ws(expression)(i)?;
-            Ok((
-                i,
-                SetItem::Property(var_str.clone(), prop.to_string(), val),
-            ))
+            Ok((i, SetItem::Property(var_str.clone(), prop.to_string(), val)))
         },
         |i| {
             let (i, _) = ws(char(':'))(i)?;

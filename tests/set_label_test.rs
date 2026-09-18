@@ -12,7 +12,8 @@ fn test_set_label() {
     assert_eq!(res1.trim(), "[]");
 
     // Set the label
-    g.execute("MATCH (n:Person {name: 'Alice'}) SET n:Admin").unwrap();
+    g.execute("MATCH (n:Person {name: 'Alice'}) SET n:Admin")
+        .unwrap();
 
     // Verify it now matches Admin
     let res2 = g.execute("MATCH (n:Admin) RETURN n").unwrap();
