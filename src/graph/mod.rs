@@ -1060,13 +1060,7 @@ impl Graph {
                     for i in 0..result_set.rows {
                         bindings.clear();
                         for path in paths {
-                            self.execute_create_path(
-                                path,
-                                result_set,
-                                i,
-                                &mut bindings,
-                                txid,
-                            );
+                            self.execute_create_path(path, result_set, i, &mut bindings, txid);
                         }
                         new_result_set.push_row_from(result_set, i, bindings.drain(..));
                     }
@@ -1265,13 +1259,7 @@ impl Graph {
                                 }
                             } else {
                                 bindings.clear();
-                                self.execute_create_path(
-                                    path,
-                                    result_set,
-                                    i,
-                                    &mut bindings,
-                                    txid,
-                                );
+                                self.execute_create_path(path, result_set, i, &mut bindings, txid);
                                 new_result_set.push_row_from(result_set, i, bindings.drain(..));
                             }
                         }
@@ -1320,18 +1308,24 @@ impl Graph {
                                                             match prop_index {
                                                                 IndexMap::Hash(map) => {
                                                                     // Remove from old index
-                                                                    if let Some(old_val) = &old_value {
+                                                                    if let Some(old_val) =
+                                                                        &old_value
+                                                                    {
                                                                         if let Some(vec) =
                                                                             map.get_mut(old_val)
                                                                         {
-                                                                            vec.retain(|&id| id != node_id);
+                                                                            vec.retain(|&id| {
+                                                                                id != node_id
+                                                                            });
                                                                         }
                                                                     }
                                                                     // Add to new index
                                                                     if let Some(entry_vec) =
                                                                         map.get_mut(&value)
                                                                     {
-                                                                        if !entry_vec.contains(&node_id) {
+                                                                        if !entry_vec
+                                                                            .contains(&node_id)
+                                                                        {
                                                                             entry_vec.push(node_id);
                                                                         }
                                                                     } else {
@@ -1343,18 +1337,24 @@ impl Graph {
                                                                 }
                                                                 IndexMap::BTree(map) => {
                                                                     // Remove from old index
-                                                                    if let Some(old_val) = &old_value {
+                                                                    if let Some(old_val) =
+                                                                        &old_value
+                                                                    {
                                                                         if let Some(vec) =
                                                                             map.get_mut(old_val)
                                                                         {
-                                                                            vec.retain(|&id| id != node_id);
+                                                                            vec.retain(|&id| {
+                                                                                id != node_id
+                                                                            });
                                                                         }
                                                                     }
                                                                     // Add to new index
                                                                     if let Some(entry_vec) =
                                                                         map.get_mut(&value)
                                                                     {
-                                                                        if !entry_vec.contains(&node_id) {
+                                                                        if !entry_vec
+                                                                            .contains(&node_id)
+                                                                        {
                                                                             entry_vec.push(node_id);
                                                                         }
                                                                     } else {
@@ -1389,7 +1389,8 @@ impl Graph {
                                             if updated_edges.insert((edge_id, key.clone())) {
                                                 self.edges
                                                     .with_mut_item(edge_id, |e| {
-                                                        e.properties.insert(key.clone(), value.clone());
+                                                        e.properties
+                                                            .insert(key.clone(), value.clone());
                                                     })
                                                     .unwrap();
 
@@ -1433,7 +1434,8 @@ impl Graph {
                                                     {
                                                         match prop_index {
                                                             IndexMap::Hash(map) => {
-                                                                if let Some(vec) = map.get_mut(&val) {
+                                                                if let Some(vec) = map.get_mut(&val)
+                                                                {
                                                                     if !vec.contains(&node_id) {
                                                                         vec.push(node_id);
                                                                     }
@@ -1442,7 +1444,8 @@ impl Graph {
                                                                 }
                                                             }
                                                             IndexMap::BTree(map) => {
-                                                                if let Some(vec) = map.get_mut(&val) {
+                                                                if let Some(vec) = map.get_mut(&val)
+                                                                {
                                                                     if !vec.contains(&node_id) {
                                                                         vec.push(node_id);
                                                                     }
@@ -2888,6 +2891,8 @@ impl Graph {
 
         let (rel_pattern, target_node_pattern) = &edges[edge_idx];
 
+        let mut single_res = ResultSet::new();
+
         if let Some((min_len, max_len)) = rel_pattern.length {
             if min_len != 1 || max_len != Some(1) {
                 self.match_var_length_edges(
@@ -2902,6 +2907,7 @@ impl Graph {
                     0,
                     Vec::new(),
                     limit,
+                    &mut single_res,
                 );
                 return;
             }
@@ -2915,7 +2921,6 @@ impl Graph {
             row_idx,
         );
 
-        let mut single_res = ResultSet::new();
         let mut bindings = Vec::with_capacity(2);
         for (next_node_id, edge_id) in matches {
             single_res.clear();
@@ -2957,6 +2962,7 @@ impl Graph {
         current_depth: usize,
         path_edges: Vec<usize>,
         limit: Option<usize>,
+        single_res: &mut ResultSet,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         if self.cancel_flag.read().load(Ordering::Relaxed) {
@@ -2997,7 +3003,7 @@ impl Graph {
             };
 
             if matches_target {
-                let mut single_res = ResultSet::new();
+                single_res.clear();
                 let mut bindings = Vec::with_capacity(2);
                 if let Some(var) = &rel_pattern.variable {
                     bindings.push((var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
@@ -3011,7 +3017,7 @@ impl Graph {
                     edges,
                     edge_idx + 1,
                     current_node_id,
-                    &single_res,
+                    single_res,
                     0,
                     out,
                     limit,
@@ -3068,6 +3074,7 @@ impl Graph {
                     current_depth + 1,
                     new_path_edges,
                     limit,
+                    single_res,
                 );
                 if limit.is_some_and(|l| out.rows >= l) {
                     return;
