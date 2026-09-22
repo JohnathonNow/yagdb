@@ -19,6 +19,14 @@ use tower_http::services::ServeFile;
 #[cfg(not(target_arch = "wasm32"))]
 use tower_http::compression::CompressionLayer;
 #[cfg(not(target_arch = "wasm32"))]
+use tower_http::decompression::RequestDecompressionLayer;
+#[cfg(not(target_arch = "wasm32"))]
+use tower::ServiceBuilder;
+#[cfg(not(target_arch = "wasm32"))]
+use axum::error_handling::HandleErrorLayer;
+#[cfg(not(target_arch = "wasm32"))]
+use axum::BoxError;
+#[cfg(not(target_arch = "wasm32"))]
 use tower_http::trace::TraceLayer;
 #[cfg(not(target_arch = "wasm32"))]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -92,6 +100,13 @@ async fn main() {
         )
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: BoxError| async move {
+                    (StatusCode::BAD_REQUEST, format!("Decompression error: {}", err))
+                }))
+                .layer(RequestDecompressionLayer::new()),
+        )
         .with_state(graph);
 
     #[cfg(not(feature = "cluster"))]

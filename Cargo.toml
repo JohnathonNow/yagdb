@@ -18,7 +18,7 @@ openraft = { version = "0.9.16", optional = true, features = ["serde", "compat"]
 async-trait = { version = "0.1.89", optional = true }
 openraft-memstore = { version = "0.9.16", optional = true }
 reqwest = { version = "0.13.4", features = ["json"], optional = true }
-tower = { version = "0.5.3", features = ["util"], optional = true }
+
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 env_logger = { version = "0.11.10", optional = true }
 dhat = "0.3.3"
@@ -31,11 +31,12 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [features]
-cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:tower", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
+cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]
 dhat-heap = []
 export-import = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tower = { version = "0.4", features = ["util"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 axum = "0.6"
 tokio = { version = "1", features = ["full"] }
