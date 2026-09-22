@@ -907,7 +907,7 @@ impl Graph {
 
     fn create_index_internal(&self, label: usize, property: String, index_type: IndexType) {
         let mut indices_guard = self.indices.write();
-        let label_indices = indices_guard.entry(label).or_insert_with(HashMap::new);
+        let label_indices = indices_guard.entry(label).or_default();
         if !label_indices.contains_key(&property) {
             let index_map = match index_type {
                 IndexType::Hash => IndexMap::Hash(HashMap::new()),
@@ -1006,7 +1006,7 @@ impl Graph {
         let mut result_set = ResultSet::new();
         result_set.push_row(&HashMap::new());
 
-        let plan = QueryPlanner::plan_query(query, &*self.labels.read(), &*self.indices.read());
+        let plan = QueryPlanner::plan_query(query, &self.labels.read(), &self.indices.read());
         #[cfg(not(target_arch = "wasm32"))]
         tracing::debug!(?plan, "Planned query");
 
@@ -1018,7 +1018,7 @@ impl Graph {
             &plan,
             &mut result_set,
             &mut profile_out,
-            txid as u64,
+            txid,
             &mut output,
         )?;
 
@@ -1044,7 +1044,7 @@ impl Graph {
         &self,
         plan: &QueryPlan,
         result_set: &mut ResultSet,
-        mut profile_out: &mut Option<String>,
+        profile_out: &mut Option<String>,
         txid: u64,
         output: &mut String,
     ) -> Result<(), String> {
@@ -1091,10 +1091,10 @@ impl Graph {
                         if !is_optional {
                             self.execute_plan_and_bind_paths(
                                 &plan,
-                                &paths,
+                                paths,
                                 result_set,
                                 &mut new_result_set,
-                                &mut profile_out,
+                                profile_out,
                                 limit_for_plan,
                                 txid,
                             );
@@ -1142,7 +1142,7 @@ impl Graph {
                             for i in 0..result_set.rows {
                                 single_res.clear();
                                 single_res.push_row_from(
-                                    &result_set,
+                                    result_set,
                                     i,
                                     std::iter::empty::<(&str, GraphElement)>(),
                                 );
@@ -1150,10 +1150,10 @@ impl Graph {
                                 matches.clear();
                                 self.execute_plan_and_bind_paths(
                                     &plan,
-                                    &paths,
+                                    paths,
                                     &single_res,
                                     &mut matches,
-                                    &mut profile_out,
+                                    profile_out,
                                     None,
                                     txid,
                                 );
@@ -1193,7 +1193,7 @@ impl Graph {
                                         continue;
                                     }
                                     new_result_set.push_row_from(
-                                        &result_set,
+                                        result_set,
                                         i,
                                         std::iter::empty::<(&str, GraphElement)>(),
                                     );
@@ -1223,18 +1223,18 @@ impl Graph {
                             if let Some(plan) = plan_opt {
                                 single_res.clear();
                                 single_res.push_row_from(
-                                    &result_set,
+                                    result_set,
                                     i,
                                     std::iter::empty::<(&str, GraphElement)>(),
                                 );
 
                                 matches.clear();
                                 self.execute_plan_and_bind_paths(
-                                    &plan,
+                                    plan,
                                     &[path.clone()],
                                     &single_res,
                                     &mut matches,
-                                    &mut profile_out,
+                                    profile_out,
                                     None,
                                     txid,
                                 );
@@ -1278,8 +1278,8 @@ impl Graph {
                                     {
                                         let node_id = *node_id;
                                         let evaluated_value = self.evaluate_expression_to_element(
-                                            &value_expr,
-                                            &result_set,
+                                            value_expr,
+                                            result_set,
                                             i,
                                         );
                                         if let Some(value) = evaluated_value.to_property_value() {
@@ -1381,8 +1381,8 @@ impl Graph {
                                     {
                                         let edge_id = *edge_id;
                                         let evaluated_value = self.evaluate_expression_to_element(
-                                            &value_expr,
-                                            &result_set,
+                                            value_expr,
+                                            result_set,
                                             i,
                                         );
                                         if let Some(value) = evaluated_value.to_property_value() {
@@ -1405,7 +1405,7 @@ impl Graph {
                                 }
                             }
                             crate::parser::SetItem::Label(var, label) => {
-                                let label_id = self.get_or_add_label(&label);
+                                let label_id = self.get_or_add_label(label);
                                 for i in 0..result_set.rows {
                                     if let Some(GraphElement::Node(node_id)) =
                                         result_set.get(i, var.as_str())
@@ -1713,14 +1713,14 @@ impl Graph {
                                         if let GraphElement::List(v) = val {
                                             for x in v {
                                                 new_result_set.push_row_from(
-                                                    &result_set,
+                                                    result_set,
                                                     i,
                                                     [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
                                             new_result_set.push_row_from(
-                                                &result_set,
+                                                result_set,
                                                 i,
                                                 [(out_key.as_str(), val.clone())],
                                             );
@@ -1737,14 +1737,14 @@ impl Graph {
                                         if let GraphElement::List(v) = val {
                                             for x in v {
                                                 new_result_set.push_row_from(
-                                                    &result_set,
+                                                    result_set,
                                                     i,
                                                     [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
                                             new_result_set.push_row_from(
-                                                &result_set,
+                                                result_set,
                                                 i,
                                                 [(out_key.as_str(), val.clone())],
                                             );
@@ -1761,14 +1761,14 @@ impl Graph {
                                         if let GraphElement::List(v) = val {
                                             for x in v {
                                                 new_result_set.push_row_from(
-                                                    &result_set,
+                                                    result_set,
                                                     i,
                                                     [(out_key.as_str(), x.clone())],
                                                 );
                                             }
                                         } else {
                                             new_result_set.push_row_from(
-                                                &result_set,
+                                                result_set,
                                                 i,
                                                 [(out_key.as_str(), val.clone())],
                                             );
@@ -1777,18 +1777,18 @@ impl Graph {
                                 }
                                 ProjectionItem::Expression { expr, .. } => {
                                     let val =
-                                        self.evaluate_expression_to_element(expr, &result_set, i);
+                                        self.evaluate_expression_to_element(expr, result_set, i);
                                     if let GraphElement::List(v) = val {
                                         for x in v {
                                             new_result_set.push_row_from(
-                                                &result_set,
+                                                result_set,
                                                 i,
                                                 [(out_key.as_str(), x.clone())],
                                             );
                                         }
                                     } else {
                                         new_result_set.push_row_from(
-                                            &result_set,
+                                            result_set,
                                             i,
                                             [(out_key.as_str(), val)],
                                         );
@@ -1807,7 +1807,7 @@ impl Graph {
                     for i in 0..result_set.rows {
                         sub_result_set.clear();
                         sub_result_set.push_row_from(
-                            &result_set,
+                            result_set,
                             i,
                             std::iter::empty::<(&str, GraphElement)>(),
                         );
@@ -1815,7 +1815,7 @@ impl Graph {
                             subplan,
                             &mut sub_result_set,
                             profile_out,
-                            txid as u64,
+                            txid,
                             output,
                         )?;
                         for j in 0..sub_result_set.rows {
@@ -1971,7 +1971,7 @@ impl Graph {
                                     ProjectionItem::Property(var, prop) => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             if let Some(val) = self.get_property_as_element(
-                                                &result_set,
+                                                result_set,
                                                 group_rows[0],
                                                 var.as_str(),
                                                 prop.as_str(),
@@ -1983,7 +1983,7 @@ impl Graph {
                                     ProjectionItem::AliasedProperty(var, prop, _) => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             if let Some(val) = self.get_property_as_element(
-                                                &result_set,
+                                                result_set,
                                                 group_rows[0],
                                                 var.as_str(),
                                                 prop.as_str(),
@@ -1995,8 +1995,8 @@ impl Graph {
                                     ProjectionItem::Expression { expr, .. } => {
                                         if let Some(_first_idx) = group_rows.first() {
                                             let val = self.evaluate_expression_to_element(
-                                                &expr,
-                                                &result_set,
+                                                expr,
+                                                result_set,
                                                 group_rows[0],
                                             );
                                             bindings.push((out_key.as_str(), val));
@@ -2061,7 +2061,7 @@ impl Graph {
                                             .map(|arg| {
                                                 self.evaluate_expression_to_element(
                                                     arg,
-                                                    &result_set,
+                                                    result_set,
                                                     group_rows[0],
                                                 )
                                             })
@@ -2131,7 +2131,7 @@ impl Graph {
                                             .map(|arg| {
                                                 self.evaluate_expression_to_element(
                                                     arg,
-                                                    &result_set,
+                                                    result_set,
                                                     i,
                                                 )
                                             })
@@ -2151,7 +2151,7 @@ impl Graph {
                                     }
                                     ProjectionItem::Expression { expr, .. } => {
                                         let val = self
-                                            .evaluate_expression_to_element(&expr, result_set, i);
+                                            .evaluate_expression_to_element(expr, result_set, i);
                                         bindings.push((out_key.as_str(), val));
                                     }
                                     _ => {}
@@ -2244,7 +2244,7 @@ impl Graph {
                     ref property,
                     ref index_type,
                 } => {
-                    let label_id = self.get_or_add_label(&label);
+                    let label_id = self.get_or_add_label(label);
                     self.create_index(label_id, property.clone(), index_type.clone());
                 }
                 ExecutionStep::DropIndex {
@@ -2921,17 +2921,17 @@ impl Graph {
             row_idx,
         );
 
-        let mut bindings = Vec::with_capacity(2);
         for (next_node_id, edge_id) in matches {
             single_res.clear();
-            bindings.clear();
-            if let Some(var) = &rel_pattern.variable {
-                bindings.push((var.as_str(), GraphElement::Edge(edge_id)));
-            }
-            if let Some(var) = &target_node_pattern.variable {
-                bindings.push((var.as_str(), GraphElement::Node(next_node_id)));
-            }
-            single_res.push_row_from(in_res, row_idx, bindings.drain(..));
+            let b1 = rel_pattern
+                .variable
+                .as_ref()
+                .map(|var| (var.as_str(), GraphElement::Edge(edge_id)));
+            let b2 = target_node_pattern
+                .variable
+                .as_ref()
+                .map(|var| (var.as_str(), GraphElement::Node(next_node_id)));
+            single_res.push_row_from(in_res, row_idx, IntoIterator::into_iter([b1, b2]).flatten());
 
             self.match_edges_recursive(
                 edges,
@@ -3004,14 +3004,19 @@ impl Graph {
 
             if matches_target {
                 single_res.clear();
-                let mut bindings = Vec::with_capacity(2);
-                if let Some(var) = &rel_pattern.variable {
-                    bindings.push((var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
-                }
-                if let Some(var) = &target_node_pattern.variable {
-                    bindings.push((var.as_str(), GraphElement::Node(current_node_id)));
-                }
-                single_res.push_row_from(in_res, row_idx, bindings.drain(..));
+                let b1 = rel_pattern
+                    .variable
+                    .as_ref()
+                    .map(|var| (var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
+                let b2 = target_node_pattern
+                    .variable
+                    .as_ref()
+                    .map(|var| (var.as_str(), GraphElement::Node(current_node_id)));
+                single_res.push_row_from(
+                    in_res,
+                    row_idx,
+                    IntoIterator::into_iter([b1, b2]).flatten(),
+                );
 
                 self.match_edges_recursive(
                     edges,
@@ -3535,10 +3540,4 @@ impl Graph {
         }
     }
 
-    fn dummy_replace(&self) {
-        // Look up all nodes and populate existing indices?
-        // Actually YAGDB creates indices via CREATE INDEX ON :Label(prop).
-        // Since indices are stored as HashMap<usize, HashMap<String, IndexMap>>, we can't easily recreate them unless we know which ones existed.
-        // Wait, import_json restores `self.indices` completely. In CSV, we didn't export `indices`.
-    }
 }

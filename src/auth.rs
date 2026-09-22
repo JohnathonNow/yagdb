@@ -43,7 +43,7 @@ fn get_jwt_secret() -> String {
             let mut key = [0u8; 32];
             rng.fill(&mut key)
                 .expect("Failed to generate secure random key");
-            base64::engine::general_purpose::STANDARD.encode(&key)
+            base64::engine::general_purpose::STANDARD.encode(key)
         })
         .clone()
 }
