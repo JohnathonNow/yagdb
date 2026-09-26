@@ -2921,17 +2921,13 @@ impl Graph {
             row_idx,
         );
 
-        let mut bindings = Vec::with_capacity(2);
         for (next_node_id, edge_id) in matches {
             single_res.clear();
-            bindings.clear();
-            if let Some(var) = &rel_pattern.variable {
-                bindings.push((var.as_str(), GraphElement::Edge(edge_id)));
-            }
-            if let Some(var) = &target_node_pattern.variable {
-                bindings.push((var.as_str(), GraphElement::Node(next_node_id)));
-            }
-            single_res.push_row_from(in_res, row_idx, bindings.drain(..));
+
+            let b1 = rel_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Edge(edge_id)));
+            let b2 = target_node_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Node(next_node_id)));
+
+            single_res.push_row_from(in_res, row_idx, IntoIterator::into_iter([b1, b2]).flatten());
 
             self.match_edges_recursive(
                 edges,
@@ -3004,14 +3000,9 @@ impl Graph {
 
             if matches_target {
                 single_res.clear();
-                let mut bindings = Vec::with_capacity(2);
-                if let Some(var) = &rel_pattern.variable {
-                    bindings.push((var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
-                }
-                if let Some(var) = &target_node_pattern.variable {
-                    bindings.push((var.as_str(), GraphElement::Node(current_node_id)));
-                }
-                single_res.push_row_from(in_res, row_idx, bindings.drain(..));
+                let b1 = rel_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
+                let b2 = target_node_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Node(current_node_id)));
+                single_res.push_row_from(in_res, row_idx, IntoIterator::into_iter([b1, b2]).flatten());
 
                 self.match_edges_recursive(
                     edges,
