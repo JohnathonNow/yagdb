@@ -30,6 +30,10 @@ fn default_cancel_flag() -> parking_lot::RwLock<Arc<AtomicBool>> {
     parking_lot::RwLock::new(Arc::new(AtomicBool::new(false)))
 }
 
+fn default_ast_cache() -> parking_lot::RwLock<indexmap::IndexMap<String, crate::parser::Query>> {
+    parking_lot::RwLock::new(indexmap::IndexMap::new())
+}
+
 use crate::planner::{ExecutionStep, PlanNode, QueryPlan, QueryPlanner};
 use crate::{
     edge::Edge,
@@ -60,6 +64,8 @@ pub struct Graph {
     pub next_txid: std::sync::atomic::AtomicU64,
     #[serde(skip)]
     pub functions: parking_lot::RwLock<HashMap<String, CustomFunction>>,
+    #[serde(skip, default = "default_ast_cache")]
+    pub ast_cache: parking_lot::RwLock<indexmap::IndexMap<String, crate::parser::Query>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -602,6 +608,7 @@ impl Graph {
             cancel_flag: parking_lot::RwLock::new(Arc::new(AtomicBool::new(false))),
             next_txid: std::sync::atomic::AtomicU64::new(1),
             functions: parking_lot::RwLock::new(HashMap::new()),
+            ast_cache: parking_lot::RwLock::new(indexmap::IndexMap::new()),
         };
         g.register_default_functions();
         g
@@ -991,7 +998,25 @@ impl Graph {
         let txid = self
             .next_txid
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let (_, query) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+        let query = {
+            let cache = self.ast_cache.read();
+            cache.get(query_str).cloned()
+        };
+
+        let query = match query {
+            Some(q) => q,
+            None => {
+                let (_, q) =
+                    parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+                let mut cache = self.ast_cache.write();
+                if cache.len() >= 1000 {
+                    cache.shift_remove_index(0);
+                }
+                cache.insert(query_str.to_string(), q.clone());
+                q
+            }
+        };
+
         #[cfg(not(target_arch = "wasm32"))]
         tracing::debug!(?query, "Parsed query");
 
