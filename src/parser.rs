@@ -74,6 +74,8 @@ pub enum Condition {
         op: CompareOp,
         right: Expression,
     },
+    IsNull(Expression),
+    IsNotNull(Expression),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -411,6 +413,23 @@ fn condition_base(input: &str) -> IResult<&str, Condition> {
             |(_, cond)| Condition::Not(Box::new(cond)),
         ),
         delimited(ws(char('(')), ws(condition_or), ws(char(')'))),
+        map(
+            tuple((
+                expression,
+                ws(nom::bytes::complete::tag_no_case("IS")),
+                ws(nom::bytes::complete::tag_no_case("NOT")),
+                ws(nom::bytes::complete::tag_no_case("NULL")),
+            )),
+            |(expr, _, _, _)| Condition::IsNotNull(expr),
+        ),
+        map(
+            tuple((
+                expression,
+                ws(nom::bytes::complete::tag_no_case("IS")),
+                ws(nom::bytes::complete::tag_no_case("NULL")),
+            )),
+            |(expr, _, _)| Condition::IsNull(expr),
+        ),
         map(
             tuple((expression, ws(compare_op), expression)),
             |(left, op, right)| Condition::Compare { left, op, right },
