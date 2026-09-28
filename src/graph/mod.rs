@@ -178,6 +178,14 @@ impl Graph {
                     WalEntry::DropIndex { label, property } => {
                         graph.drop_index_internal(label, property);
                     }
+                    WalEntry::RemoveEdgeProperty { edge_id, key } => {
+                        graph
+                            .edges
+                            .with_mut_item(edge_id, |e| {
+                                e.properties.remove(key.as_str());
+                            })
+                            .unwrap();
+                    }
                     WalEntry::SetEdgeProperty {
                         edge_id,
                         key,
@@ -1424,6 +1432,236 @@ impl Graph {
                                                     key: key.clone(),
                                                     value: value.clone(),
                                                 });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            crate::parser::SetItem::PropertiesMapAdd(var, value_expr) => {
+                                for i in 0..result_set.rows {
+                                    let evaluated_value = self.evaluate_expression_to_element(
+                                        &value_expr,
+                                        &result_set,
+                                        i,
+                                    );
+                                    if let GraphElement::Map(map) = evaluated_value {
+                                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var.as_str()) {
+                                            let node_id = *node_id;
+                                            for (key, val) in map {
+                                                if let Some(value) = val.to_property_value() {
+                                                    if updated_nodes.insert((node_id, key.clone())) {
+                                                        let (old_value, has_label) = self
+                                                            .nodes
+                                                            .with_mut_item(node_id, |__node| {
+                                                                (
+                                                                    __node
+                                                                        .properties
+                                                                        .insert(key.clone(), value.clone()),
+                                                                    __node.labels.clone(),
+                                                                )
+                                                            })
+                                                            .unwrap();
+
+                                                        for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                            if has_label.contains(label_id) {
+                                                                if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                                    match prop_index {
+                                                                        crate::graph::IndexMap::Hash(index_map) => {
+                                                                            if let Some(old_val) = &old_value {
+                                                                                if let Some(vec) = index_map.get_mut(old_val) {
+                                                                                    vec.retain(|&id| id != node_id);
+                                                                                }
+                                                                            }
+                                                                            if let Some(entry_vec) = index_map.get_mut(&value) {
+                                                                                if !entry_vec.contains(&node_id) {
+                                                                                    entry_vec.push(node_id);
+                                                                                }
+                                                                            } else {
+                                                                                index_map.insert(value.clone(), vec![node_id]);
+                                                                            }
+                                                                        }
+                                                                        crate::graph::IndexMap::BTree(index_map) => {
+                                                                            if let Some(old_val) = &old_value {
+                                                                                if let Some(vec) = index_map.get_mut(old_val) {
+                                                                                    vec.retain(|&id| id != node_id);
+                                                                                }
+                                                                            }
+                                                                            if let Some(entry_vec) = index_map.get_mut(&value) {
+                                                                                if !entry_vec.contains(&node_id) {
+                                                                                    entry_vec.push(node_id);
+                                                                                }
+                                                                            } else {
+                                                                                index_map.insert(value.clone(), vec![node_id]);
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        self.log_wal(&WalEntry::SetNodeProperty {
+                                                            node_id,
+                                                            key: key.clone(),
+                                                            value: value.clone(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var.as_str()) {
+                                            let edge_id = *edge_id;
+                                            for (key, val) in map {
+                                                if let Some(value) = val.to_property_value() {
+                                                    if updated_edges.insert((edge_id, key.clone())) {
+                                                        self.edges
+                                                            .with_mut_item(edge_id, |e| {
+                                                                e.properties.insert(key.clone(), value.clone());
+                                                            })
+                                                            .unwrap();
+
+                                                        self.log_wal(&WalEntry::SetEdgeProperty {
+                                                            edge_id,
+                                                            key: key.clone(),
+                                                            value: value.clone(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            crate::parser::SetItem::PropertiesMap(var, value_expr) => {
+                                for i in 0..result_set.rows {
+                                    let evaluated_value = self.evaluate_expression_to_element(
+                                        &value_expr,
+                                        &result_set,
+                                        i,
+                                    );
+                                    if let GraphElement::Map(map) = evaluated_value {
+                                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var.as_str()) {
+                                            let node_id = *node_id;
+                                            let old_keys: Vec<String> = self.nodes.with_item(node_id, |n| n.properties.keys().cloned().collect()).unwrap();
+                                            for key in old_keys {
+                                                let (old_value, has_label) = self
+                                                    .nodes
+                                                    .with_mut_item(node_id, |n| (n.properties.remove(&key), n.labels.clone()))
+                                                    .unwrap();
+
+                                                if let Some(old_val) = old_value {
+                                                    for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                        if has_label.contains(label_id) {
+                                                            if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                                match prop_index {
+                                                                    crate::graph::IndexMap::Hash(index_map) => {
+                                                                        if let Some(vec) = index_map.get_mut(&old_val) {
+                                                                            vec.retain(|&id| id != node_id);
+                                                                        }
+                                                                    }
+                                                                    crate::graph::IndexMap::BTree(index_map) => {
+                                                                        if let Some(vec) = index_map.get_mut(&old_val) {
+                                                                            vec.retain(|&id| id != node_id);
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    self.log_wal(&WalEntry::RemoveNodeProperty {
+                                                        node_id,
+                                                        key: key.clone(),
+                                                    });
+                                                }
+                                            }
+
+                                            for (key, val) in map {
+                                                if let Some(value) = val.to_property_value() {
+                                                    if updated_nodes.insert((node_id, key.clone())) {
+                                                        let (old_value, has_label) = self
+                                                            .nodes
+                                                            .with_mut_item(node_id, |__node| {
+                                                                (
+                                                                    __node
+                                                                        .properties
+                                                                        .insert(key.clone(), value.clone()),
+                                                                    __node.labels.clone(),
+                                                                )
+                                                            })
+                                                            .unwrap();
+
+                                                        for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                            if has_label.contains(label_id) {
+                                                                if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                                    match prop_index {
+                                                                        crate::graph::IndexMap::Hash(index_map) => {
+                                                                            if let Some(old_val) = &old_value {
+                                                                                if let Some(vec) = index_map.get_mut(old_val) {
+                                                                                    vec.retain(|&id| id != node_id);
+                                                                                }
+                                                                            }
+                                                                            if let Some(entry_vec) = index_map.get_mut(&value) {
+                                                                                if !entry_vec.contains(&node_id) {
+                                                                                    entry_vec.push(node_id);
+                                                                                }
+                                                                            } else {
+                                                                                index_map.insert(value.clone(), vec![node_id]);
+                                                                            }
+                                                                        }
+                                                                        crate::graph::IndexMap::BTree(index_map) => {
+                                                                            if let Some(old_val) = &old_value {
+                                                                                if let Some(vec) = index_map.get_mut(old_val) {
+                                                                                    vec.retain(|&id| id != node_id);
+                                                                                }
+                                                                            }
+                                                                            if let Some(entry_vec) = index_map.get_mut(&value) {
+                                                                                if !entry_vec.contains(&node_id) {
+                                                                                    entry_vec.push(node_id);
+                                                                                }
+                                                                            } else {
+                                                                                index_map.insert(value.clone(), vec![node_id]);
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        self.log_wal(&WalEntry::SetNodeProperty {
+                                                            node_id,
+                                                            key: key.clone(),
+                                                            value: value.clone(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var.as_str()) {
+                                            let edge_id = *edge_id;
+                                            let old_keys: Vec<String> = self.edges.with_item(edge_id, |e| e.properties.keys().cloned().collect()).unwrap();
+                                            for key in old_keys {
+                                                self.edges.with_mut_item(edge_id, |e| {
+                                                    e.properties.remove(&key);
+                                                }).unwrap();
+                                                self.log_wal(&WalEntry::RemoveEdgeProperty {
+                                                    edge_id,
+                                                    key: key.clone(),
+                                                });
+                                            }
+                                            for (key, val) in map {
+                                                if let Some(value) = val.to_property_value() {
+                                                    if updated_edges.insert((edge_id, key.clone())) {
+                                                        self.edges
+                                                            .with_mut_item(edge_id, |e| {
+                                                                e.properties.insert(key.clone(), value.clone());
+                                                            })
+                                                            .unwrap();
+
+                                                        self.log_wal(&WalEntry::SetEdgeProperty {
+                                                            edge_id,
+                                                            key: key.clone(),
+                                                            value: value.clone(),
+                                                        });
+                                                    }
+                                                }
                                             }
                                         }
                                     }

@@ -109,6 +109,8 @@ pub enum RemoveItem {
 pub enum SetItem {
     Property(String, String, Expression),
     Label(String, String),
+    PropertiesMap(String, Expression),
+    PropertiesMapAdd(String, Expression),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -649,6 +651,16 @@ fn set_item(input: &str) -> IResult<&str, SetItem> {
     let var_str = var.to_string();
 
     let (input, item) = alt((
+        |i| {
+            let (i, _) = ws(tag("+="))(i)?;
+            let (i, val) = ws(expression)(i)?;
+            Ok((i, SetItem::PropertiesMapAdd(var_str.clone(), val)))
+        },
+        |i| {
+            let (i, _) = ws(char('='))(i)?;
+            let (i, val) = ws(expression)(i)?;
+            Ok((i, SetItem::PropertiesMap(var_str.clone(), val)))
+        },
         |i| {
             let (i, _) = ws(char('.'))(i)?;
             let (i, prop) = ws(identifier)(i)?;
