@@ -4,3 +4,6 @@
 ## 2024-05-24 - [Implement AST Query Cache]
 **Learning:** By caching the parsed AST using `indexmap` as an LRU limit directly inside `Graph::execute`, we bypass repeated parsing overhead and string-based parsing overhead. The AST tree implements `Clone` naturally.
 **Action:** When working on caching parsed syntax trees, directly use a thread-safe `RwLock<IndexMap>` initialized in `Graph::new` and correctly handle serialization with `#[serde(skip, default = "default_ast_cache")]`.
+## 2024-10-24 - [Implement IS NULL and IS NOT NULL]
+**Learning:** `EvalValue::compare` does not easily support unary conditions like `IS NULL`, so unary conditions require separate variants in the `Condition` AST enum (`Condition::IsNull` and `Condition::IsNotNull`), bypassing `CompareOp` and being evaluated explicitly via `matches!(val, EvalValue::Null)` in `evaluate_condition`.
+**Action:** When adding new unary conditions to the WHERE clause, extend `Condition` rather than shoehorning it into `CompareOp` and update `condition_base` parsing and `evaluate_condition` explicitly.

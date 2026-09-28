@@ -1014,8 +1014,7 @@ impl Graph {
         let query = match query {
             Some(q) => q,
             None => {
-                let (_, q) =
-                    parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+                let (_, q) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
                 let mut cache = self.ast_cache.write();
                 if cache.len() >= 1000 {
                     cache.shift_remove_index(0);
@@ -3187,8 +3186,14 @@ impl Graph {
         for (next_node_id, edge_id) in matches {
             single_res.clear();
 
-            let b1 = rel_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Edge(edge_id)));
-            let b2 = target_node_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Node(next_node_id)));
+            let b1 = rel_pattern
+                .variable
+                .as_ref()
+                .map(|var| (var.as_str(), GraphElement::Edge(edge_id)));
+            let b2 = target_node_pattern
+                .variable
+                .as_ref()
+                .map(|var| (var.as_str(), GraphElement::Node(next_node_id)));
 
             single_res.push_row_from(in_res, row_idx, IntoIterator::into_iter([b1, b2]).flatten());
 
@@ -3263,9 +3268,19 @@ impl Graph {
 
             if matches_target {
                 single_res.clear();
-                let b1 = rel_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
-                let b2 = target_node_pattern.variable.as_ref().map(|var| (var.as_str(), GraphElement::Node(current_node_id)));
-                single_res.push_row_from(in_res, row_idx, IntoIterator::into_iter([b1, b2]).flatten());
+                let b1 = rel_pattern
+                    .variable
+                    .as_ref()
+                    .map(|var| (var.as_str(), GraphElement::EdgeArray(path_edges.clone())));
+                let b2 = target_node_pattern
+                    .variable
+                    .as_ref()
+                    .map(|var| (var.as_str(), GraphElement::Node(current_node_id)));
+                single_res.push_row_from(
+                    in_res,
+                    row_idx,
+                    IntoIterator::into_iter([b1, b2]).flatten(),
+                );
 
                 self.match_edges_recursive(
                     edges,
@@ -3589,6 +3604,14 @@ impl Graph {
                 let l_val = self.evaluate_expression(left, in_res, row_idx);
                 let r_val = self.evaluate_expression(right, in_res, row_idx);
                 l_val.compare(&r_val, op)
+            }
+            Condition::IsNull(expr) => {
+                let val = self.evaluate_expression(expr, in_res, row_idx);
+                matches!(val, EvalValue::Null)
+            }
+            Condition::IsNotNull(expr) => {
+                let val = self.evaluate_expression(expr, in_res, row_idx);
+                !matches!(val, EvalValue::Null)
             }
         }
     }

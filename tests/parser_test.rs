@@ -121,6 +121,38 @@ fn test_parser_set() {
 }
 
 #[test]
+fn test_parse_is_null() {
+    use yagdb::parser::{parse_query, Clause, Condition, Expression};
+    let input = "MATCH (n) WHERE n.age IS NULL RETURN n";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => match condition {
+            Condition::IsNull(Expression::Property(var, prop)) => {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+            }
+            _ => panic!("Expected IsNull condition"),
+        },
+        _ => panic!("Expected Match clause"),
+    }
+
+    let input2 = "MATCH (n) WHERE n.age IS NOT NULL RETURN n";
+    let (rest2, query2) = parse_query(input2).unwrap();
+    assert_eq!(rest2, "");
+    match &query2.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => match condition {
+            Condition::IsNotNull(Expression::Property(var, prop)) => {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+            }
+            _ => panic!("Expected IsNotNull condition"),
+        },
+        _ => panic!("Expected Match clause"),
+    }
+}
+
+#[test]
 fn test_return_star() {
     use yagdb::parser::{parse_query, Clause};
     let input = "RETURN *";
