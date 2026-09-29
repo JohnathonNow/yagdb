@@ -50,6 +50,33 @@ pub enum Expression {
     Map(std::collections::HashMap<String, Expression>),
 }
 
+pub fn format_expr(expr: &Expression) -> String {
+    match expr {
+        Expression::Property(var, prop) => format!("{}.{}", var, prop),
+        Expression::StringLiteral(s) => format!("'{}'", s),
+        Expression::NumberLiteral(n) => n.to_string(),
+        Expression::BooleanLiteral(b) => b.to_string(),
+        Expression::Variable(var) => var.to_string(),
+        Expression::Function(func, args) => {
+            let arg_strs: Vec<String> = args.iter().map(format_expr).collect();
+            format!("{}({})", func, arg_strs.join(", "))
+        }
+        Expression::List(elements) => {
+            let el_strs: Vec<String> = elements.iter().map(format_expr).collect();
+            format!("[{}]", el_strs.join(", "))
+        }
+        Expression::Map(map) => {
+            let mut pairs: Vec<_> = map.iter().collect();
+            pairs.sort_by(|a, b| a.0.cmp(b.0));
+            let mut formatted_pairs = Vec::new();
+            for (k, v) in pairs {
+                formatted_pairs.push(format!("{}: {}", k, format_expr(v)));
+            }
+            format!("{{{}}}", formatted_pairs.join(", "))
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum CompareOp {
     Eq,
@@ -87,7 +114,7 @@ pub enum ProjectionItem {
     AliasedProperty(String, String, String),
     Aggregate {
         func: String,
-        var: String,
+        expr: Expression,
         alias: Option<String>,
     },
     Function {
@@ -527,16 +554,23 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                 tag("collect"),
                 tag("UNIQUE"),
                 tag("unique"),
+                tag("MIN"),
+                tag("min"),
+                tag("MAX"),
+                tag("max"),
             )))(i)?;
             let (i, _) = ws(char('('))(i)?;
-            let (i, var) = ws(alt((identifier, tag("*"))))(i)?;
+            let (i, expr) = alt((
+                map(ws(char('*')), |_| Expression::Variable("*".to_string())),
+                expression,
+            ))(i)?;
             let (i, _) = ws(char(')'))(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
             Ok((
                 i,
                 ProjectionItem::Aggregate {
                     func: func.to_uppercase(),
-                    var: var.to_string(),
+                    expr,
                     alias: alias.map(|s| s.to_string()),
                 },
             ))

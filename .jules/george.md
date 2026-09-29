@@ -7,3 +7,6 @@
 ## 2024-10-24 - [Implement IS NULL and IS NOT NULL]
 **Learning:** `EvalValue::compare` does not easily support unary conditions like `IS NULL`, so unary conditions require separate variants in the `Condition` AST enum (`Condition::IsNull` and `Condition::IsNotNull`), bypassing `CompareOp` and being evaluated explicitly via `matches!(val, EvalValue::Null)` in `evaluate_condition`.
 **Action:** When adding new unary conditions to the WHERE clause, extend `Condition` rather than shoehorning it into `CompareOp` and update `condition_base` parsing and `evaluate_condition` explicitly.
+## 2024-10-24 - [Implement MIN/MAX Aggregates]
+**Learning:** Expanding aggregate functions beyond simple variable tracking (e.g. `COUNT(n)`) to full expression evaluation (e.g. `MIN(n.age)`) is critical for functional DB features. Modifying AST variants like `ProjectionItem::Aggregate` to hold `Expression` instead of `String` unlocks this. Also, implementing a safe, non-panicking `partial_cmp` directly on `GraphElement` avoids complex coercion logic.
+**Action:** Always favor AST designs that allow generalized expression structures over scalar variables, especially for function parameters. When extending evaluation rules for heterogeneous data sets (like MIN/MAX), utilize safe `Option<Ordering>` comparison fallbacks.

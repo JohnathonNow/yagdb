@@ -231,6 +231,17 @@ impl<'a> EvalValue<'a> {
     }
 }
 impl GraphElement {
+    pub fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (GraphElement::Number(l), GraphElement::Number(r)) => l.partial_cmp(r),
+            (GraphElement::String(l), GraphElement::String(r)) => l.partial_cmp(r),
+            (GraphElement::Date(l), GraphElement::Date(r)) => l.partial_cmp(r),
+            (GraphElement::DateTime(l), GraphElement::DateTime(r)) => l.partial_cmp(r),
+            (GraphElement::Boolean(l), GraphElement::Boolean(r)) => l.partial_cmp(r),
+            _ => None,
+        }
+    }
+
     pub fn to_property_value(&self) -> Option<crate::property::PropertyValue> {
         match self {
             GraphElement::String(s) => Some(crate::property::PropertyValue::String(s.clone())),
