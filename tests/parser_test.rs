@@ -223,7 +223,7 @@ fn test_with_and_aggregates_parse() {
                 items[0],
                 yagdb::parser::ProjectionItem::Aggregate {
                     func: "COUNT".to_string(),
-                    var: "a".to_string(),
+                    expr: yagdb::parser::Expression::Variable("a".to_string()),
                     alias: Some("c".to_string())
                 }
             );
@@ -231,7 +231,7 @@ fn test_with_and_aggregates_parse() {
                 items[1],
                 yagdb::parser::ProjectionItem::Aggregate {
                     func: "COLLECT".to_string(),
-                    var: "a".to_string(),
+                    expr: yagdb::parser::Expression::Variable("a".to_string()),
                     alias: Some("lst".to_string())
                 }
             );
@@ -360,5 +360,36 @@ fn test_parser_set_multiple() {
             }
         }
         _ => panic!("Expected Set clause"),
+    }
+}
+
+#[test]
+fn test_parse_min_max_aggregate() {
+    let query_str = "MATCH (n) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age";
+    let (rest, query) = parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 2);
+
+    match &query.clauses[1] {
+        Clause::Return(items, _, _, _) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "MIN".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "age".to_string()),
+                    alias: Some("min_age".to_string())
+                }
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "MAX".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "age".to_string()),
+                    alias: Some("max_age".to_string())
+                }
+            );
+        }
+        _ => panic!("Expected Return clause"),
     }
 }

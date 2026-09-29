@@ -2122,9 +2122,9 @@ impl Graph {
                             ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Aggregate { func, var, alias } => alias
+                            ProjectionItem::Aggregate { func, expr, alias } => alias
                                 .clone()
-                                .unwrap_or_else(|| format!("{}({})", func, var)),
+                                .unwrap_or_else(|| format!("{}({})", func, crate::parser::format_expr(expr))),
                             ProjectionItem::Function { func, alias, .. } => {
                                 alias.clone().unwrap_or_else(|| format!("{}()", func))
                             }
@@ -2264,18 +2264,27 @@ impl Graph {
                                             bindings.push((out_key.as_str(), val));
                                         }
                                     }
-                                    ProjectionItem::Aggregate { func, var, .. } => {
+                                    ProjectionItem::Aggregate { func, expr, .. } => {
                                         match func.as_str() {
                                             "COUNT" => {
-                                                let count = if var == "*" {
-                                                    group_rows.len()
+                                                let count = if let crate::parser::Expression::Variable(var) = expr {
+                                                    if var == "*" {
+                                                        group_rows.len()
+                                                    } else {
+                                                        group_rows
+                                                            .iter()
+                                                            .filter(|&&i| {
+                                                                let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                                val != GraphElement::Null
+                                                            })
+                                                            .count()
+                                                    }
                                                 } else {
                                                     group_rows
                                                         .iter()
                                                         .filter(|&&i| {
-                                                            result_set
-                                                                .get(i, var.as_str())
-                                                                .is_some()
+                                                            let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                            val != GraphElement::Null
                                                         })
                                                         .count()
                                                 };
@@ -2287,10 +2296,9 @@ impl Graph {
                                             "COLLECT" => {
                                                 let mut elements = Vec::new();
                                                 for &i in &group_rows {
-                                                    if let Some(val) =
-                                                        result_set.get(i, var.as_str())
-                                                    {
-                                                        elements.push(val.clone());
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if val != GraphElement::Null {
+                                                        elements.push(val);
                                                     }
                                                 }
                                                 bindings.push((
@@ -2301,11 +2309,10 @@ impl Graph {
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
                                                 for &i in &group_rows {
-                                                    if let Some(val) =
-                                                        result_set.get(i, var.as_str())
-                                                    {
-                                                        if !elements.contains(val) {
-                                                            elements.push(val.clone());
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if val != GraphElement::Null {
+                                                        if !elements.contains(&val) {
+                                                            elements.push(val);
                                                         }
                                                     }
                                                 }
@@ -2313,6 +2320,46 @@ impl Graph {
                                                     out_key.as_str(),
                                                     GraphElement::List(elements),
                                                 ));
+                                            }
+                                            "MIN" => {
+                                                let mut min_val: Option<GraphElement> = None;
+                                                for &i in &group_rows {
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if val != GraphElement::Null {
+                                                        if let Some(current_min) = &min_val {
+                                                            if let Some(std::cmp::Ordering::Less) = val.partial_cmp(current_min) {
+                                                                min_val = Some(val);
+                                                            }
+                                                        } else {
+                                                            min_val = Some(val);
+                                                        }
+                                                    }
+                                                }
+                                                if let Some(val) = min_val {
+                                                    bindings.push((out_key.as_str(), val));
+                                                } else {
+                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                }
+                                            }
+                                            "MAX" => {
+                                                let mut max_val: Option<GraphElement> = None;
+                                                for &i in &group_rows {
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if val != GraphElement::Null {
+                                                        if let Some(current_max) = &max_val {
+                                                            if let Some(std::cmp::Ordering::Greater) = val.partial_cmp(current_max) {
+                                                                max_val = Some(val);
+                                                            }
+                                                        } else {
+                                                            max_val = Some(val);
+                                                        }
+                                                    }
+                                                }
+                                                if let Some(val) = max_val {
+                                                    bindings.push((out_key.as_str(), val));
+                                                } else {
+                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                }
                                             }
                                             _ => {}
                                         }

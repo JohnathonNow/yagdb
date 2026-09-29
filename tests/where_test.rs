@@ -168,3 +168,22 @@ fn test_is_null_operators() {
     assert!(names.contains(&"Alice".to_string()));
     assert!(!names.contains(&"Bob".to_string()));
 }
+
+#[test]
+fn test_min_max_aggregates_execution() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
+
+    let res = g.execute("MATCH (n:Person) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    assert_eq!(arr.len(), 1);
+    let row = &arr[0];
+
+    assert_eq!(row.get("min_age").unwrap().as_f64().unwrap(), 22.0);
+    assert_eq!(row.get("max_age").unwrap().as_f64().unwrap(), 45.0);
+}
