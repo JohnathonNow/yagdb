@@ -67,4 +67,8 @@ pub enum WalEntry {
         key: String,
         value: crate::property::PropertyValue,
     },
+    RemoveEdgeProperty {
+        edge_id: usize,
+        key: String,
+    },
 }

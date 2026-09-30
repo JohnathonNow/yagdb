@@ -121,6 +121,38 @@ fn test_parser_set() {
 }
 
 #[test]
+fn test_parse_is_null() {
+    use yagdb::parser::{parse_query, Clause, Condition, Expression};
+    let input = "MATCH (n) WHERE n.age IS NULL RETURN n";
+    let (rest, query) = parse_query(input).unwrap();
+    assert_eq!(rest, "");
+    match &query.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => match condition {
+            Condition::IsNull(Expression::Property(var, prop)) => {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+            }
+            _ => panic!("Expected IsNull condition"),
+        },
+        _ => panic!("Expected Match clause"),
+    }
+
+    let input2 = "MATCH (n) WHERE n.age IS NOT NULL RETURN n";
+    let (rest2, query2) = parse_query(input2).unwrap();
+    assert_eq!(rest2, "");
+    match &query2.clauses[0] {
+        Clause::Match(_, _, Some(condition), _, _) => match condition {
+            Condition::IsNotNull(Expression::Property(var, prop)) => {
+                assert_eq!(var, "n");
+                assert_eq!(prop, "age");
+            }
+            _ => panic!("Expected IsNotNull condition"),
+        },
+        _ => panic!("Expected Match clause"),
+    }
+}
+
+#[test]
 fn test_return_star() {
     use yagdb::parser::{parse_query, Clause};
     let input = "RETURN *";
@@ -130,6 +162,37 @@ fn test_return_star() {
         Clause::Return(vars, _, _, _) => {
             assert_eq!(vars.len(), 1);
             assert_eq!(vars[0], yagdb::parser::ProjectionItem::Star);
+        }
+        _ => panic!("Expected Return clause"),
+    }
+}
+
+#[test]
+fn test_parse_sum_avg_aggregate() {
+    let query_str = "MATCH (n) RETURN SUM(n.price) AS total_price, AVG(n.price) AS avg_price";
+    let (rest, query) = parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 2);
+
+    match &query.clauses[1] {
+        Clause::Return(items, _, _, _) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "SUM".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "price".to_string()),
+                    alias: Some("total_price".to_string())
+                }
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "AVG".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "price".to_string()),
+                    alias: Some("avg_price".to_string())
+                }
+            );
         }
         _ => panic!("Expected Return clause"),
     }
@@ -191,7 +254,7 @@ fn test_with_and_aggregates_parse() {
                 items[0],
                 yagdb::parser::ProjectionItem::Aggregate {
                     func: "COUNT".to_string(),
-                    var: "a".to_string(),
+                    expr: yagdb::parser::Expression::Variable("a".to_string()),
                     alias: Some("c".to_string())
                 }
             );
@@ -199,7 +262,7 @@ fn test_with_and_aggregates_parse() {
                 items[1],
                 yagdb::parser::ProjectionItem::Aggregate {
                     func: "COLLECT".to_string(),
-                    var: "a".to_string(),
+                    expr: yagdb::parser::Expression::Variable("a".to_string()),
                     alias: Some("lst".to_string())
                 }
             );
@@ -328,5 +391,36 @@ fn test_parser_set_multiple() {
             }
         }
         _ => panic!("Expected Set clause"),
+    }
+}
+
+#[test]
+fn test_parse_min_max_aggregate() {
+    let query_str = "MATCH (n) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age";
+    let (rest, query) = parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 2);
+
+    match &query.clauses[1] {
+        Clause::Return(items, _, _, _) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "MIN".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "age".to_string()),
+                    alias: Some("min_age".to_string())
+                }
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "MAX".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "age".to_string()),
+                    alias: Some("max_age".to_string())
+                }
+            );
+        }
+        _ => panic!("Expected Return clause"),
     }
 }

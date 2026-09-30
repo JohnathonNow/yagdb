@@ -133,3 +133,77 @@ fn test_call_subquery() {
     assert_eq!(row["n.name"].as_str().unwrap(), "Alice");
     assert_eq!(row["m.name"].as_str().unwrap(), "Bob");
 }
+
+#[test]
+fn test_is_null_operators() {
+    let g = Graph::new();
+    g.execute("CREATE (a:User {name: 'Alice', age: 30})")
+        .unwrap();
+    g.execute("CREATE (b:User {name: 'Bob'})").unwrap();
+    g.execute("CREATE (c:User {age: 40})").unwrap();
+
+    let query_is_null = "MATCH (n:User) WHERE n.name IS NULL RETURN n.age";
+    let result_null = g.execute(query_is_null).unwrap();
+    let val_null: serde_json::Value = serde_json::from_str(&result_null).unwrap();
+    let arr_null = val_null.as_array().unwrap();
+
+    assert_eq!(arr_null.len(), 1);
+    assert_eq!(arr_null[0]["n.age"].as_f64().unwrap(), 40.0);
+
+    let query_is_not_null = "MATCH (n:User) WHERE n.age IS NOT NULL RETURN n.name ORDER BY n.name";
+    let result_not_null = g.execute(query_is_not_null).unwrap();
+    let val_not_null: serde_json::Value = serde_json::from_str(&result_not_null).unwrap();
+    let arr_not_null = val_not_null.as_array().unwrap();
+
+    assert_eq!(arr_not_null.len(), 2);
+    // Since node C has no name, it might be null.
+    // The sorting order of Alice vs null might place null first or last depending on partial_cmp.
+    // We just verify it contains Alice and does not contain Bob.
+    let mut names = vec![];
+    for row in arr_not_null {
+        if let Some(name) = row["n.name"].as_str() {
+            names.push(name.to_string());
+        }
+    }
+    assert!(names.contains(&"Alice".to_string()));
+    assert!(!names.contains(&"Bob".to_string()));
+}
+
+#[test]
+fn test_min_max_aggregates_execution() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
+
+    let res = g.execute("MATCH (n:Person) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    assert_eq!(arr.len(), 1);
+    let row = &arr[0];
+
+    assert_eq!(row.get("min_age").unwrap().as_f64().unwrap(), 22.0);
+    assert_eq!(row.get("max_age").unwrap().as_f64().unwrap(), 45.0);
+}
+
+#[test]
+fn test_sum_avg_aggregates_execution() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
+    g.execute("CREATE (e:Person {name: 'Eve', age: 'Not a number'})").unwrap(); // Invalid type
+
+    let res = g.execute("MATCH (n:Person) RETURN SUM(n.age) AS sum_age, AVG(n.age) AS avg_age").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    assert_eq!(arr.len(), 1);
+    let row = &arr[0];
+
+    assert_eq!(row.get("sum_age").unwrap().as_f64().unwrap(), 97.0);
+    assert_eq!(row.get("avg_age").unwrap().as_f64().unwrap(), 97.0 / 3.0);
+}
