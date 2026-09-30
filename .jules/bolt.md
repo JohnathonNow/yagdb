@@ -31,3 +31,9 @@
 ## 2026-09-08 - Stack arrays with `IntoIterator::into_iter` for graph traversals
 **Learning:** In yagdb's graph traversal logic (e.g., `match_edges_recursive`, `match_var_length_edges`), using `Vec::with_capacity(2)` to dynamically build row bindings triggers continuous heap allocations inside extremely hot loops, creating performance bottlenecks.
 **Action:** Replace `Vec` creation and `push()` with stack-allocated arrays of `Option<(&str, GraphElement)>` and use `IntoIterator::into_iter([...]).flatten()` to pass bindings into `push_row_from`, eliminating heap allocation inside hot graph traversal loops. Note: explicit `IntoIterator::into_iter([...])` is necessary in older versions/editions to avoid temporary value drop conflicts (`E0716`) with `[...].into_iter()`.
+## 2026-09-30 - [Precompute label resolution to avoid redundant locking]
+**Learning:** In yagdb, graph label tracking () uses an . In deep recursive traversals like  and , constantly resolving string labels into integer IDs dynamically meant acquiring thousands of read locks for the same static pattern.
+**Action:** Always inspect inner loops inside hot query execution paths (especially graph traversals). Hoist repetitive property or label resolution out of the nested loops by precomputing slices or vectors based on static query patterns.
+## 2023-11-20 - [Precompute label resolution to avoid redundant locking]
+**Learning:** In yagdb, graph label tracking (`self.labels`) uses an `RwLock`. In deep recursive traversals like `find_nodes` and `match_edges_recursive`, constantly resolving string labels into integer IDs dynamically meant acquiring thousands of read locks for the same static pattern.
+**Action:** Always inspect inner loops inside hot query execution paths (especially graph traversals). Hoist repetitive property or label resolution out of the nested loops by precomputing slices or vectors based on static query patterns.
