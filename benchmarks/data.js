@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790775430020,
+  "lastUpdate": 1790775579594,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -17887,6 +17887,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 454370,
             "range": "± 8207",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e2b3256a8e1a488f8b6b124a442efc583f33300",
+          "message": "Enhance layout with sidebar and updated styles\n\nRefactor HTML structure and styles for improved layout and theme. Added a sidebar with a Cypher reference guide and updated styling for better readability.",
+          "timestamp": "2026-09-30T09:27:14-04:00",
+          "tree_id": "11714fc311183224f07b1d35a6a91fce9c6637ba",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/9e2b3256a8e1a488f8b6b124a442efc583f33300"
+        },
+        "date": 1790775578546,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 32772,
+            "range": "± 104",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 34621,
+            "range": "± 838",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 60381,
+            "range": "± 1714",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 47119,
+            "range": "± 1326",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 129386,
+            "range": "± 1996",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 106970,
+            "range": "± 257",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 130040,
+            "range": "± 6831",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 107316,
+            "range": "± 363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 66290,
+            "range": "± 310",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 55857,
+            "range": "± 464",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 130242,
+            "range": "± 934",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 106413,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2729252125,
+            "range": "± 23818237",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 3811,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 6441,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 5921,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 8755,
+            "range": "± 123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 9474,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 15195,
+            "range": "± 439",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 395318,
+            "range": "± 5182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 501861,
+            "range": "± 8326",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 517023,
+            "range": "± 5725",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 490007,
+            "range": "± 6330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 431575,
+            "range": "± 6843",
             "unit": "ns/iter"
           }
         ]
