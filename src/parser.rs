@@ -652,44 +652,37 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                 },
             ))
         },
-        |i| {
-            let (i, func) = ws(identifier)(i)?;
-            let (i, _) = ws(char('('))(i)?;
-            let (i, args) = separated_list0(ws(char(',')), expression)(i)?;
-            let (i, _) = ws(char(')'))(i)?;
-            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
-            Ok((
-                i,
-                ProjectionItem::Function {
-                    func: func.to_string(),
-                    args,
-                    alias: alias.map(|s| s.to_string()),
-                },
-            ))
-        },
-        |i| {
-            let (i, var) = ws(identifier)(i)?;
-            let (i, prop) = opt(preceded(ws(char('.')), ws(identifier)))(i)?;
-            let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
 
-            match (prop, alias) {
-                (Some(p), Some(a)) => Ok((
-                    i,
-                    ProjectionItem::AliasedProperty(var.to_string(), p.to_string(), a.to_string()),
-                )),
-                (Some(p), None) => {
-                    Ok((i, ProjectionItem::Property(var.to_string(), p.to_string())))
-                }
-                (None, Some(a)) => Ok((
-                    i,
-                    ProjectionItem::AliasedVariable(var.to_string(), a.to_string()),
-                )),
-                (None, None) => Ok((i, ProjectionItem::Variable(var.to_string()))),
-            }
-        },
+
         |i| {
             let (i, expr) = expression(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
+
+            if alias.is_none() {
+                match &expr {
+                    Expression::Variable(v) => return Ok((i, ProjectionItem::Variable(v.clone()))),
+                    Expression::Property(v, p) => return Ok((i, ProjectionItem::Property(v.clone(), p.clone()))),
+                    Expression::Function(func, args) => return Ok((i, ProjectionItem::Function {
+                        func: func.clone(),
+                        args: args.clone(),
+                        alias: None,
+                    })),
+                    _ => {}
+                }
+            } else {
+                let alias_str = alias.clone().unwrap().to_string();
+                match &expr {
+                    Expression::Variable(v) => return Ok((i, ProjectionItem::AliasedVariable(v.clone(), alias_str))),
+                    Expression::Property(v, p) => return Ok((i, ProjectionItem::AliasedProperty(v.clone(), p.clone(), alias_str))),
+                    Expression::Function(func, args) => return Ok((i, ProjectionItem::Function {
+                        func: func.clone(),
+                        args: args.clone(),
+                        alias: Some(alias_str),
+                    })),
+                    _ => {}
+                }
+            }
+
             Ok((
                 i,
                 ProjectionItem::Expression {
