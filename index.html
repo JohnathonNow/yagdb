@@ -40,6 +40,14 @@
             padding: 1.5rem;
             overflow-y: auto;
             flex-shrink: 0;
+            transition: width 0.3s, padding 0.3s;
+        }
+
+        #sidebar.collapsed {
+            width: 0;
+            padding: 0;
+            overflow: hidden;
+            border-right: none;
         }
 
         #sidebar h2 {
@@ -194,7 +202,7 @@
 
         #network {
             flex-grow: 1;
-            background: #ffffff;
+            background: var(--surface-color);
         }
 
         /* Scrollbar styling */
@@ -232,20 +240,20 @@
         <div class="guide-section">
             <h3>Supported Clauses</h3>
             <ul>
-                <li><code>MATCH</code> - Pattern matching</li>
-                <li><code>OPTIONAL MATCH</code> - Optional matching</li>
-                <li><code>CREATE</code> - Create nodes/edges</li>
-                <li><code>MERGE</code> - Match or create</li>
-                <li><code>SET</code> - Update properties/labels</li>
-                <li><code>REMOVE</code> - Remove properties/labels</li>
-                <li><code>DELETE</code> - Delete nodes/edges</li>
-                <li><code>WITH</code> - Pipe intermediate results</li>
-                <li><code>RETURN</code> - Output results</li>
-                <li><code>ORDER BY</code> - Sort results (ASC/DESC)</li>
-                <li><code>SKIP</code> / <code>LIMIT</code> - Pagination</li>
-                <li><code>UNWIND</code> - Expand lists</li>
-                <li><code>CALL</code> - Run subqueries</li>
-                <li><code>CREATE INDEX</code> / <code>DROP INDEX</code></li>
+                <li title="Finds patterns in the graph. Used to retrieve data."><code>MATCH</code> - Pattern matching</li>
+                <li title="Similar to MATCH but returns nulls for missing parts of the pattern."><code>OPTIONAL MATCH</code> - Optional matching</li>
+                <li title="Creates new nodes and relationships."><code>CREATE</code> - Create nodes/edges</li>
+                <li title="Matches existing patterns, or creates them if they don't exist."><code>MERGE</code> - Match or create</li>
+                <li title="Updates properties on nodes and relationships, or adds labels."><code>SET</code> - Update properties/labels</li>
+                <li title="Removes properties and labels from nodes and relationships."><code>REMOVE</code> - Remove properties/labels</li>
+                <li title="Deletes nodes and relationships."><code>DELETE</code> - Delete nodes/edges</li>
+                <li title="Passes query parts to the next part, similar to a return in the middle of a query."><code>WITH</code> - Pipe intermediate results</li>
+                <li title="Specifies what to include in the query result set."><code>RETURN</code> - Output results</li>
+                <li title="Sorts the output. Use ASC for ascending or DESC for descending."><code>ORDER BY</code> - Sort results (ASC/DESC)</li>
+                <li title="SKIP skips the first N rows. LIMIT restricts output to N rows."><code>SKIP</code> / <code>LIMIT</code> - Pagination</li>
+                <li title="Expands a list into a sequence of rows."><code>UNWIND</code> - Expand lists</li>
+                <li title="Invokes a subquery."><code>CALL</code> - Run subqueries</li>
+                <li title="Creates or drops an index on a given label and property for faster lookups."><code>CREATE INDEX</code> / <code>DROP INDEX</code></li>
             </ul>
         </div>
 
@@ -284,7 +292,7 @@
     <!-- Main Content -->
     <div id="main-content">
         <header>
-            <h1>YAGDB REPL</h1>
+            <div style="display: flex; align-items: center; gap: 1rem;"><button id="sidebarToggle" style="background: none; border: none; color: var(--primary-color); font-size: 1.5rem; padding: 0; margin: 0; min-width: auto; height: auto;">☰</button><h1>YAGDB REPL</h1></div>
             <p>Try running Cypher queries in the WASM version of the graph database!</p>
         </header>
 
@@ -323,7 +331,7 @@
                 nodes: {
                     shape: 'dot',
                     size: 20,
-                    font: { size: 14, color: '#333' },
+                    font: { size: 14, color: '#e0e0e0' },
                     color: {
                         background: '#bb86fc',
                         border: '#8850c9',
@@ -332,7 +340,7 @@
                 },
                 edges: {
                     arrows: 'to',
-                    font: { size: 12, align: 'middle', color: '#666' },
+                    font: { size: 12, align: 'middle', color: '#a0a0a0' },
                     color: { color: '#888', highlight: '#cf6679' }
                 },
                 physics: {
@@ -373,6 +381,12 @@
                 // Check if it's an edge
                 if (obj.start !== undefined && obj.end !== undefined && obj.properties) {
                     const edgeId = obj.start + "-" + obj.end;
+                    if (!nodesData.get(obj.start)) {
+                        nodesData.add({ id: obj.start, label: 'Node ' + obj.start });
+                    }
+                    if (!nodesData.get(obj.end)) {
+                        nodesData.add({ id: obj.end, label: 'Node ' + obj.end });
+                    }
                     if (!edgesData.get(edgeId)) {
                         let labelText = obj.type || '';
                         let props = Object.keys(obj.properties).length > 0 ? JSON.stringify(obj.properties) : '';
@@ -383,12 +397,6 @@
                             label: labelText + (props ? '\n' + props : ''),
                             title: JSON.stringify(obj)
                         });
-                    }
-                    if (!nodesData.get(obj.start)) {
-                        nodesData.add({ id: obj.start, label: 'Node ' + obj.start });
-                    }
-                    if (!nodesData.get(obj.end)) {
-                        nodesData.add({ id: obj.end, label: 'Node ' + obj.end });
                     }
                 }
                 // Check if it's a node
@@ -425,6 +433,13 @@
             console.log("WASM Initialized!");
 
             initNetwork();
+
+
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebar = document.getElementById('sidebar');
+            sidebarToggle.addEventListener('click', () => {
+                sidebar.classList.toggle('collapsed');
+            });
 
             const runBtn = document.getElementById('runBtn');
             const queryInput = document.getElementById('queryInput');
