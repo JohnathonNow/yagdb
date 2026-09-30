@@ -43,6 +43,45 @@ fn var_length(input: &str) -> IResult<&str, (usize, Option<usize>)> {
 }
 
 #[test]
+fn test_math_expression() {
+    let input = "1 + 2 * 3 ^ 2 - 4 / 2";
+    let (rest, expr) = yagdb::parser::expression(input).unwrap();
+    assert_eq!(rest, "");
+
+    // The precedence should be:
+    // ^ (power) highest
+    // * / % (factor) middle
+    // + - (math) lowest
+    //
+    // So `1 + (2 * (3 ^ 2)) - (4 / 2)`
+    // And left-associativity for +, -:
+    // `((1 + (2 * (3 ^ 2))) - (4 / 2))`
+
+    let expected = Expression::Math(
+        Box::new(Expression::Math(
+            Box::new(Expression::NumberLiteral(1.0)),
+            MathOp::Add,
+            Box::new(Expression::Math(
+                Box::new(Expression::NumberLiteral(2.0)),
+                MathOp::Multiply,
+                Box::new(Expression::Math(
+                    Box::new(Expression::NumberLiteral(3.0)),
+                    MathOp::Power,
+                    Box::new(Expression::NumberLiteral(2.0)),
+                )),
+            )),
+        )),
+        MathOp::Subtract,
+        Box::new(Expression::Math(
+            Box::new(Expression::NumberLiteral(4.0)),
+            MathOp::Divide,
+            Box::new(Expression::NumberLiteral(2.0)),
+        )),
+    );
+    assert_eq!(expr, expected);
+}
+
+#[test]
 fn test_where_clause() {
     let input =
         "MATCH (n) WHERE n.age > 30 AND n.name = 'Alice' OR NOT m.active = 'false' RETURN n";

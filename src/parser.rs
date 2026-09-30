@@ -39,6 +39,16 @@ pub struct Path {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum MathOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    Power,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Property(String, String),
     StringLiteral(String),
@@ -48,6 +58,7 @@ pub enum Expression {
     Function(String, Vec<Expression>),
     List(Vec<Expression>),
     Map(std::collections::HashMap<String, Expression>),
+    Math(Box<Expression>, MathOp, Box<Expression>),
 }
 
 pub fn format_expr(expr: &Expression) -> String {
@@ -73,6 +84,17 @@ pub fn format_expr(expr: &Expression) -> String {
                 formatted_pairs.push(format!("{}: {}", k, format_expr(v)));
             }
             format!("{{{}}}", formatted_pairs.join(", "))
+        }
+        Expression::Math(left, op, right) => {
+            let op_str = match op {
+                MathOp::Add => "+",
+                MathOp::Subtract => "-",
+                MathOp::Multiply => "*",
+                MathOp::Divide => "/",
+                MathOp::Modulo => "%",
+                MathOp::Power => "^",
+            };
+            format!("{} {} {}", format_expr(left), op_str, format_expr(right))
         }
     }
 }
@@ -360,8 +382,9 @@ fn property_value_parser(input: &str) -> IResult<&str, crate::property::Property
     ))(input)
 }
 
-fn expression(input: &str) -> IResult<&str, Expression> {
+fn primary_expression(input: &str) -> IResult<&str, Expression> {
     alt((
+        delimited(ws(char('(')), expression, ws(char(')'))),
         map(ws(string_literal), |s| {
             Expression::StringLiteral(s.to_string())
         }),
@@ -412,6 +435,56 @@ fn expression(input: &str) -> IResult<&str, Expression> {
             Ok((i, Expression::Map(map)))
         },
     ))(input)
+}
+
+fn power_expression(input: &str) -> IResult<&str, Expression> {
+    let (input, mut expr) = primary_expression(input)?;
+    if let Ok((next_input, (_, right))) = tuple((ws(char('^')), power_expression))(input) {
+        expr = Expression::Math(Box::new(expr), MathOp::Power, Box::new(right));
+        return Ok((next_input, expr));
+    }
+    Ok((input, expr))
+}
+
+fn factor_expression(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expr) = power_expression(input)?;
+    while let Ok((next_input, (op_char, right))) = tuple((
+        ws(alt((char('*'), char('/'), char('%')))),
+        power_expression,
+    ))(input)
+    {
+        let op = match op_char {
+            '*' => MathOp::Multiply,
+            '/' => MathOp::Divide,
+            '%' => MathOp::Modulo,
+            _ => unreachable!(),
+        };
+        expr = Expression::Math(Box::new(expr), op, Box::new(right));
+        input = next_input;
+    }
+    Ok((input, expr))
+}
+
+fn math_expression(input: &str) -> IResult<&str, Expression> {
+    let (mut input, mut expr) = factor_expression(input)?;
+    while let Ok((next_input, (op_char, right))) = tuple((
+        ws(alt((char('+'), char('-')))),
+        factor_expression,
+    ))(input)
+    {
+        let op = match op_char {
+            '+' => MathOp::Add,
+            '-' => MathOp::Subtract,
+            _ => unreachable!(),
+        };
+        expr = Expression::Math(Box::new(expr), op, Box::new(right));
+        input = next_input;
+    }
+    Ok((input, expr))
+}
+
+pub fn expression(input: &str) -> IResult<&str, Expression> {
+    math_expression(input)
 }
 
 fn compare_op(input: &str) -> IResult<&str, CompareOp> {
