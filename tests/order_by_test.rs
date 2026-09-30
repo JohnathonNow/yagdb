@@ -28,5 +28,8 @@ fn test_rand() {
 
     let json: Vec<Value> = serde_json::from_str(&res).unwrap();
     assert_eq!(json.len(), 3);
-    assert!(json[0]["r"].as_f64().is_some());
+    for row in json {
+        let r_val = row["r"].as_f64().unwrap();
+        assert!(r_val >= 0.0 && r_val < 1.0);
+    }
 }
