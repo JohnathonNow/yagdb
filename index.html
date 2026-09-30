@@ -370,26 +370,51 @@
                 }
             }
 
-            function extractGraphElements(obj) {
+            let seen = new Set();
+            
+            // First pass: extract ALL nodes to ensure they exist before edges
+            function extractNodes(obj, seen) {
                 if (!obj || typeof obj !== 'object') return;
-
                 if (Array.isArray(obj)) {
-                    obj.forEach(extractGraphElements);
+                    obj.forEach(x => extractNodes(x, seen));
                     return;
                 }
+                if (seen.has(obj)) return;
+                seen.add(obj);
 
-                // Check if it's an edge
-                if (obj.start !== undefined && obj.end !== undefined && obj.properties) {
-                    const edgeId = obj.start + "-" + obj.end;
-                    if (!nodesData.get(obj.start)) {
+                if (obj.labels !== undefined && obj.properties !== undefined && obj.edges !== undefined) {
+                    // Try to guess ID if we can...
+                    // In YAGDB, nodes don't serialize their own ID. So we just add it to a list.
+                } else if (obj.start !== undefined && obj.end !== undefined) {
+                     // It's an edge. Ensure start/end nodes exist
+                     if (!nodesData.get(obj.start)) {
                         nodesData.add({ id: obj.start, label: 'Node ' + obj.start });
                     }
                     if (!nodesData.get(obj.end)) {
                         nodesData.add({ id: obj.end, label: 'Node ' + obj.end });
                     }
+                }
+                Object.values(obj).forEach(x => extractNodes(x, seen));
+            }
+            
+            seen = new Set();
+            extractNodes(parsedData, seen);
+            
+            seen = new Set();
+            function extractEdges(obj, seen) {
+                if (!obj || typeof obj !== 'object') return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(x => extractEdges(x, seen));
+                    return;
+                }
+                if (seen.has(obj)) return;
+                seen.add(obj);
+                
+                if (obj.start !== undefined && obj.end !== undefined) {
+                    const edgeId = obj.start + "-" + obj.end;
                     if (!edgesData.get(edgeId)) {
                         let labelText = obj.type || '';
-                        let props = Object.keys(obj.properties).length > 0 ? JSON.stringify(obj.properties) : '';
+                        let props = obj.properties && Object.keys(obj.properties).length > 0 ? JSON.stringify(obj.properties) : '';
                         edgesData.add({
                             id: edgeId,
                             from: obj.start,
@@ -398,16 +423,13 @@
                             title: JSON.stringify(obj)
                         });
                     }
-                }
-                // Check if it's a node
-                else if (obj.labels && obj.properties && obj.edges) {
+                } else if (obj.labels !== undefined && obj.properties !== undefined && obj.edges !== undefined) {
                     let propStr = JSON.stringify(obj.properties);
                     let labelStr = obj.labels.join(':');
                     let displayLabel = (labelStr ? ':' + labelStr + '\n' : '') + propStr;
 
                     let found = false;
                     nodesData.forEach(n => {
-                        // Very naive deduplication for demo purposes
                         if (n.title === displayLabel || n.label === displayLabel) found = true;
                     });
 
@@ -419,13 +441,12 @@
                             title: displayLabel
                         });
                     }
-                } else {
-                    // Traverse deeper
-                    Object.values(obj).forEach(extractGraphElements);
                 }
-            }
 
-            extractGraphElements(parsedData);
+                Object.values(obj).forEach(x => extractEdges(x, seen));
+            }
+            
+            extractEdges(parsedData, seen);
         }
 
         async function run() {
@@ -434,7 +455,7 @@
 
             initNetwork();
 
-
+            
             const sidebarToggle = document.getElementById('sidebarToggle');
             const sidebar = document.getElementById('sidebar');
             sidebarToggle.addEventListener('click', () => {
