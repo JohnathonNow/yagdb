@@ -2809,6 +2809,10 @@ impl Graph {
 
                 // ⚡ Bolt: Hoist path pattern allocation out of nested hot loops to prevent redundant clones and Vec allocations per match.
                 let precomputed_edges = vec![(rel_pattern.clone(), target_node_pattern.clone())];
+                let precomputed_labels = precomputed_edges
+                    .iter()
+                    .map(|(r, n)| (self.resolve_rel_label(r), self.resolve_node_label(n)))
+                    .collect::<Vec<_>>();
 
                 for i in 0..source_res.rows {
                     let mut source_node_ids = Vec::new();
@@ -2827,6 +2831,7 @@ impl Graph {
                     for source_node_id in source_node_ids {
                         self.match_edges_recursive(
                             &precomputed_edges,
+                            &precomputed_labels,
                             0,
                             source_node_id,
                             &source_res,
@@ -3178,6 +3183,7 @@ impl Graph {
     fn match_edges_recursive(
         &self,
         edges: &[(RelPattern, NodePattern)],
+        precomputed_labels: &[(Option<Option<usize>>, Option<Option<usize>>)],
         edge_idx: usize,
         current_node_id: usize,
         in_res: &ResultSet,
@@ -3206,6 +3212,7 @@ impl Graph {
             if min_len != 1 || max_len != Some(1) {
                 self.match_var_length_edges(
                     edges,
+                    precomputed_labels,
                     edge_idx,
                     current_node_id,
                     in_res,
@@ -3226,6 +3233,8 @@ impl Graph {
             current_node_id,
             rel_pattern,
             target_node_pattern,
+            precomputed_labels[edge_idx].0,
+            precomputed_labels[edge_idx].1,
             in_res,
             row_idx,
         );
@@ -3246,6 +3255,7 @@ impl Graph {
 
             self.match_edges_recursive(
                 edges,
+                precomputed_labels,
                 edge_idx + 1,
                 next_node_id,
                 &single_res,
@@ -3263,6 +3273,7 @@ impl Graph {
     fn match_var_length_edges(
         &self,
         edges: &[(RelPattern, NodePattern)],
+        precomputed_labels: &[(Option<Option<usize>>, Option<Option<usize>>)],
         edge_idx: usize,
         current_node_id: usize,
         in_res: &ResultSet,
@@ -3301,7 +3312,7 @@ impl Graph {
             } else {
                 true
             } && {
-                let target_label_id = self.resolve_node_label(target_node_pattern);
+                let target_label_id = precomputed_labels[edge_idx].1;
                 if let Some(target_label_id) = target_label_id {
                     self.nodes
                         .with_item(current_node_id, |node| {
@@ -3331,6 +3342,7 @@ impl Graph {
 
                 self.match_edges_recursive(
                     edges,
+                    precomputed_labels,
                     edge_idx + 1,
                     current_node_id,
                     single_res,
@@ -3347,7 +3359,7 @@ impl Graph {
             }
         }
 
-        let rel_label_id = match self.resolve_rel_label(rel_pattern) {
+        let rel_label_id = match precomputed_labels[edge_idx].0 {
             Some(id) => id,
             None => return,
         };
@@ -3380,6 +3392,7 @@ impl Graph {
 
                 self.match_var_length_edges(
                     edges,
+                    precomputed_labels,
                     edge_idx,
                     end_node_id,
                     in_res,
@@ -3526,17 +3539,19 @@ impl Graph {
         start_id: usize,
         rel_pattern: &RelPattern,
         target_node_pattern: &NodePattern,
+        rel_label_id_opt: Option<Option<usize>>,
+        target_label_id_opt: Option<Option<usize>>,
         in_res: &ResultSet,
         row_idx: usize,
     ) -> Vec<(usize, usize)> {
         let mut matches = Vec::new();
 
-        let rel_label_id = match self.resolve_rel_label(rel_pattern) {
+        let rel_label_id = match rel_label_id_opt {
             Some(id) => id,
             None => return matches,
         };
 
-        let target_label_id = match self.resolve_node_label(target_node_pattern) {
+        let target_label_id = match target_label_id_opt {
             Some(id) => id,
             None => return matches,
         };
