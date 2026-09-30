@@ -638,7 +638,9 @@ impl Graph {
         self.register_function(
             "date",
             std::sync::Arc::new(|args| {
-                if args.len() == 1 {
+                if args.len() == 0 {
+                    return Ok(GraphElement::Date(chrono::Utc::now().naive_utc().date()));
+                } else if args.len() == 1 {
                     if let GraphElement::String(s) = &args[0] {
                         if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
                             return Ok(GraphElement::Date(d));
@@ -652,7 +654,9 @@ impl Graph {
         self.register_function(
             "datetime",
             std::sync::Arc::new(|args| {
-                if args.len() == 1 {
+                if args.len() == 0 {
+                    return Ok(GraphElement::DateTime(chrono::Utc::now()));
+                } else if args.len() == 1 {
                     if let GraphElement::String(s) = &args[0] {
                         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
                             return Ok(GraphElement::DateTime(dt.with_timezone(&chrono::Utc)));
