@@ -3800,6 +3800,34 @@ impl Graph {
                 }
                 GraphElement::Map(result_map)
             }
+            Expression::Math(left, op, right) => {
+                let left_val = self.evaluate_expression_to_element(left, in_res, row_idx);
+                let right_val = self.evaluate_expression_to_element(right, in_res, row_idx);
+                if let (GraphElement::Number(l), GraphElement::Number(r)) = (left_val, right_val) {
+                    match op {
+                        crate::parser::MathOp::Add => GraphElement::Number(l + r),
+                        crate::parser::MathOp::Subtract => GraphElement::Number(l - r),
+                        crate::parser::MathOp::Multiply => GraphElement::Number(l * r),
+                        crate::parser::MathOp::Divide => {
+                            if r == 0.0 {
+                                GraphElement::Null
+                            } else {
+                                GraphElement::Number(l / r)
+                            }
+                        }
+                        crate::parser::MathOp::Modulo => {
+                            if r == 0.0 {
+                                GraphElement::Null
+                            } else {
+                                GraphElement::Number(l % r)
+                            }
+                        }
+                        crate::parser::MathOp::Power => GraphElement::Number(l.powf(r)),
+                    }
+                } else {
+                    GraphElement::Null
+                }
+            }
         }
     }
 
@@ -3888,6 +3916,34 @@ impl Graph {
             }
             Expression::List(_) => EvalValue::Null,
             Expression::Map(_) => EvalValue::Null,
+            Expression::Math(left, op, right) => {
+                let left_val = self.evaluate_expression(left, in_res, row_idx);
+                let right_val = self.evaluate_expression(right, in_res, row_idx);
+                if let (EvalValue::Number(l), EvalValue::Number(r)) = (left_val, right_val) {
+                    match op {
+                        crate::parser::MathOp::Add => EvalValue::Number(l + r),
+                        crate::parser::MathOp::Subtract => EvalValue::Number(l - r),
+                        crate::parser::MathOp::Multiply => EvalValue::Number(l * r),
+                        crate::parser::MathOp::Divide => {
+                            if r == 0.0 {
+                                EvalValue::Null
+                            } else {
+                                EvalValue::Number(l / r)
+                            }
+                        }
+                        crate::parser::MathOp::Modulo => {
+                            if r == 0.0 {
+                                EvalValue::Null
+                            } else {
+                                EvalValue::Number(l % r)
+                            }
+                        }
+                        crate::parser::MathOp::Power => EvalValue::Number(l.powf(r)),
+                    }
+                } else {
+                    EvalValue::Null
+                }
+            }
         }
     }
 }

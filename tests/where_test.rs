@@ -207,3 +207,17 @@ fn test_sum_avg_aggregates_execution() {
     assert_eq!(row.get("sum_age").unwrap().as_f64().unwrap(), 97.0);
     assert_eq!(row.get("avg_age").unwrap().as_f64().unwrap(), 97.0 / 3.0);
 }
+
+#[test]
+fn test_math_evaluation() {
+    let g = Graph::new();
+    let res = g.execute("RETURN 1 + 2 * 3 ^ 2 - 4 / 2 AS result").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+    assert_eq!(parsed[0]["result"].as_f64().unwrap(), 17.0);
+
+    let res = g.execute("RETURN 10 % 3 AS result").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+    assert_eq!(parsed[0]["result"].as_f64().unwrap(), 1.0);
+}
