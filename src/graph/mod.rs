@@ -631,7 +631,7 @@ impl Graph {
             "rand",
             std::sync::Arc::new(|_args| {
                 // Note: In reality `rand` produces a float, but we keep compatibility with prior random 0f64 for simplicity right now
-                Ok(GraphElement::Number(0f64))
+                Ok(GraphElement::Number(rand::random::<f64>()))
             }),
         );
 
@@ -2421,7 +2421,7 @@ impl Graph {
                                         } else if func.eq_ignore_ascii_case("rand") {
                                             bindings.push((
                                                 out_key.as_str(),
-                                                GraphElement::Number(0f64),
+                                                GraphElement::Number(rand::random::<f64>()),
                                             ));
                                         }
                                     }
@@ -2490,7 +2490,7 @@ impl Graph {
                                         } else if func.eq_ignore_ascii_case("rand") {
                                             bindings.push((
                                                 out_key.as_str(),
-                                                GraphElement::Number(0f64),
+                                                GraphElement::Number(rand::random::<f64>()),
                                             ));
                                         }
                                     }
