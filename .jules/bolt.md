@@ -43,3 +43,6 @@
 ## 2023-11-20 - [Precompute label resolution to avoid redundant locking]
 **Learning:** In yagdb, graph label tracking (`self.labels`) uses an `RwLock`. In deep recursive traversals like `find_nodes` and `match_edges_recursive`, constantly resolving string labels into integer IDs dynamically meant acquiring thousands of read locks for the same static pattern.
 **Action:** Always inspect inner loops inside hot query execution paths (especially graph traversals). Hoist repetitive property or label resolution out of the nested loops by precomputing slices or vectors based on static query patterns.
+## 2026-10-25 - [Precompute label resolution to avoid redundant locking]
+**Learning:** In yagdb, graph label tracking (`self.labels`) uses an `RwLock`. In execution steps like `PlanNode::FullNodeScan` and `PlanNode::PathExpand`, constantly resolving string labels into integer IDs dynamically meant acquiring thousands of read locks for the same static pattern.
+**Action:** Always inspect inner loops inside hot query execution paths. Hoist repetitive property or label resolution (like `resolve_node_label`) out of the nested loops by precomputing them outside the iterators based on static query patterns.
