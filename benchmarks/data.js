@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790780021366,
+  "lastUpdate": 1790781971403,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -18219,6 +18219,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 264167,
             "range": "± 13237",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "494c625e0cddee6fb0c72a98fd86b2eb3a97a813",
+          "message": "Merge pull request #187 from JohnathonNow/george/implement-sum-avg-7574941223985993890\n\n⚡ George: [feature improvement]",
+          "timestamp": "2026-09-30T08:12:46-07:00",
+          "tree_id": "cf014b3d683bb7c5fcb7dafcc28e2900a8e6365c",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/494c625e0cddee6fb0c72a98fd86b2eb3a97a813"
+        },
+        "date": 1790781970189,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 32948,
+            "range": "± 552",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 33532,
+            "range": "± 1765",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 61983,
+            "range": "± 2374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 45199,
+            "range": "± 806",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 132859,
+            "range": "± 446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 108216,
+            "range": "± 515",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 135207,
+            "range": "± 3881",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 107261,
+            "range": "± 460",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 70223,
+            "range": "± 192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 55556,
+            "range": "± 100",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 132373,
+            "range": "± 1703",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 108171,
+            "range": "± 1742",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 3087992200,
+            "range": "± 36419460",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 4120,
+            "range": "± 452",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 7165,
+            "range": "± 1268",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 6203,
+            "range": "± 242",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 9065,
+            "range": "± 94",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 9865,
+            "range": "± 395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 15650,
+            "range": "± 518",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 397720,
+            "range": "± 4421",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 512410,
+            "range": "± 8816",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 519254,
+            "range": "± 6269",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 497667,
+            "range": "± 4977",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 454965,
+            "range": "± 7450",
             "unit": "ns/iter"
           }
         ]
