@@ -168,6 +168,37 @@ fn test_return_star() {
 }
 
 #[test]
+fn test_parse_sum_avg_aggregate() {
+    let query_str = "MATCH (n) RETURN SUM(n.price) AS total_price, AVG(n.price) AS avg_price";
+    let (rest, query) = parse_query(query_str).unwrap();
+    assert_eq!(rest, "");
+    assert_eq!(query.clauses.len(), 2);
+
+    match &query.clauses[1] {
+        Clause::Return(items, _, _, _) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(
+                items[0],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "SUM".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "price".to_string()),
+                    alias: Some("total_price".to_string())
+                }
+            );
+            assert_eq!(
+                items[1],
+                yagdb::parser::ProjectionItem::Aggregate {
+                    func: "AVG".to_string(),
+                    expr: yagdb::parser::Expression::Property("n".to_string(), "price".to_string()),
+                    alias: Some("avg_price".to_string())
+                }
+            );
+        }
+        _ => panic!("Expected Return clause"),
+    }
+}
+
+#[test]
 fn test_return_star_graph() {
     use yagdb::graph::Graph;
     let g = Graph::new();

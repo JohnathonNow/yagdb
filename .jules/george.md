@@ -10,3 +10,6 @@
 ## 2024-10-24 - [Implement MIN/MAX Aggregates]
 **Learning:** Expanding aggregate functions beyond simple variable tracking (e.g. `COUNT(n)`) to full expression evaluation (e.g. `MIN(n.age)`) is critical for functional DB features. Modifying AST variants like `ProjectionItem::Aggregate` to hold `Expression` instead of `String` unlocks this. Also, implementing a safe, non-panicking `partial_cmp` directly on `GraphElement` avoids complex coercion logic.
 **Action:** Always favor AST designs that allow generalized expression structures over scalar variables, especially for function parameters. When extending evaluation rules for heterogeneous data sets (like MIN/MAX), utilize safe `Option<Ordering>` comparison fallbacks.
+## 2026-09-30 - [Implement SUM and AVG Aggregates]
+**Learning:** Expanding aggregate functions beyond simple min/max bounds to arithmetic computations like SUM and AVG requires tracking intermediate state (like numerical sum and count totals) during row iteration and safely ignoring strings/nulls within heterogeneous datasets.
+**Action:** When adding mathematical aggregations over properties, ensure edge cases like division-by-zero (e.g. AVG with 0 numeric values) are safely trapped and evaluated to Null without crashing the DB engine.

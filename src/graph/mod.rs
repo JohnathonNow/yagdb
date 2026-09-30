@@ -2362,6 +2362,38 @@ impl Graph {
                                                     bindings.push((out_key.as_str(), GraphElement::Null));
                                                 }
                                             }
+                                            "SUM" => {
+                                                let mut sum: f64 = 0.0;
+                                                let mut has_number = false;
+                                                for &i in &group_rows {
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if let GraphElement::Number(n) = val {
+                                                        sum += n;
+                                                        has_number = true;
+                                                    }
+                                                }
+                                                if has_number {
+                                                    bindings.push((out_key.as_str(), GraphElement::Number(sum)));
+                                                } else {
+                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                }
+                                            }
+                                            "AVG" => {
+                                                let mut sum: f64 = 0.0;
+                                                let mut count: f64 = 0.0;
+                                                for &i in &group_rows {
+                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    if let GraphElement::Number(n) = val {
+                                                        sum += n;
+                                                        count += 1.0;
+                                                    }
+                                                }
+                                                if count > 0.0 {
+                                                    bindings.push((out_key.as_str(), GraphElement::Number(sum / count)));
+                                                } else {
+                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                }
+                                            }
                                             _ => {}
                                         }
                                     }
