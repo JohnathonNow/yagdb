@@ -1132,9 +1132,14 @@ impl Graph {
                             );
 
                             if let Some(cond) = &condition_opt {
-                                let mut filtered = ResultSet::new();
                                 let mut skipped = 0;
                                 let skip = skip_opt.unwrap_or(0);
+
+                                // ⚡ BOLT: Clone structure entirely to preserve capacity sizes then drain unmatching bounds
+                                // This avoids dynamically pushing memory inside the hot evaluation filter loop.
+                                let mut filtered = new_result_set.clone();
+                                filtered.clear();
+
                                 for i in 0..new_result_set.rows {
                                     if self.evaluate_condition(cond, &new_result_set, i) {
                                         if skipped < skip {
@@ -2080,6 +2085,7 @@ impl Graph {
                             txid as u64,
                             output,
                         )?;
+                        // ⚡ Bolt: Fast-path merging subplan results into new_result_set without inner loops
                         for j in 0..sub_result_set.rows {
                             new_result_set.push_row_from(
                                 &sub_result_set,
