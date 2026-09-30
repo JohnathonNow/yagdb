@@ -2710,9 +2710,8 @@ impl Graph {
         match plan {
             PlanNode::FullNodeScan { pattern } => {
                 op_name = "FullNodeScan".to_string();
-                let precomputed_label_id = self.resolve_node_label(pattern);
                 for i in 0..in_res.rows {
-                    let nodes = self.find_nodes(pattern, precomputed_label_id, in_res, i, txid);
+                    let nodes = self.find_nodes(pattern, in_res, i, txid);
                     for node_id in nodes {
                         if let Some(var) = &pattern.variable {
                             out.push_row_from(
@@ -2855,8 +2854,6 @@ impl Graph {
                     .map(|(r, n)| (self.resolve_rel_label(r), self.resolve_node_label(n)))
                     .collect::<Vec<_>>();
 
-                let precomputed_source_label = self.resolve_node_label(source_node_pattern);
-
                 for i in 0..source_res.rows {
                     let mut source_node_ids = Vec::new();
 
@@ -2868,7 +2865,7 @@ impl Graph {
 
                     if source_node_ids.is_empty() {
                         source_node_ids =
-                            self.find_nodes(source_node_pattern, precomputed_source_label, &source_res, i, txid);
+                            self.find_nodes(source_node_pattern, &source_res, i, txid);
                     }
 
                     for source_node_id in source_node_ids {
@@ -3474,12 +3471,11 @@ impl Graph {
     fn find_nodes(
         &self,
         pattern: &NodePattern,
-        pattern_label_id_opt: Option<Option<usize>>,
         in_res: &ResultSet,
         row_idx: usize,
         txid: u64,
     ) -> Vec<usize> {
-        let pattern_label_id = match pattern_label_id_opt {
+        let pattern_label_id = match self.resolve_node_label(pattern) {
             Some(id) => id,
             None => return vec![], // Label constraint exists but not in graph
         };
@@ -3502,9 +3498,10 @@ impl Graph {
         }
 
         // Try to use an index if one is available
-        if let Some(label_id) = pattern_label_id {
-            if let Some(label_indices) = self.indices.read().get(&label_id) {
-                for (prop_name, prop_value) in &pattern.properties {
+        if let Some(label_name) = &pattern.label {
+            if let Some(label_id) = self.labels.read().get(label_name) {
+                if let Some(label_indices) = self.indices.read().get(label_id) {
+                    for (prop_name, prop_value) in &pattern.properties {
                         if let Some(prop_index) = label_indices.get(prop_name) {
                             let node_ids_opt = match prop_index {
                                 IndexMap::Hash(map) => map.get(prop_value),
@@ -3532,6 +3529,7 @@ impl Graph {
                                 // The property is indexed, but this specific value isn't in it, so no nodes match
                                 return vec![];
                             }
+                        }
                     }
                 }
             }
