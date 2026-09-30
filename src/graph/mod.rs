@@ -2167,6 +2167,7 @@ impl Graph {
                             indexmap::IndexMap::new();
                         // ⚡ BOLT: Reuse allocation buffer to avoid continuous vec creation during grouping.
                         let mut key_buf = Vec::with_capacity(grouping_items.len());
+                        let mut eval_args = Vec::new();
 
                         for i in 0..result_set.rows {
                             key_buf.clear();
@@ -2318,16 +2319,14 @@ impl Graph {
                                         }
                                     }
                                     ProjectionItem::Function { func, args, .. } => {
-                                        let eval_args: Vec<GraphElement> = args
-                                            .iter()
-                                            .map(|arg| {
-                                                self.evaluate_expression_to_element(
-                                                    arg,
-                                                    &result_set,
-                                                    group_rows[0],
-                                                )
-                                            })
-                                            .collect();
+                                        eval_args.clear();
+                                        for arg in args {
+                                            eval_args.push(self.evaluate_expression_to_element(
+                                                arg,
+                                                &result_set,
+                                                group_rows[0],
+                                            ));
+                                        }
                                         if let Some(f) =
                                             self.functions.read().get(&func.to_lowercase())
                                         {
@@ -2350,6 +2349,7 @@ impl Graph {
                         // Simple projection without aggregation
                         let mut bindings: Vec<(&str, GraphElement)> =
                             Vec::with_capacity(items_vec.len());
+                        let mut eval_args = Vec::new();
                         for i in 0..result_set.rows {
                             bindings.clear();
                             for (idx, item) in items_vec.iter().enumerate() {
@@ -2388,16 +2388,14 @@ impl Graph {
                                         }
                                     }
                                     ProjectionItem::Function { func, args, .. } => {
-                                        let eval_args: Vec<GraphElement> = args
-                                            .iter()
-                                            .map(|arg| {
-                                                self.evaluate_expression_to_element(
-                                                    arg,
-                                                    &result_set,
-                                                    i,
-                                                )
-                                            })
-                                            .collect();
+                                        eval_args.clear();
+                                        for arg in args {
+                                            eval_args.push(self.evaluate_expression_to_element(
+                                                arg,
+                                                &result_set,
+                                                i,
+                                            ));
+                                        }
                                         if let Some(f) =
                                             self.functions.read().get(&func.to_lowercase())
                                         {
