@@ -558,6 +558,10 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                 tag("min"),
                 tag("MAX"),
                 tag("max"),
+                tag("SUM"),
+                tag("sum"),
+                tag("AVG"),
+                tag("avg"),
             )))(i)?;
             let (i, _) = ws(char('('))(i)?;
             let (i, expr) = alt((

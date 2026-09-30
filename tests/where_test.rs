@@ -187,3 +187,23 @@ fn test_min_max_aggregates_execution() {
     assert_eq!(row.get("min_age").unwrap().as_f64().unwrap(), 22.0);
     assert_eq!(row.get("max_age").unwrap().as_f64().unwrap(), 45.0);
 }
+
+#[test]
+fn test_sum_avg_aggregates_execution() {
+    let g = Graph::new();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
+    g.execute("CREATE (e:Person {name: 'Eve', age: 'Not a number'})").unwrap(); // Invalid type
+
+    let res = g.execute("MATCH (n:Person) RETURN SUM(n.age) AS sum_age, AVG(n.age) AS avg_age").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    assert_eq!(arr.len(), 1);
+    let row = &arr[0];
+
+    assert_eq!(row.get("sum_age").unwrap().as_f64().unwrap(), 97.0);
+    assert_eq!(row.get("avg_age").unwrap().as_f64().unwrap(), 97.0 / 3.0);
+}
