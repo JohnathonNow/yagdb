@@ -321,10 +321,12 @@
         import init, { execute_query, clear_graph } from './pkg/yagdb.js';
 
         let network = null;
-        let nodesData = new vis.DataSet([]);
-        let edgesData = new vis.DataSet([]);
+        let nodesData = null;
+        let edgesData = null;
 
         function initNetwork() {
+            nodesData = new vis.DataSet([]);
+            edgesData = new vis.DataSet([]);
             const container = document.getElementById('network');
             const data = { nodes: nodesData, edges: edgesData };
             const options = {
@@ -453,7 +455,11 @@
             await init();
             console.log("WASM Initialized!");
 
-            initNetwork();
+            try {
+                initNetwork();
+            } catch (e) {
+                console.err(e);
+            }
 
             
             const sidebarToggle = document.getElementById('sidebarToggle');
