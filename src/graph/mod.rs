@@ -777,6 +777,66 @@ impl Graph {
         );
 
         self.register_function(
+            "sin",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.sin()));
+                    }
+                }
+                Err("Invalid arguments to sin()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "cos",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.cos()));
+                    }
+                }
+                Err("Invalid arguments to cos()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "tan",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.tan()));
+                    }
+                }
+                Err("Invalid arguments to tan()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "log",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.ln()));
+                    }
+                }
+                Err("Invalid arguments to log()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "exp",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::Number(n) = &args[0] {
+                        return Ok(GraphElement::Number(n.exp()));
+                    }
+                }
+                Err("Invalid arguments to exp()".to_string())
+            }),
+        );
+
+        self.register_function(
             "power",
             std::sync::Arc::new(|args| {
                 if args.len() == 2 {
@@ -802,6 +862,90 @@ impl Graph {
         );
 
         self.register_function(
+            "tointeger",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::Number(n) => return Ok(GraphElement::Number(n.trunc())),
+                        GraphElement::String(s) => {
+                            if let Ok(n) = s.parse::<f64>() {
+                                return Ok(GraphElement::Number(n.trunc()));
+                            }
+                        }
+                        GraphElement::Boolean(b) => {
+                            return Ok(GraphElement::Number(if *b { 1.0 } else { 0.0 }))
+                        }
+                        _ => {}
+                    }
+                }
+                Err("Invalid arguments to toInteger()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "tofloat",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::Number(n) => return Ok(GraphElement::Number(*n)),
+                        GraphElement::String(s) => {
+                            if let Ok(n) = s.parse::<f64>() {
+                                return Ok(GraphElement::Number(n));
+                            }
+                        }
+                        GraphElement::Boolean(b) => {
+                            return Ok(GraphElement::Number(if *b { 1.0 } else { 0.0 }))
+                        }
+                        _ => {}
+                    }
+                }
+                Err("Invalid arguments to toFloat()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "tostring",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::String(s) => return Ok(GraphElement::String(s.clone())),
+                        GraphElement::Number(n) => return Ok(GraphElement::String(n.to_string())),
+                        GraphElement::Boolean(b) => return Ok(GraphElement::String(b.to_string())),
+                        _ => {}
+                    }
+                }
+                Err("Invalid arguments to toString()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "toboolean",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::Boolean(b) => return Ok(GraphElement::Boolean(*b)),
+                        GraphElement::String(s) => {
+                            if s.eq_ignore_ascii_case("true") {
+                                return Ok(GraphElement::Boolean(true));
+                            } else if s.eq_ignore_ascii_case("false") {
+                                return Ok(GraphElement::Boolean(false));
+                            }
+                        }
+                        GraphElement::Number(n) => {
+                            if *n == 0.0 {
+                                return Ok(GraphElement::Boolean(false));
+                            } else {
+                                return Ok(GraphElement::Boolean(true));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err("Invalid arguments to toBoolean()".to_string())
+            }),
+        );
+
+        self.register_function(
             "id",
             std::sync::Arc::new(|args| {
                 if args.len() == 1 {
@@ -812,6 +956,33 @@ impl Graph {
                     }
                 }
                 Err("Invalid arguments to id()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "exists",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::Null => return Ok(GraphElement::Boolean(false)),
+                        _ => return Ok(GraphElement::Boolean(true)),
+                    }
+                }
+                Err("Invalid arguments to exists()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "size",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    match &args[0] {
+                        GraphElement::String(s) => return Ok(GraphElement::Number(s.len() as f64)),
+                        GraphElement::List(l) => return Ok(GraphElement::Number(l.len() as f64)),
+                        _ => {}
+                    }
+                }
+                Err("Invalid arguments to size()".to_string())
             }),
         );
     }
@@ -1454,26 +1625,35 @@ impl Graph {
                                         i,
                                     );
                                     if let GraphElement::Map(map) = evaluated_value {
-                                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var.as_str()) {
+                                        if let Some(GraphElement::Node(node_id)) =
+                                            result_set.get(i, var.as_str())
+                                        {
                                             let node_id = *node_id;
                                             for (key, val) in map {
                                                 if let Some(value) = val.to_property_value() {
-                                                    if updated_nodes.insert((node_id, key.clone())) {
+                                                    if updated_nodes.insert((node_id, key.clone()))
+                                                    {
                                                         let (old_value, has_label) = self
                                                             .nodes
                                                             .with_mut_item(node_id, |__node| {
                                                                 (
-                                                                    __node
-                                                                        .properties
-                                                                        .insert(key.clone(), value.clone()),
+                                                                    __node.properties.insert(
+                                                                        key.clone(),
+                                                                        value.clone(),
+                                                                    ),
                                                                     __node.labels.clone(),
                                                                 )
                                                             })
                                                             .unwrap();
 
-                                                        for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                        for (label_id, label_indices) in
+                                                            self.indices.write().iter_mut()
+                                                        {
                                                             if has_label.contains(label_id) {
-                                                                if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                                if let Some(prop_index) =
+                                                                    label_indices
+                                                                        .get_mut(key.as_str())
+                                                                {
                                                                     match prop_index {
                                                                         crate::graph::IndexMap::Hash(index_map) => {
                                                                             if let Some(old_val) = &old_value {
@@ -1516,14 +1696,20 @@ impl Graph {
                                                     }
                                                 }
                                             }
-                                        } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var.as_str()) {
+                                        } else if let Some(GraphElement::Edge(edge_id)) =
+                                            result_set.get(i, var.as_str())
+                                        {
                                             let edge_id = *edge_id;
                                             for (key, val) in map {
                                                 if let Some(value) = val.to_property_value() {
-                                                    if updated_edges.insert((edge_id, key.clone())) {
+                                                    if updated_edges.insert((edge_id, key.clone()))
+                                                    {
                                                         self.edges
                                                             .with_mut_item(edge_id, |e| {
-                                                                e.properties.insert(key.clone(), value.clone());
+                                                                e.properties.insert(
+                                                                    key.clone(),
+                                                                    value.clone(),
+                                                                );
                                                             })
                                                             .unwrap();
 
@@ -1547,19 +1733,35 @@ impl Graph {
                                         i,
                                     );
                                     if let GraphElement::Map(map) = evaluated_value {
-                                        if let Some(GraphElement::Node(node_id)) = result_set.get(i, var.as_str()) {
+                                        if let Some(GraphElement::Node(node_id)) =
+                                            result_set.get(i, var.as_str())
+                                        {
                                             let node_id = *node_id;
-                                            let old_keys: Vec<String> = self.nodes.with_item(node_id, |n| n.properties.keys().cloned().collect()).unwrap();
+                                            let old_keys: Vec<String> = self
+                                                .nodes
+                                                .with_item(node_id, |n| {
+                                                    n.properties.keys().cloned().collect()
+                                                })
+                                                .unwrap();
                                             for key in old_keys {
                                                 let (old_value, has_label) = self
                                                     .nodes
-                                                    .with_mut_item(node_id, |n| (n.properties.remove(&key), n.labels.clone()))
+                                                    .with_mut_item(node_id, |n| {
+                                                        (
+                                                            n.properties.remove(&key),
+                                                            n.labels.clone(),
+                                                        )
+                                                    })
                                                     .unwrap();
 
                                                 if let Some(old_val) = old_value {
-                                                    for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                    for (label_id, label_indices) in
+                                                        self.indices.write().iter_mut()
+                                                    {
                                                         if has_label.contains(label_id) {
-                                                            if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                            if let Some(prop_index) =
+                                                                label_indices.get_mut(key.as_str())
+                                                            {
                                                                 match prop_index {
                                                                     crate::graph::IndexMap::Hash(index_map) => {
                                                                         if let Some(vec) = index_map.get_mut(&old_val) {
@@ -1584,22 +1786,29 @@ impl Graph {
 
                                             for (key, val) in map {
                                                 if let Some(value) = val.to_property_value() {
-                                                    if updated_nodes.insert((node_id, key.clone())) {
+                                                    if updated_nodes.insert((node_id, key.clone()))
+                                                    {
                                                         let (old_value, has_label) = self
                                                             .nodes
                                                             .with_mut_item(node_id, |__node| {
                                                                 (
-                                                                    __node
-                                                                        .properties
-                                                                        .insert(key.clone(), value.clone()),
+                                                                    __node.properties.insert(
+                                                                        key.clone(),
+                                                                        value.clone(),
+                                                                    ),
                                                                     __node.labels.clone(),
                                                                 )
                                                             })
                                                             .unwrap();
 
-                                                        for (label_id, label_indices) in self.indices.write().iter_mut() {
+                                                        for (label_id, label_indices) in
+                                                            self.indices.write().iter_mut()
+                                                        {
                                                             if has_label.contains(label_id) {
-                                                                if let Some(prop_index) = label_indices.get_mut(key.as_str()) {
+                                                                if let Some(prop_index) =
+                                                                    label_indices
+                                                                        .get_mut(key.as_str())
+                                                                {
                                                                     match prop_index {
                                                                         crate::graph::IndexMap::Hash(index_map) => {
                                                                             if let Some(old_val) = &old_value {
@@ -1642,13 +1851,22 @@ impl Graph {
                                                     }
                                                 }
                                             }
-                                        } else if let Some(GraphElement::Edge(edge_id)) = result_set.get(i, var.as_str()) {
+                                        } else if let Some(GraphElement::Edge(edge_id)) =
+                                            result_set.get(i, var.as_str())
+                                        {
                                             let edge_id = *edge_id;
-                                            let old_keys: Vec<String> = self.edges.with_item(edge_id, |e| e.properties.keys().cloned().collect()).unwrap();
+                                            let old_keys: Vec<String> = self
+                                                .edges
+                                                .with_item(edge_id, |e| {
+                                                    e.properties.keys().cloned().collect()
+                                                })
+                                                .unwrap();
                                             for key in old_keys {
-                                                self.edges.with_mut_item(edge_id, |e| {
-                                                    e.properties.remove(&key);
-                                                }).unwrap();
+                                                self.edges
+                                                    .with_mut_item(edge_id, |e| {
+                                                        e.properties.remove(&key);
+                                                    })
+                                                    .unwrap();
                                                 self.log_wal(&WalEntry::RemoveEdgeProperty {
                                                     edge_id,
                                                     key: key.clone(),
@@ -1656,10 +1874,14 @@ impl Graph {
                                             }
                                             for (key, val) in map {
                                                 if let Some(value) = val.to_property_value() {
-                                                    if updated_edges.insert((edge_id, key.clone())) {
+                                                    if updated_edges.insert((edge_id, key.clone()))
+                                                    {
                                                         self.edges
                                                             .with_mut_item(edge_id, |e| {
-                                                                e.properties.insert(key.clone(), value.clone());
+                                                                e.properties.insert(
+                                                                    key.clone(),
+                                                                    value.clone(),
+                                                                );
                                                             })
                                                             .unwrap();
 
@@ -2132,9 +2354,11 @@ impl Graph {
                             ProjectionItem::AliasedVariable(_, alias) => alias.clone(),
                             ProjectionItem::Property(var, prop) => format!("{}.{}", var, prop),
                             ProjectionItem::AliasedProperty(_, _, alias) => alias.clone(),
-                            ProjectionItem::Aggregate { func, expr, alias } => alias
-                                .clone()
-                                .unwrap_or_else(|| format!("{}({})", func, crate::parser::format_expr(expr))),
+                            ProjectionItem::Aggregate { func, expr, alias } => {
+                                alias.clone().unwrap_or_else(|| {
+                                    format!("{}({})", func, crate::parser::format_expr(expr))
+                                })
+                            }
                             ProjectionItem::Function { func, alias, .. } => {
                                 alias.clone().unwrap_or_else(|| format!("{}()", func))
                             }
@@ -2278,27 +2502,36 @@ impl Graph {
                                     ProjectionItem::Aggregate { func, expr, .. } => {
                                         match func.as_str() {
                                             "COUNT" => {
-                                                let count = if let crate::parser::Expression::Variable(var) = expr {
-                                                    if var == "*" {
-                                                        group_rows.len()
-                                                    } else {
-                                                        group_rows
+                                                let count =
+                                                    if let crate::parser::Expression::Variable(
+                                                        var,
+                                                    ) = expr
+                                                    {
+                                                        if var == "*" {
+                                                            group_rows.len()
+                                                        } else {
+                                                            group_rows
                                                             .iter()
                                                             .filter(|&&i| {
                                                                 let val = self.evaluate_expression_to_element(expr, &result_set, i);
                                                                 val != GraphElement::Null
                                                             })
                                                             .count()
-                                                    }
-                                                } else {
-                                                    group_rows
-                                                        .iter()
-                                                        .filter(|&&i| {
-                                                            let val = self.evaluate_expression_to_element(expr, &result_set, i);
-                                                            val != GraphElement::Null
-                                                        })
-                                                        .count()
-                                                };
+                                                        }
+                                                    } else {
+                                                        group_rows
+                                                            .iter()
+                                                            .filter(|&&i| {
+                                                                let val = self
+                                                                    .evaluate_expression_to_element(
+                                                                        expr,
+                                                                        &result_set,
+                                                                        i,
+                                                                    );
+                                                                val != GraphElement::Null
+                                                            })
+                                                            .count()
+                                                    };
                                                 bindings.push((
                                                     out_key.as_str(),
                                                     GraphElement::Number(count as f64),
@@ -2307,7 +2540,11 @@ impl Graph {
                                             "COLLECT" => {
                                                 let mut elements = Vec::new();
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if val != GraphElement::Null {
                                                         elements.push(val);
                                                     }
@@ -2320,7 +2557,11 @@ impl Graph {
                                             "UNIQUE" => {
                                                 let mut elements = Vec::new();
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if val != GraphElement::Null {
                                                         if !elements.contains(&val) {
                                                             elements.push(val);
@@ -2335,10 +2576,16 @@ impl Graph {
                                             "MIN" => {
                                                 let mut min_val: Option<GraphElement> = None;
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if val != GraphElement::Null {
                                                         if let Some(current_min) = &min_val {
-                                                            if let Some(std::cmp::Ordering::Less) = val.partial_cmp(current_min) {
+                                                            if let Some(std::cmp::Ordering::Less) =
+                                                                val.partial_cmp(current_min)
+                                                            {
                                                                 min_val = Some(val);
                                                             }
                                                         } else {
@@ -2349,16 +2596,26 @@ impl Graph {
                                                 if let Some(val) = min_val {
                                                     bindings.push((out_key.as_str(), val));
                                                 } else {
-                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Null,
+                                                    ));
                                                 }
                                             }
                                             "MAX" => {
                                                 let mut max_val: Option<GraphElement> = None;
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if val != GraphElement::Null {
                                                         if let Some(current_max) = &max_val {
-                                                            if let Some(std::cmp::Ordering::Greater) = val.partial_cmp(current_max) {
+                                                            if let Some(
+                                                                std::cmp::Ordering::Greater,
+                                                            ) = val.partial_cmp(current_max)
+                                                            {
                                                                 max_val = Some(val);
                                                             }
                                                         } else {
@@ -2369,39 +2626,62 @@ impl Graph {
                                                 if let Some(val) = max_val {
                                                     bindings.push((out_key.as_str(), val));
                                                 } else {
-                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Null,
+                                                    ));
                                                 }
                                             }
                                             "SUM" => {
                                                 let mut sum: f64 = 0.0;
                                                 let mut has_number = false;
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if let GraphElement::Number(n) = val {
                                                         sum += n;
                                                         has_number = true;
                                                     }
                                                 }
                                                 if has_number {
-                                                    bindings.push((out_key.as_str(), GraphElement::Number(sum)));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Number(sum),
+                                                    ));
                                                 } else {
-                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Null,
+                                                    ));
                                                 }
                                             }
                                             "AVG" => {
                                                 let mut sum: f64 = 0.0;
                                                 let mut count: f64 = 0.0;
                                                 for &i in &group_rows {
-                                                    let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                    let val = self.evaluate_expression_to_element(
+                                                        expr,
+                                                        &result_set,
+                                                        i,
+                                                    );
                                                     if let GraphElement::Number(n) = val {
                                                         sum += n;
                                                         count += 1.0;
                                                     }
                                                 }
                                                 if count > 0.0 {
-                                                    bindings.push((out_key.as_str(), GraphElement::Number(sum / count)));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Number(sum / count),
+                                                    ));
                                                 } else {
-                                                    bindings.push((out_key.as_str(), GraphElement::Null));
+                                                    bindings.push((
+                                                        out_key.as_str(),
+                                                        GraphElement::Null,
+                                                    ));
                                                 }
                                             }
                                             _ => {}
@@ -2867,8 +3147,13 @@ impl Graph {
                     }
 
                     if source_node_ids.is_empty() {
-                        source_node_ids =
-                            self.find_nodes(source_node_pattern, precomputed_source_label, &source_res, i, txid);
+                        source_node_ids = self.find_nodes(
+                            source_node_pattern,
+                            precomputed_source_label,
+                            &source_res,
+                            i,
+                            txid,
+                        );
                     }
 
                     for source_node_id in source_node_ids {
@@ -3505,33 +3790,29 @@ impl Graph {
         if let Some(label_id) = pattern_label_id {
             if let Some(label_indices) = self.indices.read().get(&label_id) {
                 for (prop_name, prop_value) in &pattern.properties {
-                        if let Some(prop_index) = label_indices.get(prop_name) {
-                            let node_ids_opt = match prop_index {
-                                IndexMap::Hash(map) => map.get(prop_value),
-                                IndexMap::BTree(map) => map.get(prop_value),
-                            };
-                            if let Some(node_ids) = node_ids_opt {
-                                // We found an index match! Filter the indexed nodes just in case there are other constraints
-                                let mut matched_nodes = Vec::new();
-                                for &id in node_ids {
-                                    self.nodes
-                                        .with_item(id, |node| {
-                                            if self.node_matches(
-                                                node,
-                                                pattern,
-                                                pattern_label_id,
-                                                txid,
-                                            ) {
-                                                matched_nodes.push(id);
-                                            }
-                                        })
-                                        .unwrap();
-                                }
-                                return matched_nodes;
-                            } else {
-                                // The property is indexed, but this specific value isn't in it, so no nodes match
-                                return vec![];
+                    if let Some(prop_index) = label_indices.get(prop_name) {
+                        let node_ids_opt = match prop_index {
+                            IndexMap::Hash(map) => map.get(prop_value),
+                            IndexMap::BTree(map) => map.get(prop_value),
+                        };
+                        if let Some(node_ids) = node_ids_opt {
+                            // We found an index match! Filter the indexed nodes just in case there are other constraints
+                            let mut matched_nodes = Vec::new();
+                            for &id in node_ids {
+                                self.nodes
+                                    .with_item(id, |node| {
+                                        if self.node_matches(node, pattern, pattern_label_id, txid)
+                                        {
+                                            matched_nodes.push(id);
+                                        }
+                                    })
+                                    .unwrap();
                             }
+                            return matched_nodes;
+                        } else {
+                            // The property is indexed, but this specific value isn't in it, so no nodes match
+                            return vec![];
+                        }
                     }
                 }
             }
@@ -3769,7 +4050,75 @@ impl Graph {
                 .cloned()
                 .unwrap_or(GraphElement::Null),
             Expression::Function(func, args) => {
-                if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
+                let func_lower = func.to_lowercase();
+
+                // Intercept `labels()`
+                if func_lower == "labels" && args.len() == 1 {
+                    let arg_val = self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    let node_id_opt = match arg_val {
+                        GraphElement::Node(id) => Some(id),
+                        GraphElement::Path(ref elements) => {
+                            if let Some(GraphElement::Node(id)) = elements.first() {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        }
+                        GraphElement::List(ref elements) => {
+                            if let Some(GraphElement::Node(id)) = elements.first() {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(node_id) = node_id_opt {
+                        if let Some(node) = self.nodes.get_item(node_id) {
+                            let mut labels_list = Vec::new();
+                            for label_id in node.labels {
+                                if let Some((label_name, _)) =
+                                    self.labels.read().iter().find(|(_, &id)| id == label_id)
+                                {
+                                    labels_list.push(GraphElement::String(label_name.clone()));
+                                }
+                            }
+                            return GraphElement::List(labels_list);
+                        }
+                    }
+                    return GraphElement::Null;
+                }
+
+                // Intercept `type()`
+                if func_lower == "type" && args.len() == 1 {
+                    let mut arg_val =
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    if let GraphElement::Path(ref elements) = arg_val {
+                        if elements.len() >= 2 {
+                            arg_val = elements[1].clone();
+                        }
+                    }
+                    if let GraphElement::List(ref elements) = arg_val {
+                        if elements.len() >= 2 {
+                            arg_val = elements[1].clone();
+                        }
+                    }
+                    if let GraphElement::Edge(edge_id) = arg_val {
+                        if let Some(edge) = self.edges.get_item(edge_id) {
+                            if let Some(label_id) = edge.labels.first() {
+                                if let Some((label_name, _)) =
+                                    self.labels.read().iter().find(|(_, &id)| id == *label_id)
+                                {
+                                    return GraphElement::String(label_name.clone());
+                                }
+                            }
+                        }
+                    }
+                    return GraphElement::Null;
+                }
+
+                if let Some(f) = self.functions.read().get(&func_lower) {
                     let eval_args: Vec<GraphElement> = args
                         .iter()
                         .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
@@ -3866,7 +4215,80 @@ impl Graph {
                 }
             }
             Expression::Function(func, args) => {
-                if let Some(f) = self.functions.read().get(&func.to_lowercase()) {
+                let func_lower = func.to_lowercase();
+
+                // Intercept `labels()`
+                if func_lower == "labels" && args.len() == 1 {
+                    let arg_val = self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    let node_id_opt = match arg_val {
+                        GraphElement::Node(id) => Some(id),
+                        GraphElement::Path(ref elements) => {
+                            if let Some(GraphElement::Node(id)) = elements.first() {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        }
+                        GraphElement::List(ref elements) => {
+                            if let Some(GraphElement::Node(id)) = elements.first() {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(node_id) = node_id_opt {
+                        if let Some(node) = self.nodes.get_item(node_id) {
+                            let mut labels_list = Vec::new();
+                            for label_id in node.labels {
+                                if let Some((label_name, _)) =
+                                    self.labels.read().iter().find(|(_, &id)| id == label_id)
+                                {
+                                    labels_list.push(GraphElement::String(label_name.clone()));
+                                }
+                            }
+                            let el = GraphElement::List(labels_list);
+                            return EvalValue::String(std::borrow::Cow::Owned(
+                                self.format_element(&el),
+                            ));
+                        }
+                    }
+                    return EvalValue::Null;
+                }
+
+                // Intercept `type()`
+                if func_lower == "type" && args.len() == 1 {
+                    let mut arg_val =
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    if let GraphElement::Path(ref elements) = arg_val {
+                        if elements.len() >= 2 {
+                            arg_val = elements[1].clone();
+                        }
+                    }
+                    if let GraphElement::List(ref elements) = arg_val {
+                        if elements.len() >= 2 {
+                            arg_val = elements[1].clone();
+                        }
+                    }
+                    if let GraphElement::Edge(edge_id) = arg_val {
+                        if let Some(edge) = self.edges.get_item(edge_id) {
+                            if let Some(label_id) = edge.labels.first() {
+                                if let Some((label_name, _)) =
+                                    self.labels.read().iter().find(|(_, &id)| id == *label_id)
+                                {
+                                    return EvalValue::String(std::borrow::Cow::Owned(
+                                        label_name.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    return EvalValue::Null;
+                }
+
+                if let Some(f) = self.functions.read().get(&func_lower) {
                     let eval_args: Vec<GraphElement> = args
                         .iter()
                         .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
@@ -3972,6 +4394,5 @@ impl Graph {
         }
     }
 
-    fn dummy_replace(&self) {
-    }
+    fn dummy_replace(&self) {}
 }
