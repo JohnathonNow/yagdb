@@ -448,10 +448,8 @@ fn power_expression(input: &str) -> IResult<&str, Expression> {
 
 fn factor_expression(input: &str) -> IResult<&str, Expression> {
     let (mut input, mut expr) = power_expression(input)?;
-    while let Ok((next_input, (op_char, right))) = tuple((
-        ws(alt((char('*'), char('/'), char('%')))),
-        power_expression,
-    ))(input)
+    while let Ok((next_input, (op_char, right))) =
+        tuple((ws(alt((char('*'), char('/'), char('%')))), power_expression))(input)
     {
         let op = match op_char {
             '*' => MathOp::Multiply,
@@ -467,10 +465,8 @@ fn factor_expression(input: &str) -> IResult<&str, Expression> {
 
 fn math_expression(input: &str) -> IResult<&str, Expression> {
     let (mut input, mut expr) = factor_expression(input)?;
-    while let Ok((next_input, (op_char, right))) = tuple((
-        ws(alt((char('+'), char('-')))),
-        factor_expression,
-    ))(input)
+    while let Ok((next_input, (op_char, right))) =
+        tuple((ws(alt((char('+'), char('-')))), factor_expression))(input)
     {
         let op = match op_char {
             '+' => MathOp::Add,
@@ -652,8 +648,6 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
                 },
             ))
         },
-
-
         |i| {
             let (i, expr) = expression(i)?;
             let (i, alias) = opt(preceded(ws(alt((tag("AS"), tag("as")))), ws(identifier)))(i)?;
@@ -661,24 +655,43 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
             if alias.is_none() {
                 match &expr {
                     Expression::Variable(v) => return Ok((i, ProjectionItem::Variable(v.clone()))),
-                    Expression::Property(v, p) => return Ok((i, ProjectionItem::Property(v.clone(), p.clone()))),
-                    Expression::Function(func, args) => return Ok((i, ProjectionItem::Function {
-                        func: func.clone(),
-                        args: args.clone(),
-                        alias: None,
-                    })),
+                    Expression::Property(v, p) => {
+                        return Ok((i, ProjectionItem::Property(v.clone(), p.clone())))
+                    }
+                    Expression::Function(func, args) => {
+                        return Ok((
+                            i,
+                            ProjectionItem::Function {
+                                func: func.clone(),
+                                args: args.clone(),
+                                alias: None,
+                            },
+                        ))
+                    }
                     _ => {}
                 }
             } else {
                 let alias_str = alias.clone().unwrap().to_string();
                 match &expr {
-                    Expression::Variable(v) => return Ok((i, ProjectionItem::AliasedVariable(v.clone(), alias_str))),
-                    Expression::Property(v, p) => return Ok((i, ProjectionItem::AliasedProperty(v.clone(), p.clone(), alias_str))),
-                    Expression::Function(func, args) => return Ok((i, ProjectionItem::Function {
-                        func: func.clone(),
-                        args: args.clone(),
-                        alias: Some(alias_str),
-                    })),
+                    Expression::Variable(v) => {
+                        return Ok((i, ProjectionItem::AliasedVariable(v.clone(), alias_str)))
+                    }
+                    Expression::Property(v, p) => {
+                        return Ok((
+                            i,
+                            ProjectionItem::AliasedProperty(v.clone(), p.clone(), alias_str),
+                        ))
+                    }
+                    Expression::Function(func, args) => {
+                        return Ok((
+                            i,
+                            ProjectionItem::Function {
+                                func: func.clone(),
+                                args: args.clone(),
+                                alias: Some(alias_str),
+                            },
+                        ))
+                    }
                     _ => {}
                 }
             }

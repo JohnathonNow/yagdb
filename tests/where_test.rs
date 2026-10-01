@@ -172,12 +172,17 @@ fn test_is_null_operators() {
 #[test]
 fn test_min_max_aggregates_execution() {
     let g = Graph::new();
-    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
-    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
-    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})")
+        .unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})")
+        .unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})")
+        .unwrap();
     g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
 
-    let res = g.execute("MATCH (n:Person) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age").unwrap();
+    let res = g
+        .execute("MATCH (n:Person) RETURN MIN(n.age) AS min_age, MAX(n.age) AS max_age")
+        .unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
     let arr = parsed.as_array().unwrap();
 
@@ -191,13 +196,19 @@ fn test_min_max_aggregates_execution() {
 #[test]
 fn test_sum_avg_aggregates_execution() {
     let g = Graph::new();
-    g.execute("CREATE (a:Person {name: 'Alice', age: 30})").unwrap();
-    g.execute("CREATE (b:Person {name: 'Bob', age: 45})").unwrap();
-    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})").unwrap();
+    g.execute("CREATE (a:Person {name: 'Alice', age: 30})")
+        .unwrap();
+    g.execute("CREATE (b:Person {name: 'Bob', age: 45})")
+        .unwrap();
+    g.execute("CREATE (c:Person {name: 'Charlie', age: 22})")
+        .unwrap();
     g.execute("CREATE (d:Person {name: 'Dave'})").unwrap(); // No age property
-    g.execute("CREATE (e:Person {name: 'Eve', age: 'Not a number'})").unwrap(); // Invalid type
+    g.execute("CREATE (e:Person {name: 'Eve', age: 'Not a number'})")
+        .unwrap(); // Invalid type
 
-    let res = g.execute("MATCH (n:Person) RETURN SUM(n.age) AS sum_age, AVG(n.age) AS avg_age").unwrap();
+    let res = g
+        .execute("MATCH (n:Person) RETURN SUM(n.age) AS sum_age, AVG(n.age) AS avg_age")
+        .unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&res).unwrap();
     let arr = parsed.as_array().unwrap();
 
