@@ -1,5 +1,5 @@
-use yagdb::graph::Graph;
 use serde_json::Value;
+use yagdb::graph::Graph;
 
 #[test]
 fn test_date_functions() {
