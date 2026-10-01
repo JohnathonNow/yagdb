@@ -2923,7 +2923,9 @@ impl Graph {
                         );
                     }
                     // ⚡ BOLT: Build hash set of right side to check for intersection efficiently O(N+M) instead of O(N*M).
-                    right_hash.insert(key_buf.clone());
+                    if !right_hash.contains(&key_buf) {
+                        right_hash.insert(std::mem::replace(&mut key_buf, Vec::with_capacity(common_keys.len())));
+                    }
                 }
 
                 for l_idx in 0..left_res.rows {
@@ -3027,7 +3029,10 @@ impl Graph {
                         if let Some(b_indices) = hash_table.get_mut(&key_buf) {
                             b_indices.push(b_idx);
                         } else {
-                            hash_table.insert(key_buf.clone(), vec![b_idx]);
+                            hash_table.insert(
+                                std::mem::replace(&mut key_buf, Vec::with_capacity(join_keys.len())),
+                                vec![b_idx],
+                            );
                         }
                     }
 

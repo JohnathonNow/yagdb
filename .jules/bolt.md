@@ -43,3 +43,7 @@
 ## 2023-11-20 - [Precompute label resolution to avoid redundant locking]
 **Learning:** In yagdb, graph label tracking (`self.labels`) uses an `RwLock`. In deep recursive traversals like `find_nodes` and `match_edges_recursive`, constantly resolving string labels into integer IDs dynamically meant acquiring thousands of read locks for the same static pattern.
 **Action:** Always inspect inner loops inside hot query execution paths (especially graph traversals). Hoist repetitive property or label resolution out of the nested loops by precomputing slices or vectors based on static query patterns.
+
+## $(date +%Y-%m-%d) - [Optimize hash allocations in graph intersections and joins]
+**Learning:** In Rust graph operations like `PlanNode::Intersect` and `PlanNode::HashJoin`, repeatedly cloning a reusable `key_buf` string/element vector before inserting into a `HashSet` or `HashMap` causes massive heap allocation thrashing, especially when many duplicate keys exist (e.g. graph traversals).
+**Action:** Use `collection.contains(&key_buf)` or `collection.get_mut(&key_buf)` first to handle cache hits without cloning. For cache misses, use `std::mem::replace(&mut key_buf, Vec::with_capacity(...))` to transfer ownership to the collection, thereby entirely eliminating the `.clone()` penalty while adhering to borrow checker rules.
