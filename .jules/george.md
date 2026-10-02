@@ -13,3 +13,6 @@
 ## 2026-09-30 - [Implement SUM and AVG Aggregates]
 **Learning:** Expanding aggregate functions beyond simple min/max bounds to arithmetic computations like SUM and AVG requires tracking intermediate state (like numerical sum and count totals) during row iteration and safely ignoring strings/nulls within heterogeneous datasets.
 **Action:** When adding mathematical aggregations over properties, ensure edge cases like division-by-zero (e.g. AVG with 0 numeric values) are safely trapped and evaluated to Null without crashing the DB engine.
+## 2024-10-24 - [Implement REMOVE clause for edge properties]
+**Learning:** The Cypher `REMOVE` clause is parsed structurally to allow targeting both nodes and edges via variable references. However, the execution engine previously only handled `GraphElement::Node` for properties. Expanding this required parallel handling for `GraphElement::Edge` and logging it with the existing `WalEntry::RemoveEdgeProperty`.
+**Action:** When extending graph modification clauses (like `SET` or `REMOVE`), always ensure that both `GraphElement::Node` and `GraphElement::Edge` paths are handled unless the clause is specifically node-only (like `REMOVE n:Label`).
