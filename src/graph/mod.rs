@@ -1963,6 +1963,7 @@ impl Graph {
                 }
                 ExecutionStep::Remove(ref items) => {
                     let mut updated_nodes = std::collections::HashSet::new();
+                    let mut updated_edges = std::collections::HashSet::new();
                     for item in items {
                         match item {
                             crate::parser::RemoveItem::Property(var, key) => {
@@ -2020,6 +2021,22 @@ impl Graph {
                                                     key: key.clone(),
                                                 });
                                             }
+                                        }
+                                    } else if let Some(GraphElement::Edge(edge_id)) =
+                                        result_set.get(i, var.as_str())
+                                    {
+                                        let edge_id = *edge_id;
+                                        if updated_edges.insert((edge_id, key.clone())) {
+                                            self.edges
+                                                .with_mut_item(edge_id, |e| {
+                                                    e.properties.remove(key.as_str());
+                                                })
+                                                .unwrap();
+
+                                            self.log_wal(&WalEntry::RemoveEdgeProperty {
+                                                edge_id,
+                                                key: key.clone(),
+                                            });
                                         }
                                     }
                                 }
@@ -3209,7 +3226,10 @@ impl Graph {
                     }
                     // ⚡ BOLT: Build hash set of right side to check for intersection efficiently O(N+M) instead of O(N*M).
                     if !right_hash.contains(&key_buf) {
-                        right_hash.insert(std::mem::replace(&mut key_buf, Vec::with_capacity(common_keys.len())));
+                        right_hash.insert(std::mem::replace(
+                            &mut key_buf,
+                            Vec::with_capacity(common_keys.len()),
+                        ));
                     }
                 }
 
@@ -3315,7 +3335,10 @@ impl Graph {
                             b_indices.push(b_idx);
                         } else {
                             hash_table.insert(
-                                std::mem::replace(&mut key_buf, Vec::with_capacity(join_keys.len())),
+                                std::mem::replace(
+                                    &mut key_buf,
+                                    Vec::with_capacity(join_keys.len()),
+                                ),
                                 vec![b_idx],
                             );
                         }
