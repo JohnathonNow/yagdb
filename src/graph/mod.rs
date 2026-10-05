@@ -1316,7 +1316,7 @@ impl Graph {
                                 filtered.clear();
 
                                 for i in 0..new_result_set.rows {
-                                    if self.evaluate_condition(cond, &new_result_set, i) {
+                                    if self.evaluate_condition(cond, &new_result_set, i, txid) {
                                         if skipped < skip {
                                             skipped += 1;
                                             continue;
@@ -1375,7 +1375,7 @@ impl Graph {
                                     for m_idx in 0..matches.rows {
                                         let condition_met = match &condition_opt {
                                             Some(cond) => {
-                                                self.evaluate_condition(cond, &matches, m_idx)
+                                                self.evaluate_condition(cond, &matches, m_idx, txid)
                                             }
                                             None => true,
                                         };
@@ -3988,21 +3988,24 @@ impl Graph {
 
     fn evaluate_condition(
         &self,
-        condition: &Condition,
+        condition: &crate::planner::PlannedCondition,
         in_res: &ResultSet,
         row_idx: usize,
+        txid: u64,
     ) -> bool {
         match condition {
-            Condition::And(left, right) => {
-                self.evaluate_condition(left, in_res, row_idx)
-                    && self.evaluate_condition(right, in_res, row_idx)
+            crate::planner::PlannedCondition::And(left, right) => {
+                self.evaluate_condition(left, in_res, row_idx, txid)
+                    && self.evaluate_condition(right, in_res, row_idx, txid)
             }
-            Condition::Or(left, right) => {
-                self.evaluate_condition(left, in_res, row_idx)
-                    || self.evaluate_condition(right, in_res, row_idx)
+            crate::planner::PlannedCondition::Or(left, right) => {
+                self.evaluate_condition(left, in_res, row_idx, txid)
+                    || self.evaluate_condition(right, in_res, row_idx, txid)
             }
-            Condition::Not(inner) => !self.evaluate_condition(inner, in_res, row_idx),
-            Condition::Compare { left, op, right } => {
+            crate::planner::PlannedCondition::Not(inner) => {
+                !self.evaluate_condition(inner, in_res, row_idx, txid)
+            }
+            crate::planner::PlannedCondition::Compare { left, op, right } => {
                 if let CompareOp::In = op {
                     if let Expression::List(elements) = right {
                         let l_val = self.evaluate_expression(left, in_res, row_idx);
@@ -4018,13 +4021,27 @@ impl Graph {
                 let r_val = self.evaluate_expression(right, in_res, row_idx);
                 l_val.compare(&r_val, op)
             }
-            Condition::IsNull(expr) => {
+            crate::planner::PlannedCondition::IsNull(expr) => {
                 let val = self.evaluate_expression(expr, in_res, row_idx);
                 matches!(val, EvalValue::Null)
             }
-            Condition::IsNotNull(expr) => {
+            crate::planner::PlannedCondition::IsNotNull(expr) => {
                 let val = self.evaluate_expression(expr, in_res, row_idx);
                 !matches!(val, EvalValue::Null)
+            }
+            crate::planner::PlannedCondition::Exists(query_plan) => {
+                let mut sub_res = ResultSet::new();
+                sub_res.push_row(&in_res.get_row(row_idx));
+
+                let mut dummy_profile = None;
+                let _ = self.execute_query_plan(
+                    query_plan,
+                    &mut sub_res,
+                    &mut dummy_profile,
+                    txid,
+                    &mut String::new(),
+                );
+                !sub_res.is_empty()
             }
         }
     }

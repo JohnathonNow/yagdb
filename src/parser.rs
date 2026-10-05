@@ -125,6 +125,7 @@ pub enum Condition {
     },
     IsNull(Expression),
     IsNotNull(Expression),
+    Exists(Box<Query>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -506,6 +507,21 @@ fn compare_op(input: &str) -> IResult<&str, CompareOp> {
 
 fn condition_base(input: &str) -> IResult<&str, Condition> {
     alt((
+        map(
+            tuple((
+                ws(nom::bytes::complete::tag_no_case("EXISTS")),
+                ws(char('{')),
+                nom::multi::many0(ws(clause)),
+                ws(char('}')),
+            )),
+            |(_, _, clauses, _)| {
+                Condition::Exists(Box::new(Query {
+                    explain: false,
+                    profile: false,
+                    clauses,
+                }))
+            },
+        ),
         map(
             tuple((ws(alt((tag("NOT"), tag("not")))), ws(condition_base))),
             |(_, cond)| Condition::Not(Box::new(cond)),
