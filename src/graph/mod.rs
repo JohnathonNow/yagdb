@@ -3127,6 +3127,163 @@ impl Graph {
                     }
                 }
             }
+            PlanNode::ShortestPath {
+                source,
+                source_node_pattern,
+                rel_pattern,
+                target_node_pattern,
+            } => {
+                op_name = "ShortestPath".to_string();
+                let mut source_res = ResultSet::new();
+                self.execute_plan(
+                    source,
+                    in_res,
+                    &mut source_res,
+                    profile,
+                    depth + 1,
+                    None,
+                    txid,
+                );
+
+                let precomputed_rel_label = self.resolve_rel_label(rel_pattern);
+                let precomputed_target_label = self.resolve_node_label(target_node_pattern);
+                let precomputed_source_label = self.resolve_node_label(source_node_pattern);
+
+                let (min_len, max_len) = rel_pattern.length.unwrap_or((1, Some(1)));
+                let max_len = max_len.unwrap_or(15); // Default bound for unbounded shortestPath
+
+                for i in 0..source_res.rows {
+                    let mut source_node_ids = Vec::new();
+
+                    if let Some(var) = &source_node_pattern.variable {
+                        if let Some(GraphElement::Node(id)) = source_res.get(i, var) {
+                            source_node_ids.push(*id);
+                        }
+                    }
+
+                    if source_node_ids.is_empty() {
+                        source_node_ids = self.find_nodes(
+                            source_node_pattern,
+                            precomputed_source_label,
+                            &source_res,
+                            i,
+                            txid,
+                        );
+                    }
+
+                    for source_node_id in source_node_ids {
+                        let mut queue = std::collections::VecDeque::new();
+                        // visited now stores shortest distance to the node
+                        let mut visited = std::collections::HashMap::new();
+
+                        queue.push_back((source_node_id, 0, Vec::new()));
+                        visited.insert(source_node_id, 0);
+
+                        let mut shortest_path_found = None;
+
+                        while let Some((curr_node, dist, path_edges)) = queue.pop_front() {
+                            if dist >= min_len {
+                                let matches_target =
+                                    if let Some(var) = &target_node_pattern.variable {
+                                        if let Some(GraphElement::Node(id)) = in_res.get(i, var) {
+                                            curr_node == *id
+                                        } else {
+                                            true
+                                        }
+                                    } else {
+                                        true
+                                    } && {
+                                        if let Some(target_label_id) = precomputed_target_label {
+                                            self.nodes
+                                                .with_item(curr_node, |node| {
+                                                    self.node_matches(
+                                                        node,
+                                                        target_node_pattern,
+                                                        target_label_id,
+                                                        txid,
+                                                    )
+                                                })
+                                                .unwrap()
+                                        } else {
+                                            self.nodes
+                                                .with_item(curr_node, |node| {
+                                                    self.node_matches(
+                                                        node,
+                                                        target_node_pattern,
+                                                        None,
+                                                        txid,
+                                                    )
+                                                })
+                                                .unwrap()
+                                        }
+                                    };
+
+                                if matches_target {
+                                    shortest_path_found = Some((curr_node, path_edges.clone()));
+                                    break;
+                                }
+                            }
+
+                            if dist >= max_len {
+                                continue;
+                            }
+
+                            let matches = self.find_edges_and_nodes(
+                                curr_node,
+                                rel_pattern,
+                                &NodePattern {
+                                    variable: None,
+                                    label: None,
+                                    properties: std::collections::HashMap::new(),
+                                },
+                                precomputed_rel_label,
+                                Some(None), // no target label pre-filter to visit all
+                                &source_res,
+                                i,
+                            );
+
+                            for (next_node, edge_id) in matches {
+                                // Only visit if we haven't visited or we can reach it in fewer or equal steps (to allow loops if needed for min_len, though standard BFS finds shortest so first visit is optimal)
+                                // Actually, for min_len > 1, a standard BFS might hit the target early. If we want shortest path matching bounds, we should allow revisiting if dist + 1 <= max_len and we haven't reached min_len.
+                                // Or simpler: Just track visited nodes per path if we really need to find *simple* paths.
+                                // Since we want standard behavior, we can just allow revisiting if we haven't found the target yet, but that would be exponential.
+                                // Let's just track `visited.insert(next_node, dist + 1)` and only skip if `visited.get(next_node) <= dist`.
+                                let next_dist = dist + 1;
+                                let should_visit = match visited.get(&next_node) {
+                                    Some(&d) => {
+                                        next_dist < d || (next_dist >= min_len && d < min_len)
+                                    } // Allow revisit if it crosses min_len boundary
+                                    None => true,
+                                };
+
+                                if should_visit {
+                                    visited.insert(next_node, next_dist);
+                                    let mut next_path = path_edges.clone();
+                                    next_path.push(edge_id);
+                                    queue.push_back((next_node, next_dist, next_path));
+                                }
+                            }
+                        }
+
+                        if let Some((target_node_id, path_edges)) = shortest_path_found {
+                            let b1 = rel_pattern
+                                .variable
+                                .as_ref()
+                                .map(|var| (var.as_str(), GraphElement::EdgeArray(path_edges)));
+                            let b2 = target_node_pattern
+                                .variable
+                                .as_ref()
+                                .map(|var| (var.as_str(), GraphElement::Node(target_node_id)));
+
+                            out.push_row_from(&source_res, i, b1.into_iter().chain(b2.into_iter()));
+
+                            if limit.is_some_and(|l| out.rows >= l) {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
             PlanNode::PathExpand {
                 source,
                 source_node_pattern,

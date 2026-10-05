@@ -36,6 +36,7 @@ pub struct Path {
     pub bound_variable: Option<String>,
     pub start: NodePattern,
     pub edges: Vec<(RelPattern, NodePattern)>,
+    pub shortest_path: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -325,14 +326,33 @@ fn rel_pattern(input: &str) -> IResult<&str, RelPattern> {
 fn path(input: &str) -> IResult<&str, Path> {
     let (input, bound_opt) = opt(pair(ws(identifier), ws(char('='))))(input)?;
     let bound_variable = bound_opt.map(|(id, _)| id.to_string());
+
+    // Check for shortestPath
+    let (input, shortest_opt) = opt(ws(alt((tag("shortestPath"), tag("SHORTESTPATH")))))(input)?;
+    let is_shortest = shortest_opt.is_some();
+
+    let (input, _) = if is_shortest {
+        ws(char('('))(input)?
+    } else {
+        (input, '(')
+    };
+
     let (input, start) = node_pattern(input)?;
     let (input, edges) = many0(pair(ws(rel_pattern), ws(node_pattern)))(input)?;
+
+    let (input, _) = if is_shortest {
+        ws(char(')'))(input)?
+    } else {
+        (input, ')')
+    };
+
     Ok((
         input,
         Path {
             bound_variable,
             start,
             edges,
+            shortest_path: is_shortest,
         },
     ))
 }
