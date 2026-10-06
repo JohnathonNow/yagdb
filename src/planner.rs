@@ -204,6 +204,21 @@ impl QueryPlanner {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum PlannedCondition {
+    And(Box<PlannedCondition>, Box<PlannedCondition>),
+    Or(Box<PlannedCondition>, Box<PlannedCondition>),
+    Not(Box<PlannedCondition>),
+    Compare {
+        left: Expression,
+        op: CompareOp,
+        right: Expression,
+    },
+    IsNull(Expression),
+    IsNotNull(Expression),
+    Exists(Box<QueryPlan>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStep {
     Create(Vec<Path>),
     // ⚡ Bolt Optimization: Boxing `PlanNode` (320 bytes) and `Condition` (120 bytes) options
@@ -213,7 +228,7 @@ pub enum ExecutionStep {
         bool,
         Option<Box<PlanNode>>,
         Vec<Path>,
-        Option<Box<Condition>>,
+        Option<Box<PlannedCondition>>,
         Option<usize>,
         Option<usize>,
     ),
@@ -303,6 +318,32 @@ impl QueryPlanner {
         }
     }
 
+    pub fn plan_condition(
+        condition: Condition,
+        labels: &HashMap<String, usize>,
+        indices: &HashMap<usize, HashMap<String, crate::graph::IndexMap>>,
+    ) -> PlannedCondition {
+        match condition {
+            Condition::And(left, right) => PlannedCondition::And(
+                Box::new(Self::plan_condition(*left, labels, indices)),
+                Box::new(Self::plan_condition(*right, labels, indices)),
+            ),
+            Condition::Or(left, right) => PlannedCondition::Or(
+                Box::new(Self::plan_condition(*left, labels, indices)),
+                Box::new(Self::plan_condition(*right, labels, indices)),
+            ),
+            Condition::Not(inner) => {
+                PlannedCondition::Not(Box::new(Self::plan_condition(*inner, labels, indices)))
+            }
+            Condition::Compare { left, op, right } => PlannedCondition::Compare { left, op, right },
+            Condition::IsNull(expr) => PlannedCondition::IsNull(expr),
+            Condition::IsNotNull(expr) => PlannedCondition::IsNotNull(expr),
+            Condition::Exists(query) => {
+                PlannedCondition::Exists(Box::new(Self::plan_query(*query, labels, indices)))
+            }
+        }
+    }
+
     pub fn plan_query(
         query: Query,
         labels: &HashMap<String, usize>,
@@ -322,7 +363,7 @@ impl QueryPlanner {
                         is_optional,
                         plan.map(Box::new),
                         paths,
-                        condition.map(Box::new),
+                        condition.map(|c| Box::new(Self::plan_condition(c, labels, indices))),
                         skip,
                         limit,
                     )

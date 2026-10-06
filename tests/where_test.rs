@@ -232,3 +232,37 @@ fn test_math_evaluation() {
     assert_eq!(parsed.as_array().unwrap().len(), 1);
     assert_eq!(parsed[0]["result"].as_f64().unwrap(), 1.0);
 }
+
+#[test]
+fn test_exists_subquery() {
+    let graph = Graph::new();
+    let q_create =
+        "CREATE (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})";
+    graph.execute(q_create).unwrap();
+    graph
+        .execute(
+            "MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'}) CREATE (a)-[:KNOWS]->(b)",
+        )
+        .unwrap();
+
+    // Find people who know someone
+    let q_exists = "MATCH (p:Person) WHERE EXISTS { MATCH (p)-[:KNOWS]->() } RETURN p.name";
+    let result = graph.execute(q_exists).unwrap();
+
+    let val: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let arr = val.as_array().unwrap();
+
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["p.name"].as_str().unwrap(), "Alice");
+
+    // Find people who don't know anyone
+    let q_not_exists = "MATCH (p:Person) WHERE NOT EXISTS { MATCH (p)-[:KNOWS]->() } RETURN p.name ORDER BY p.name";
+    let result2 = graph.execute(q_not_exists).unwrap();
+
+    let val2: serde_json::Value = serde_json::from_str(&result2).unwrap();
+    let arr2 = val2.as_array().unwrap();
+
+    assert_eq!(arr2.len(), 2);
+    assert_eq!(arr2[0]["p.name"].as_str().unwrap(), "Bob");
+    assert_eq!(arr2[1]["p.name"].as_str().unwrap(), "Charlie");
+}
