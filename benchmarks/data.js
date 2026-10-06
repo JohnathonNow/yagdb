@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791261765394,
+  "lastUpdate": 1791261781292,
   "repoUrl": "https://github.com/JohnathonNow/yagdb",
   "entries": {
     "Benchmark": [
@@ -22875,6 +22875,174 @@ window.BENCHMARK_DATA = {
             "name": "throughput_write_only/ops",
             "value": 477460,
             "range": "± 12563",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "Johnjwesthoff@gmail.com",
+            "name": "John Westhoff",
+            "username": "JohnathonNow"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57ca7cc9d3b6140f56b29ef35ba1202bb101bc9e",
+          "message": "Merge pull request #199 from JohnathonNow/george/exists-subquery-3625507251562153981\n\n⚡ George: [feature improvement] Implemented `EXISTS` subquery Support",
+          "timestamp": "2026-10-05T21:30:48-07:00",
+          "tree_id": "9ffd22a1ffaf34edd467333ce8b2f138d663a143",
+          "url": "https://github.com/JohnathonNow/yagdb/commit/57ca7cc9d3b6140f56b29ef35ba1202bb101bc9e"
+        },
+        "date": 1791261780820,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "entry",
+            "value": 32549,
+            "range": "± 1383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "get_mut_insert",
+            "value": 34040,
+            "range": "± 182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 61219,
+            "range": "± 3329",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 48177,
+            "range": "± 115",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 129809,
+            "range": "± 290",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 105255,
+            "range": "± 211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 128569,
+            "range": "± 637",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 105601,
+            "range": "± 489",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 65765,
+            "range": "± 499",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer",
+            "value": 55429,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "allocate_every_time",
+            "value": 128508,
+            "range": "± 340",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "reuse_buffer_both",
+            "value": 105628,
+            "range": "± 437",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "intersect_slow",
+            "value": 2690012173,
+            "range": "± 24015018",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_node",
+            "value": 4603,
+            "range": "± 592",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_relationship",
+            "value": 7560,
+            "range": "± 3763",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_node",
+            "value": 7307,
+            "range": "± 1467",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "create_and_match",
+            "value": 10268,
+            "range": "± 383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_relationship",
+            "value": 11487,
+            "range": "± 490",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "match_complex_path",
+            "value": 17517,
+            "range": "± 2197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_heavy/ops",
+            "value": 416431,
+            "range": "± 3189",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_heavy/ops",
+            "value": 552875,
+            "range": "± 7686",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_balanced/ops",
+            "value": 554441,
+            "range": "± 6403",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_read_only/ops",
+            "value": 507933,
+            "range": "± 4702",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "throughput_write_only/ops",
+            "value": 476679,
+            "range": "± 8698",
             "unit": "ns/iter"
           }
         ]
