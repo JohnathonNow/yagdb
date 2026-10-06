@@ -24,6 +24,12 @@ pub enum PlanNode {
         rel_pattern: RelPattern,
         target_node_pattern: NodePattern,
     },
+    ShortestPath {
+        source: Box<PlanNode>,
+        source_node_pattern: NodePattern,
+        rel_pattern: RelPattern,
+        target_node_pattern: NodePattern,
+    },
     Intersect {
         left: Box<PlanNode>,
         right: Box<PlanNode>,
@@ -74,12 +80,21 @@ impl QueryPlanner {
                 rel_pattern.variable = Some(format!("_anon_rel_{}", idx));
             }
 
-            plan = PlanNode::PathExpand {
-                source: Box::new(plan),
-                source_node_pattern: prev_node_pattern,
-                rel_pattern,
-                target_node_pattern: target_pattern.clone(),
-            };
+            if path.shortest_path {
+                plan = PlanNode::ShortestPath {
+                    source: Box::new(plan),
+                    source_node_pattern: prev_node_pattern,
+                    rel_pattern,
+                    target_node_pattern: target_pattern.clone(),
+                };
+            } else {
+                plan = PlanNode::PathExpand {
+                    source: Box::new(plan),
+                    source_node_pattern: prev_node_pattern,
+                    rel_pattern,
+                    target_node_pattern: target_pattern.clone(),
+                };
+            }
             prev_node_pattern = target_pattern;
         }
 
