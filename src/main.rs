@@ -93,6 +93,9 @@ async fn main() {
         .route("/query", post(handle_query))
         .route("/query/batch", post(handle_batch))
         .route("/query_stream", post(handle_query_stream))
+        .route("/cursor", post(handle_cursor_create))
+        .route("/cursor/:id", axum::routing::get(handle_cursor_fetch))
+        .route("/cursor/:id", axum::routing::delete(handle_cursor_close))
         .route("/backup", axum::routing::get(handle_backup))
         .route(
             "/console",
@@ -187,6 +190,98 @@ async fn main() {
         .serve(router.into_make_service())
         .await
         .unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_cursor_create(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+    body: String,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelGuard(cancel.clone());
+    let g = graph.clone();
+    *g.cancel_flag.write() = cancel;
+    let guard = GraphGuard { g };
+    let res = tokio::task::spawn_blocking(move || guard.g.execute_cursor(&body))
+        .await
+        .unwrap_or_else(|_| Err("Query cancelled".to_string()));
+
+    match res {
+        Ok(cursor_id) => {
+            let json = serde_json::json!({ "cursor_id": cursor_id });
+            (StatusCode::OK, axum::Json(json)).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CursorQuery {
+    batch: Option<usize>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_cursor_fetch(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+    axum::extract::Path(cursor_id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<CursorQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
+    let batch_size = query.batch.unwrap_or(100);
+    let g = graph.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let guard = GraphGuard { g };
+        guard.g.fetch_cursor(&cursor_id, batch_size)
+    })
+    .await
+    .unwrap_or_else(|_| Err("Fetch cancelled".to_string()));
+
+    match res {
+        Ok(result) => {
+            let parsed: Result<serde_json::Value, _> = serde_json::from_str(&result);
+            match parsed {
+                Ok(json) => (StatusCode::OK, axum::Json(json)).into_response(),
+                Err(_) => (StatusCode::OK, result).into_response(),
+            }
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_cursor_close(
+    headers: axum::http::HeaderMap,
+    State(graph): State<SharedGraph>,
+    axum::extract::Path(cursor_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&headers) {
+        return e.into_response();
+    }
+
+    let g = graph.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let guard = GraphGuard { g };
+        guard.g.close_cursor(&cursor_id)
+    })
+    .await
+    .unwrap_or_else(|_| Err("Close cancelled".to_string()));
+
+    match res {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

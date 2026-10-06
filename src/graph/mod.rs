@@ -47,6 +47,14 @@ use crate::{
 pub type CustomFunction =
     std::sync::Arc<dyn Fn(&[GraphElement]) -> Result<GraphElement, String> + Send + Sync>;
 
+pub struct CursorState {
+    pub result_set: ResultSet,
+    pub keys: Vec<String>,
+    pub items_vec: Vec<crate::parser::ProjectionItem>,
+    pub position: usize,
+    pub created_at: std::time::Instant,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Graph {
     pub nodes: ItemStorage<Node>,
@@ -66,6 +74,8 @@ pub struct Graph {
     pub functions: parking_lot::RwLock<HashMap<String, CustomFunction>>,
     #[serde(skip, default = "default_ast_cache")]
     pub ast_cache: parking_lot::RwLock<indexmap::IndexMap<String, crate::parser::Query>>,
+    #[serde(skip)]
+    pub cursors: parking_lot::RwLock<HashMap<String, CursorState>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -617,6 +627,7 @@ impl Graph {
             next_txid: std::sync::atomic::AtomicU64::new(1),
             functions: parking_lot::RwLock::new(HashMap::new()),
             ast_cache: parking_lot::RwLock::new(indexmap::IndexMap::new()),
+            cursors: parking_lot::RwLock::new(HashMap::new()),
         };
         g.register_default_functions();
         g
@@ -1176,6 +1187,130 @@ impl Graph {
         Ok(encoded)
     }
 
+    pub fn execute_cursor(&self, query_str: &str) -> Result<String, String> {
+        let txid = self
+            .next_txid
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let query = {
+            let cache = self.ast_cache.read();
+            cache.get(query_str).cloned()
+        };
+
+        let query = match query {
+            Some(q) => q,
+            None => {
+                let (_, q) = parse_query(query_str).map_err(|e| format!("Parse error: {}", e))?;
+                let mut cache = self.ast_cache.write();
+                if cache.len() >= 1000 {
+                    cache.shift_remove_index(0);
+                }
+                cache.insert(query_str.to_string(), q.clone());
+                q
+            }
+        };
+
+        let mut output = String::new();
+        let mut profile_out = if query.profile {
+            Some(String::new())
+        } else {
+            None
+        };
+
+        let mut result_set = ResultSet::new();
+        result_set.push_row(&HashMap::new());
+
+        let plan = QueryPlanner::plan_query(query, &*self.labels.read(), &*self.indices.read());
+        if plan.explain || plan.profile {
+            return Err("EXPLAIN/PROFILE not supported in cursor mode".to_string());
+        }
+
+        let res = self.execute_query_plan(
+            &plan,
+            &mut result_set,
+            &mut profile_out,
+            txid as u64,
+            &mut output,
+            true,
+        )?;
+
+        if let Some((final_res, keys, items_vec)) = res {
+            let cursor_id = uuid::Uuid::new_v4().to_string();
+            let state = CursorState {
+                result_set: final_res,
+                keys,
+                items_vec,
+                position: 0,
+                created_at: std::time::Instant::now(),
+            };
+
+            let mut cursors = self.cursors.write();
+
+            // Cleanup stale cursors (older than 10 minutes)
+            let now = std::time::Instant::now();
+            let max_age = std::time::Duration::from_secs(600);
+            cursors.retain(|_, c| now.duration_since(c.created_at) < max_age);
+
+            // Limit total cursors to prevent memory leaks
+            if cursors.len() > 1000 {
+                 return Err("Too many active cursors. Please close unused ones or wait for expiration.".to_string());
+            }
+
+            cursors.insert(cursor_id.clone(), state);
+            Ok(cursor_id)
+        } else {
+            // Write queries might not return anything
+            Ok("NO_CURSOR".to_string())
+        }
+    }
+
+    pub fn fetch_cursor(&self, cursor_id: &str, batch_size: usize) -> Result<String, String> {
+        let mut results_json = Vec::new();
+        let is_exhausted;
+
+        {
+            let mut cursors = self.cursors.write();
+            let state = cursors.get_mut(cursor_id).ok_or_else(|| "Cursor not found".to_string())?;
+
+            let end_pos = std::cmp::min(state.position + batch_size, state.result_set.rows);
+
+            for i in state.position..end_pos {
+                let mut row = serde_json::Map::new();
+                for (idx, item) in state.items_vec.iter().enumerate() {
+                    if let crate::parser::ProjectionItem::Star = item {
+                        continue;
+                    }
+                    let key = &state.keys[idx];
+                    if let Some(element) = state.result_set.get(i, key) {
+                        row.insert(key.clone(), self.element_to_json(element));
+                    } else {
+                        row.insert(key.clone(), Value::Null);
+                    }
+                }
+                if !row.is_empty() {
+                    results_json.push(Value::Object(row));
+                }
+            }
+
+            state.position = end_pos;
+            is_exhausted = state.position >= state.result_set.rows;
+
+            if is_exhausted {
+                cursors.remove(cursor_id);
+            }
+        }
+
+        serde_json::to_string_pretty(&results_json).map_err(|e| format!("Serialization error: {}", e))
+    }
+
+    pub fn close_cursor(&self, cursor_id: &str) -> Result<(), String> {
+        let mut cursors = self.cursors.write();
+        if cursors.remove(cursor_id).is_some() {
+            Ok(())
+        } else {
+            Err("Cursor not found".to_string())
+        }
+    }
+
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute(&self, query_str: &str) -> Result<String, String> {
         let txid = self
@@ -1227,6 +1362,7 @@ impl Graph {
             &mut profile_out,
             txid as u64,
             &mut output,
+            false,
         )?;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1254,7 +1390,8 @@ impl Graph {
         mut profile_out: &mut Option<String>,
         txid: u64,
         output: &mut String,
-    ) -> Result<(), String> {
+        cursor_mode: bool,
+    ) -> Result<Option<(ResultSet, Vec<String>, Vec<crate::parser::ProjectionItem>)>, String> {
         for step in &plan.steps {
             #[cfg(not(target_arch = "wasm32"))]
             if self.cancel_flag.read().load(Ordering::Relaxed) {
@@ -2327,6 +2464,7 @@ impl Graph {
                             profile_out,
                             txid as u64,
                             output,
+                            false,
                         )?;
                         // ⚡ Bolt: Fast-path merging subplan results into new_result_set without inner loops
                         for j in 0..sub_result_set.rows {
@@ -2851,31 +2989,38 @@ impl Graph {
                     }
 
                     if is_return {
-                        let len = final_res.rows;
-                        let iter = match limit {
-                            Some(l) => 0..std::cmp::min(*l, len),
-                            None => 0..len,
-                        };
-                        let mut results_json = Vec::new();
-                        for i in iter {
-                            let mut row = serde_json::Map::new();
-                            for (idx, item) in items_vec.iter().enumerate() {
-                                if let ProjectionItem::Star = item {
-                                    continue;
+                        if cursor_mode {
+                            if let Some(l) = limit {
+                                final_res.truncate(*l);
+                            }
+                            return Ok(Some((final_res, precomputed_keys, items_vec)));
+                        } else {
+                            let len = final_res.rows;
+                            let iter = match limit {
+                                Some(l) => 0..std::cmp::min(*l, len),
+                                None => 0..len,
+                            };
+                            let mut results_json = Vec::new();
+                            for i in iter {
+                                let mut row = serde_json::Map::new();
+                                for (idx, item) in items_vec.iter().enumerate() {
+                                    if let ProjectionItem::Star = item {
+                                        continue;
+                                    }
+                                    let key = &precomputed_keys[idx];
+                                    if let Some(element) = final_res.get(i, key) {
+                                        row.insert(key.clone(), self.element_to_json(element));
+                                    } else {
+                                        row.insert(key.clone(), Value::Null);
+                                    }
                                 }
-                                let key = &precomputed_keys[idx];
-                                if let Some(element) = final_res.get(i, key) {
-                                    row.insert(key.clone(), self.element_to_json(element));
-                                } else {
-                                    row.insert(key.clone(), Value::Null);
+                                if !row.is_empty() {
+                                    results_json.push(Value::Object(row));
                                 }
                             }
-                            if !row.is_empty() {
-                                results_json.push(Value::Object(row));
+                            if !results_json.is_empty() {
+                                *output = serde_json::to_string_pretty(&results_json).unwrap();
                             }
-                        }
-                        if !results_json.is_empty() {
-                            *output = serde_json::to_string_pretty(&results_json).unwrap();
                         }
                     } else {
                         // WITH clause
@@ -2904,7 +3049,7 @@ impl Graph {
             }
         }
 
-        Ok(())
+        Ok(None)
     }
 
     fn execute_create_path(
@@ -4197,6 +4342,7 @@ impl Graph {
                     &mut dummy_profile,
                     txid,
                     &mut String::new(),
+                    false,
                 );
                 !sub_res.is_empty()
             }
