@@ -30,6 +30,8 @@ parking_lot = { version = "0.12.5", features = ["serde"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 rand = "0.8.5"
+tokio = { version = "1", features = ["sync"] }
+async-stream = "0.3.6"
 
 [features]
 cluster = ["dep:openraft", "dep:async-trait", "dep:reqwest", "dep:clap", "dep:env_logger", "dep:openraft-memstore"]

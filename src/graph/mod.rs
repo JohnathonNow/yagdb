@@ -1231,6 +1231,7 @@ impl Graph {
             txid as u64,
             &mut output,
             true,
+            #[cfg(not(target_arch = "wasm32"))] None,
         )?;
 
         if let Some((final_res, keys, items_vec)) = res {
@@ -1313,6 +1314,15 @@ impl Graph {
 
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute(&self, query_str: &str) -> Result<String, String> {
+        self.execute_stream(query_str, #[cfg(not(target_arch = "wasm32"))] None)
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
+    pub fn execute_stream(
+        &self,
+        query_str: &str,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<tokio::sync::mpsc::Sender<serde_json::Value>>,
+    ) -> Result<String, String> {
         let txid = self
             .next_txid
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1363,6 +1373,7 @@ impl Graph {
             txid as u64,
             &mut output,
             false,
+            #[cfg(not(target_arch = "wasm32"))] sender,
         )?;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1391,6 +1402,7 @@ impl Graph {
         txid: u64,
         output: &mut String,
         cursor_mode: bool,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<tokio::sync::mpsc::Sender<serde_json::Value>>,
     ) -> Result<Option<(ResultSet, Vec<String>, Vec<crate::parser::ProjectionItem>)>, String> {
         for step in &plan.steps {
             #[cfg(not(target_arch = "wasm32"))]
@@ -2465,6 +2477,7 @@ impl Graph {
                             txid as u64,
                             output,
                             false,
+                            #[cfg(not(target_arch = "wasm32"))] sender.clone(),
                         )?;
                         // ⚡ Bolt: Fast-path merging subplan results into new_result_set without inner loops
                         for j in 0..sub_result_set.rows {
@@ -3015,6 +3028,17 @@ impl Graph {
                                     }
                                 }
                                 if !row.is_empty() {
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    {
+                                        if let Some(tx) = &sender {
+                                            if tx.blocking_send(Value::Object(row.clone())).is_err() {
+                                                break;
+                                            }
+                                        } else {
+                                            results_json.push(Value::Object(row));
+                                        }
+                                    }
+                                    #[cfg(target_arch = "wasm32")]
                                     results_json.push(Value::Object(row));
                                 }
                             }
@@ -4343,6 +4367,7 @@ impl Graph {
                     txid,
                     &mut String::new(),
                     false,
+                    #[cfg(not(target_arch = "wasm32"))] None,
                 );
                 !sub_res.is_empty()
             }

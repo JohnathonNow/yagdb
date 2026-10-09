@@ -22,3 +22,11 @@
 ## 2024-11-20 - [Implement HTTP Cursor Pagination]
 **Learning:** Adding API-level cursor pagination using an internal `HashMap` to store materialized `ResultSet` handles output chunking, but fails to prevent OOM errors natively if the query execution engine isn't refactored to lazily stream rows. Furthermore, maintaining unbounded global cursors without TTLs or limits can create denial of service vectors.
 **Action:** When implementing pagination, always analyze whether the core engine lazily yields rows. If the engine eagerly materializes everything into memory, caching the entire result inside a 'cursor state' provides only transport optimization, not memory optimization, and must be strictly bounded with size caps and TTL logic to prevent memory leaks.
+
+## 2026-10-09 - [Implemented SSE Lazy Cursor Pagination]
+**Learning:** In highly eager graph engines where modifying DFS loops is architecturally complex, wrapping the entrypoint execution layer () with an optional  is an effective strategy to push items lazily at the final  projection stage. Attempting to pass borrowed mutable structures across threads causes severe lifetime limitations that  cloning resolves or async-streams avoid.
+**Action:** Use  and  to safely consume chunked backend results directly to HTTP endpoints over Server-Sent Events (SSE) while handling setup errors properly inside the loop.
+
+## 2026-10-06 - [Implemented SSE Lazy Cursor Pagination]
+**Learning:** In highly eager graph engines where modifying DFS loops is architecturally complex, wrapping the entrypoint execution layer (`execute_query_plan`) with an optional `mpsc::Sender` is an effective strategy to push items lazily at the final `RETURN` projection stage. Attempting to pass borrowed mutable structures across threads causes severe lifetime limitations that `Arc` cloning resolves or async-streams avoid.
+**Action:** Use `async_stream` and `tokio::task::spawn_blocking` to safely consume chunked backend results directly to HTTP endpoints over Server-Sent Events (SSE) while handling setup errors properly inside the loop.
