@@ -1054,6 +1054,148 @@ impl Graph {
         );
 
         self.register_function(
+            "split",
+            std::sync::Arc::new(|args| {
+                if args.len() == 2 {
+                    if let (GraphElement::String(s), GraphElement::String(delim)) =
+                        (&args[0], &args[1])
+                    {
+                        let parts: Vec<GraphElement> = s
+                            .split(delim)
+                            .map(|part| GraphElement::String(part.to_string()))
+                            .collect();
+                        return Ok(GraphElement::List(parts));
+                    }
+                }
+                Err("Invalid arguments to split()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "replace",
+            std::sync::Arc::new(|args| {
+                if args.len() == 3 {
+                    if let (
+                        GraphElement::String(s),
+                        GraphElement::String(search),
+                        GraphElement::String(replace),
+                    ) = (&args[0], &args[1], &args[2])
+                    {
+                        return Ok(GraphElement::String(s.replace(search, replace)));
+                    }
+                }
+                Err("Invalid arguments to replace()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "trim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim().to_string()));
+                    }
+                }
+                Err("Invalid arguments to trim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "ltrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_start().to_string()));
+                    }
+                }
+                Err("Invalid arguments to ltrim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "rtrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_end().to_string()));
+                    }
+                }
+                Err("Invalid arguments to rtrim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "split",
+            std::sync::Arc::new(|args| {
+                if args.len() == 2 {
+                    if let (GraphElement::String(s), GraphElement::String(delim)) =
+                        (&args[0], &args[1])
+                    {
+                        let parts: Vec<GraphElement> = s
+                            .split(delim)
+                            .map(|part| GraphElement::String(part.to_string()))
+                            .collect();
+                        return Ok(GraphElement::List(parts));
+                    }
+                }
+                Err("Invalid arguments to split()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "replace",
+            std::sync::Arc::new(|args| {
+                if args.len() == 3 {
+                    if let (
+                        GraphElement::String(s),
+                        GraphElement::String(search),
+                        GraphElement::String(replace),
+                    ) = (&args[0], &args[1], &args[2])
+                    {
+                        return Ok(GraphElement::String(s.replace(search, replace)));
+                    }
+                }
+                Err("Invalid arguments to replace()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "trim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim().to_string()));
+                    }
+                }
+                Err("Invalid arguments to trim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "ltrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_start().to_string()));
+                    }
+                }
+                Err("Invalid arguments to ltrim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "rtrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_end().to_string()));
+                    }
+                }
+                Err("Invalid arguments to rtrim()".to_string())
+            }),
+        );
+
+        self.register_function(
             "size",
             std::sync::Arc::new(|args| {
                 if args.len() == 1 {
