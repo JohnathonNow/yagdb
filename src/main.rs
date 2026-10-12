@@ -396,9 +396,7 @@ async fn handle_query_stream(
     let guard = GraphGuard { g };
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
-    let handle = tokio::task::spawn_blocking(move || {
-        guard.g.execute_stream(&body, Some(tx))
-    });
+    let handle = tokio::task::spawn_blocking(move || guard.g.execute_stream(&body, Some(tx)));
 
     let stream = async_stream::stream! {
         loop {

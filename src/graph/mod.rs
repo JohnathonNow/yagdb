@@ -982,13 +982,85 @@ impl Graph {
                 Err("Invalid arguments to exists()".to_string())
             }),
         );
+        self.register_function(
+            "split",
+            std::sync::Arc::new(|args| {
+                if args.len() == 2 {
+                    if let (GraphElement::String(s), GraphElement::String(delim)) =
+                        (&args[0], &args[1])
+                    {
+                        let parts: Vec<GraphElement> = s
+                            .split(delim)
+                            .map(|part| GraphElement::String(part.to_string()))
+                            .collect();
+                        return Ok(GraphElement::List(parts));
+                    }
+                }
+                Err("Invalid arguments to split()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "replace",
+            std::sync::Arc::new(|args| {
+                if args.len() == 3 {
+                    if let (
+                        GraphElement::String(s),
+                        GraphElement::String(search),
+                        GraphElement::String(replace),
+                    ) = (&args[0], &args[1], &args[2])
+                    {
+                        return Ok(GraphElement::String(s.replace(search, replace)));
+                    }
+                }
+                Err("Invalid arguments to replace()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "trim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim().to_string()));
+                    }
+                }
+                Err("Invalid arguments to trim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "ltrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_start().to_string()));
+                    }
+                }
+                Err("Invalid arguments to ltrim()".to_string())
+            }),
+        );
+
+        self.register_function(
+            "rtrim",
+            std::sync::Arc::new(|args| {
+                if args.len() == 1 {
+                    if let GraphElement::String(s) = &args[0] {
+                        return Ok(GraphElement::String(s.trim_end().to_string()));
+                    }
+                }
+                Err("Invalid arguments to rtrim()".to_string())
+            }),
+        );
 
         self.register_function(
             "size",
             std::sync::Arc::new(|args| {
                 if args.len() == 1 {
                     match &args[0] {
-                        GraphElement::String(s) => return Ok(GraphElement::Number(s.len() as f64)),
+                        GraphElement::String(s) => {
+                            return Ok(GraphElement::Number(s.chars().count() as f64))
+                        }
                         GraphElement::List(l) => return Ok(GraphElement::Number(l.len() as f64)),
                         _ => {}
                     }
@@ -1231,7 +1303,8 @@ impl Graph {
             txid as u64,
             &mut output,
             true,
-            #[cfg(not(target_arch = "wasm32"))] None,
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
         )?;
 
         if let Some((final_res, keys, items_vec)) = res {
@@ -1253,7 +1326,10 @@ impl Graph {
 
             // Limit total cursors to prevent memory leaks
             if cursors.len() > 1000 {
-                 return Err("Too many active cursors. Please close unused ones or wait for expiration.".to_string());
+                return Err(
+                    "Too many active cursors. Please close unused ones or wait for expiration."
+                        .to_string(),
+                );
             }
 
             cursors.insert(cursor_id.clone(), state);
@@ -1270,7 +1346,9 @@ impl Graph {
 
         {
             let mut cursors = self.cursors.write();
-            let state = cursors.get_mut(cursor_id).ok_or_else(|| "Cursor not found".to_string())?;
+            let state = cursors
+                .get_mut(cursor_id)
+                .ok_or_else(|| "Cursor not found".to_string())?;
 
             let end_pos = std::cmp::min(state.position + batch_size, state.result_set.rows);
 
@@ -1300,7 +1378,8 @@ impl Graph {
             }
         }
 
-        serde_json::to_string_pretty(&results_json).map_err(|e| format!("Serialization error: {}", e))
+        serde_json::to_string_pretty(&results_json)
+            .map_err(|e| format!("Serialization error: {}", e))
     }
 
     pub fn close_cursor(&self, cursor_id: &str) -> Result<(), String> {
@@ -1314,14 +1393,20 @@ impl Graph {
 
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute(&self, query_str: &str) -> Result<String, String> {
-        self.execute_stream(query_str, #[cfg(not(target_arch = "wasm32"))] None)
+        self.execute_stream(
+            query_str,
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
+        )
     }
 
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute_stream(
         &self,
         query_str: &str,
-        #[cfg(not(target_arch = "wasm32"))] sender: Option<tokio::sync::mpsc::Sender<serde_json::Value>>,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<
+            tokio::sync::mpsc::Sender<serde_json::Value>,
+        >,
     ) -> Result<String, String> {
         let txid = self
             .next_txid
@@ -1373,7 +1458,8 @@ impl Graph {
             txid as u64,
             &mut output,
             false,
-            #[cfg(not(target_arch = "wasm32"))] sender,
+            #[cfg(not(target_arch = "wasm32"))]
+            sender,
         )?;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1402,7 +1488,9 @@ impl Graph {
         txid: u64,
         output: &mut String,
         cursor_mode: bool,
-        #[cfg(not(target_arch = "wasm32"))] sender: Option<tokio::sync::mpsc::Sender<serde_json::Value>>,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<
+            tokio::sync::mpsc::Sender<serde_json::Value>,
+        >,
     ) -> Result<Option<(ResultSet, Vec<String>, Vec<crate::parser::ProjectionItem>)>, String> {
         for step in &plan.steps {
             #[cfg(not(target_arch = "wasm32"))]
@@ -2477,7 +2565,8 @@ impl Graph {
                             txid as u64,
                             output,
                             false,
-                            #[cfg(not(target_arch = "wasm32"))] sender.clone(),
+                            #[cfg(not(target_arch = "wasm32"))]
+                            sender.clone(),
                         )?;
                         // ⚡ Bolt: Fast-path merging subplan results into new_result_set without inner loops
                         for j in 0..sub_result_set.rows {
@@ -3031,7 +3120,8 @@ impl Graph {
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
                                         if let Some(tx) = &sender {
-                                            if tx.blocking_send(Value::Object(row.clone())).is_err() {
+                                            if tx.blocking_send(Value::Object(row.clone())).is_err()
+                                            {
                                                 break;
                                             }
                                         } else {
@@ -4367,7 +4457,8 @@ impl Graph {
                     txid,
                     &mut String::new(),
                     false,
-                    #[cfg(not(target_arch = "wasm32"))] None,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    None,
                 );
                 !sub_res.is_empty()
             }
