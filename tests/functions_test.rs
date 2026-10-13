@@ -218,3 +218,31 @@ fn test_new_functions() {
             || res.contains(r#""name_len":5.0"#)
     );
 }
+
+#[test]
+fn test_string_manipulation() {
+    let g = yagdb::graph::Graph::new();
+
+    // split
+    let res = g.execute("RETURN split('a,b,c', ',') AS s").unwrap();
+    println!("res: {}", res);
+    assert!(res.contains(r#""a""#) && res.contains(r#""b""#) && res.contains(r#""c""#));
+
+    // replace
+    let res = g
+        .execute("RETURN replace('hello world', 'world', 'there') AS r")
+        .unwrap();
+    assert!(res.contains(r#""r": "hello there""#) || res.contains(r#""r":"hello there""#));
+
+    // trim
+    let res = g.execute("RETURN trim('  hello  ') AS t").unwrap();
+    assert!(res.contains(r#""t": "hello""#) || res.contains(r#""t":"hello""#));
+
+    // ltrim
+    let res = g.execute("RETURN ltrim('  hello  ') AS l").unwrap();
+    assert!(res.contains(r#""l": "hello  ""#) || res.contains(r#""l":"hello  ""#));
+
+    // rtrim
+    let res = g.execute("RETURN rtrim('  hello  ') AS r").unwrap();
+    assert!(res.contains(r#""r": "  hello""#) || res.contains(r#""r":"  hello""#));
+}
