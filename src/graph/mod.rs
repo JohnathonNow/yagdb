@@ -2721,8 +2721,8 @@ impl Graph {
                     }
                     *result_set = new_result_set;
                 }
-                ExecutionStep::With(ref items, ref order_by_opt, s, l)
-                | ExecutionStep::Return(ref items, ref order_by_opt, s, l) => {
+                ExecutionStep::With(distinct, ref items, ref order_by_opt, s, l)
+                | ExecutionStep::Return(distinct, ref items, ref order_by_opt, s, l) => {
                     let mut is_return = false;
                     let skip = s;
                     let limit = l;
@@ -3187,6 +3187,31 @@ impl Graph {
                             }
                             final_res.push_row_from(&empty_res, 0, bindings.drain(..));
                         }
+                    }
+
+                    if *distinct {
+                        let mut distinct_res = ResultSet::new();
+                        let mut seen = std::collections::HashSet::new();
+                        let mut row_bindings = Vec::with_capacity(precomputed_keys.len());
+
+                        for i in 0..final_res.rows {
+                            row_bindings.clear();
+                            for key in &precomputed_keys {
+                                if let Some(val) = final_res.get(i, key.as_str()) {
+                                    row_bindings.push(val.clone());
+                                } else {
+                                    row_bindings.push(GraphElement::Null);
+                                }
+                            }
+                            if seen.insert(row_bindings.clone()) {
+                                distinct_res.push_row_from(
+                                    &final_res,
+                                    i,
+                                    std::iter::empty::<(&str, GraphElement)>(),
+                                );
+                            }
+                        }
+                        final_res = distinct_res;
                     }
 
                     if let Some(order_items) = order_by_opt {

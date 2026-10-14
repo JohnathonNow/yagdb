@@ -245,12 +245,14 @@ pub enum ExecutionStep {
         property: String,
     },
     Return(
+        bool, // distinct
         Vec<ProjectionItem>,
         Option<Vec<OrderItem>>,
         Option<usize>,
         Option<usize>,
     ),
     With(
+        bool, // distinct
         Vec<ProjectionItem>,
         Option<Vec<OrderItem>>,
         Option<usize>,
@@ -392,11 +394,11 @@ impl QueryPlanner {
                 Clause::DropIndex { label, property } => {
                     ExecutionStep::DropIndex { label, property }
                 }
-                Clause::Return(items, order, skip, limit) => {
-                    ExecutionStep::Return(items, order, skip, limit)
+                Clause::Return(distinct, items, order, skip, limit) => {
+                    ExecutionStep::Return(distinct, items, order, skip, limit)
                 }
-                Clause::With(items, order, skip, limit) => {
-                    ExecutionStep::With(items, order, skip, limit)
+                Clause::With(distinct, items, order, skip, limit) => {
+                    ExecutionStep::With(distinct, items, order, skip, limit)
                 }
                 Clause::Unwind(items) => ExecutionStep::Unwind(items),
                 Clause::Delete(items) => ExecutionStep::Delete(items),
