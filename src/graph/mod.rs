@@ -4589,7 +4589,7 @@ impl Graph {
             }
             crate::planner::PlannedCondition::Exists(query_plan) => {
                 let mut sub_res = ResultSet::new();
-                sub_res.push_row(&in_res.get_row(row_idx));
+                sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());
 
                 let mut dummy_profile = None;
                 let _ = self.execute_query_plan(

@@ -47,3 +47,7 @@
 ## $(date +%Y-%m-%d) - [Optimize hash allocations in graph intersections and joins]
 **Learning:** In Rust graph operations like `PlanNode::Intersect` and `PlanNode::HashJoin`, repeatedly cloning a reusable `key_buf` string/element vector before inserting into a `HashSet` or `HashMap` causes massive heap allocation thrashing, especially when many duplicate keys exist (e.g. graph traversals).
 **Action:** Use `collection.contains(&key_buf)` or `collection.get_mut(&key_buf)` first to handle cache hits without cloning. For cache misses, use `std::mem::replace(&mut key_buf, Vec::with_capacity(...))` to transfer ownership to the collection, thereby entirely eliminating the `.clone()` penalty while adhering to borrow checker rules.
+
+## 2026-10-14 - Replace get_row() with push_row_from() to avoid HashMap allocations
+**Learning:** In yagdb's query execution engine, specifically inside `evaluate_condition` for the `EXISTS` subquery, calling `sub_res.push_row(&in_res.get_row(row_idx))` was a major bottleneck. The `get_row()` method dynamically allocates a new `HashMap` representing the row's environment on every single evaluation, which scales poorly when checking conditions across many rows.
+**Action:** When forwarding an entire row's state from one `ResultSet` into a new one, avoid `get_row()`. Use `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>())` instead to copy the column data directly and completely bypass the intermediate `HashMap` O(N) allocation penalty.
