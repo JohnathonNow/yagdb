@@ -192,12 +192,14 @@ pub enum Clause {
     Delete(Vec<String>),
     Call(Box<Query>),
     Return(
+        bool, // distinct
         Vec<ProjectionItem>,
         Option<Vec<OrderItem>>,
         Option<usize>,
         Option<usize>,
     ),
     With(
+        bool, // distinct
         Vec<ProjectionItem>,
         Option<Vec<OrderItem>>,
         Option<usize>,
@@ -745,24 +747,32 @@ fn projection_item(input: &str) -> IResult<&str, ProjectionItem> {
 
 fn return_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("RETURN"), tag("return"))))(input)?;
+    let (input, distinct) = opt(ws(alt((tag("DISTINCT"), tag("distinct")))))(input)?;
     let (input, vars) = separated_list1(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
     let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
     let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::Return(vars, order_by, skip_val, limit_val)))
+    Ok((
+        input,
+        Clause::Return(distinct.is_some(), vars, order_by, skip_val, limit_val),
+    ))
 }
 
 fn with_clause(input: &str) -> IResult<&str, Clause> {
     let (input, _) = ws(alt((tag("WITH"), tag("with"))))(input)?;
+    let (input, distinct) = opt(ws(alt((tag("DISTINCT"), tag("distinct")))))(input)?;
     let (input, vars) = separated_list0(ws(char(',')), projection_item)(input)?;
     let (input, order_by) = opt(order_by_clause)(input)?;
     let (input, skip) = opt(preceded(ws(alt((tag("SKIP"), tag("skip")))), ws(digit1)))(input)?;
     let skip_val = skip.and_then(|s| s.parse::<usize>().ok());
     let (input, limit) = opt(preceded(ws(alt((tag("LIMIT"), tag("limit")))), ws(digit1)))(input)?;
     let limit_val = limit.and_then(|s| s.parse::<usize>().ok());
-    Ok((input, Clause::With(vars, order_by, skip_val, limit_val)))
+    Ok((
+        input,
+        Clause::With(distinct.is_some(), vars, order_by, skip_val, limit_val),
+    ))
 }
 
 fn create_index_clause(input: &str) -> IResult<&str, Clause> {

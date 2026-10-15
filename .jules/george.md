@@ -44,3 +44,6 @@
 ## 2024-11-20 - [Implement Cypher String Functions]
 **Learning:** Adding built-in string functions like `split`, `replace`, and `trim` greatly expands the graph's analytic utility for standard data operations. Also, when working with string lengths in Rust, `s.len()` counts bytes, which breaks on Unicode characters (like emojis). Using `s.chars().count()` correctly handles Unicode string length.
 **Action:** When implementing or modifying string functions, always verify Unicode support by using `chars()` iteration or indexing rather than byte bounds.
+## 2024-11-20 - [Implement DISTINCT in RETURN and WITH]
+**Learning:** To implement the Cypher `DISTINCT` keyword correctly in an execution pipeline, it should act as an aggregation stage evaluated after basic properties/variables are evaluated into a temporary `ResultSet` but *before* `ORDER BY`, `SKIP`, and `LIMIT` modifiers are applied. Furthermore, building a deduplicated set via `HashSet` requires all matched execution columns to implement `Hash` and `Eq`.
+**Action:** When adding deduplication modifiers (like `DISTINCT`) in eager engines, apply them sequentially inside the step's loop between mapping evaluations and sorting logic to maintain the correct semantic order of Cypher queries.
