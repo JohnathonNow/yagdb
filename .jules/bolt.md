@@ -47,3 +47,6 @@
 ## $(date +%Y-%m-%d) - [Optimize hash allocations in graph intersections and joins]
 **Learning:** In Rust graph operations like `PlanNode::Intersect` and `PlanNode::HashJoin`, repeatedly cloning a reusable `key_buf` string/element vector before inserting into a `HashSet` or `HashMap` causes massive heap allocation thrashing, especially when many duplicate keys exist (e.g. graph traversals).
 **Action:** Use `collection.contains(&key_buf)` or `collection.get_mut(&key_buf)` first to handle cache hits without cloning. For cache misses, use `std::mem::replace(&mut key_buf, Vec::with_capacity(...))` to transfer ownership to the collection, thereby entirely eliminating the `.clone()` penalty while adhering to borrow checker rules.
+## 2026-10-14 - Refactor EXISTS subquery evaluation to avoid `get_row` map allocations
+**Learning:** Calling `get_row` allocates a new `HashMap` for the environment per iteration. Inside the hot evaluation filter loop (e.g. for `EXISTS` conditions), this caused an unnecessary heap allocation.
+**Action:** In `evaluate_condition`, when populating the localized `ResultSet` for the subquery, bypass the intermediate map allocation by replacing `sub_res.push_row(&in_res.get_row(row_idx));` with `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());`.
