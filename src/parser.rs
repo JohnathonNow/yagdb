@@ -57,6 +57,7 @@ pub enum Expression {
     BooleanLiteral(bool),
     Variable(String),
     Function(String, Vec<Expression>),
+    Parameter(String),
     List(Vec<Expression>),
     Map(std::collections::HashMap<String, Expression>),
     Math(Box<Expression>, MathOp, Box<Expression>),
@@ -69,6 +70,7 @@ pub fn format_expr(expr: &Expression) -> String {
         Expression::NumberLiteral(n) => n.to_string(),
         Expression::BooleanLiteral(b) => b.to_string(),
         Expression::Variable(var) => var.to_string(),
+        Expression::Parameter(param) => format!("${}", param),
         Expression::Function(func, args) => {
             let arg_strs: Vec<String> = args.iter().map(format_expr).collect();
             format!("{}({})", func, arg_strs.join(", "))
@@ -405,6 +407,12 @@ fn property_value_parser(input: &str) -> IResult<&str, crate::property::Property
     ))(input)
 }
 
+fn parameter(input: &str) -> IResult<&str, Expression> {
+    let (input, _) = ws(char('$'))(input)?;
+    let (input, param_name) = ws(identifier)(input)?;
+    Ok((input, Expression::Parameter(param_name.to_string())))
+}
+
 fn primary_expression(input: &str) -> IResult<&str, Expression> {
     alt((
         delimited(ws(char('(')), expression, ws(char(')'))),
@@ -426,6 +434,7 @@ fn primary_expression(input: &str) -> IResult<&str, Expression> {
             )),
             |(func, _, args, _)| Expression::Function(func.to_string(), args),
         ),
+        parameter,
         map(ws(identifier), |var| Expression::Variable(var.to_string())),
         |i| {
             let (i, list) = delimited(
