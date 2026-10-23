@@ -1402,6 +1402,14 @@ impl Graph {
     }
 
     pub fn execute_cursor(&self, query_str: &str) -> Result<String, String> {
+        self.execute_cursor_with_params(query_str, HashMap::new())
+    }
+
+    pub fn execute_cursor_with_params(
+        &self,
+        query_str: &str,
+        params: HashMap<String, GraphElement>,
+    ) -> Result<String, String> {
         let txid = self
             .next_txid
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1447,6 +1455,7 @@ impl Graph {
             true,
             #[cfg(not(target_arch = "wasm32"))]
             None,
+            &params,
         )?;
 
         if let Some((final_res, keys, items_vec)) = res {
@@ -1535,8 +1544,17 @@ impl Graph {
 
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute(&self, query_str: &str) -> Result<String, String> {
-        self.execute_stream(
+        self.execute_with_params(query_str, HashMap::new())
+    }
+
+    pub fn execute_with_params(
+        &self,
+        query_str: &str,
+        params: HashMap<String, GraphElement>,
+    ) -> Result<String, String> {
+        self.execute_stream_with_params(
             query_str,
+            params,
             #[cfg(not(target_arch = "wasm32"))]
             None,
         )
@@ -1546,6 +1564,23 @@ impl Graph {
     pub fn execute_stream(
         &self,
         query_str: &str,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<
+            tokio::sync::mpsc::Sender<serde_json::Value>,
+        >,
+    ) -> Result<String, String> {
+        self.execute_stream_with_params(
+            query_str,
+            HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            sender,
+        )
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
+    pub fn execute_stream_with_params(
+        &self,
+        query_str: &str,
+        params: HashMap<String, GraphElement>,
         #[cfg(not(target_arch = "wasm32"))] sender: Option<
             tokio::sync::mpsc::Sender<serde_json::Value>,
         >,
@@ -1602,6 +1637,7 @@ impl Graph {
             false,
             #[cfg(not(target_arch = "wasm32"))]
             sender,
+            &params,
         )?;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1633,6 +1669,7 @@ impl Graph {
         #[cfg(not(target_arch = "wasm32"))] sender: Option<
             tokio::sync::mpsc::Sender<serde_json::Value>,
         >,
+        params: &HashMap<String, GraphElement>,
     ) -> Result<Option<(ResultSet, Vec<String>, Vec<crate::parser::ProjectionItem>)>, String> {
         for step in &plan.steps {
             #[cfg(not(target_arch = "wasm32"))]
@@ -1683,6 +1720,7 @@ impl Graph {
                                 &mut profile_out,
                                 limit_for_plan,
                                 txid,
+                                params,
                             );
 
                             if let Some(cond) = &condition_opt {
@@ -1695,7 +1733,13 @@ impl Graph {
                                 filtered.clear();
 
                                 for i in 0..new_result_set.rows {
-                                    if self.evaluate_condition(cond, &new_result_set, i, txid) {
+                                    if self.evaluate_condition(
+                                        cond,
+                                        &new_result_set,
+                                        i,
+                                        txid,
+                                        params,
+                                    ) {
                                         if skipped < skip {
                                             skipped += 1;
                                             continue;
@@ -1747,15 +1791,16 @@ impl Graph {
                                     &mut profile_out,
                                     None,
                                     txid,
+                                    params,
                                 );
 
                                 let mut found_match = false;
                                 if !matches.is_empty() {
                                     for m_idx in 0..matches.rows {
                                         let condition_met = match &condition_opt {
-                                            Some(cond) => {
-                                                self.evaluate_condition(cond, &matches, m_idx, txid)
-                                            }
+                                            Some(cond) => self.evaluate_condition(
+                                                cond, &matches, m_idx, txid, params,
+                                            ),
                                             None => true,
                                         };
                                         if condition_met {
@@ -1828,6 +1873,7 @@ impl Graph {
                                     &mut profile_out,
                                     None,
                                     txid,
+                                    params,
                                 );
                                 if !matches.is_empty() {
                                     for m_idx in 0..matches.rows {
@@ -1872,6 +1918,7 @@ impl Graph {
                                             &value_expr,
                                             &result_set,
                                             i,
+                                            params,
                                         );
                                         if let Some(value) = evaluated_value.to_property_value() {
                                             if updated_nodes.insert((node_id, key.clone())) {
@@ -1975,6 +2022,7 @@ impl Graph {
                                             &value_expr,
                                             &result_set,
                                             i,
+                                            params,
                                         );
                                         if let Some(value) = evaluated_value.to_property_value() {
                                             if updated_edges.insert((edge_id, key.clone())) {
@@ -2002,6 +2050,7 @@ impl Graph {
                                         &value_expr,
                                         &result_set,
                                         i,
+                                        params,
                                     );
                                     if let GraphElement::Map(map) = evaluated_value {
                                         if let Some(GraphElement::Node(node_id)) =
@@ -2110,6 +2159,7 @@ impl Graph {
                                         &value_expr,
                                         &result_set,
                                         i,
+                                        params,
                                     );
                                     if let GraphElement::Map(map) = evaluated_value {
                                         if let Some(GraphElement::Node(node_id)) =
@@ -2665,8 +2715,12 @@ impl Graph {
                                     }
                                 }
                                 ProjectionItem::Expression { expr, .. } => {
-                                    let val =
-                                        self.evaluate_expression_to_element(expr, &result_set, i);
+                                    let val = self.evaluate_expression_to_element(
+                                        expr,
+                                        &result_set,
+                                        i,
+                                        params,
+                                    );
                                     if let GraphElement::List(v) = val {
                                         for x in v {
                                             new_result_set.push_row_from(
@@ -2709,6 +2763,7 @@ impl Graph {
                             false,
                             #[cfg(not(target_arch = "wasm32"))]
                             sender.clone(),
+                            params,
                         )?;
                         // ⚡ Bolt: Fast-path merging subplan results into new_result_set without inner loops
                         for j in 0..sub_result_set.rows {
@@ -2894,6 +2949,7 @@ impl Graph {
                                                 &expr,
                                                 &result_set,
                                                 group_rows[0],
+                                                params,
                                             );
                                             bindings.push((out_key.as_str(), val));
                                         }
@@ -2912,7 +2968,7 @@ impl Graph {
                                                             group_rows
                                                             .iter()
                                                             .filter(|&&i| {
-                                                                let val = self.evaluate_expression_to_element(expr, &result_set, i);
+                                                                let val = self.evaluate_expression_to_element(expr, &result_set, i, params);
                                                                 val != GraphElement::Null
                                                             })
                                                             .count()
@@ -2926,6 +2982,7 @@ impl Graph {
                                                                         expr,
                                                                         &result_set,
                                                                         i,
+                                                                        params,
                                                                     );
                                                                 val != GraphElement::Null
                                                             })
@@ -2943,6 +3000,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if val != GraphElement::Null {
                                                         elements.push(val);
@@ -2960,6 +3018,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if val != GraphElement::Null {
                                                         if !elements.contains(&val) {
@@ -2979,6 +3038,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if val != GraphElement::Null {
                                                         if let Some(current_min) = &min_val {
@@ -3008,6 +3068,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if val != GraphElement::Null {
                                                         if let Some(current_max) = &max_val {
@@ -3039,6 +3100,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if let GraphElement::Number(n) = val {
                                                         sum += n;
@@ -3065,6 +3127,7 @@ impl Graph {
                                                         expr,
                                                         &result_set,
                                                         i,
+                                                        params,
                                                     );
                                                     if let GraphElement::Number(n) = val {
                                                         sum += n;
@@ -3093,6 +3156,7 @@ impl Graph {
                                                 arg,
                                                 &result_set,
                                                 group_rows[0],
+                                                params,
                                             ));
                                         }
                                         if let Some(f) =
@@ -3162,6 +3226,7 @@ impl Graph {
                                                 arg,
                                                 &result_set,
                                                 i,
+                                                params,
                                             ));
                                         }
                                         if let Some(f) =
@@ -3178,8 +3243,9 @@ impl Graph {
                                         }
                                     }
                                     ProjectionItem::Expression { expr, .. } => {
-                                        let val = self
-                                            .evaluate_expression_to_element(&expr, result_set, i);
+                                        let val = self.evaluate_expression_to_element(
+                                            &expr, result_set, i, params,
+                                        );
                                         bindings.push((out_key.as_str(), val));
                                     }
                                     _ => {}
@@ -3219,7 +3285,9 @@ impl Graph {
                             .map(|i| {
                                 let keys = order_items
                                     .iter()
-                                    .map(|item| self.evaluate_expression(&item.expr, &final_res, i))
+                                    .map(|item| {
+                                        self.evaluate_expression(&item.expr, &final_res, i, params)
+                                    })
                                     .collect();
                                 (keys, i)
                             })
@@ -3419,6 +3487,7 @@ impl Graph {
         depth: usize,
         limit: Option<usize>,
         txid: u64,
+        params: &HashMap<String, GraphElement>,
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         if self.cancel_flag.read().load(Ordering::Relaxed) {
@@ -3569,6 +3638,7 @@ impl Graph {
                     depth + 1,
                     None,
                     txid,
+                    params,
                 );
 
                 let precomputed_rel_label = self.resolve_rel_label(rel_pattern);
@@ -3726,6 +3796,7 @@ impl Graph {
                     depth + 1,
                     None,
                     txid,
+                    params,
                 );
 
                 // ⚡ Bolt: Hoist path pattern allocation out of nested hot loops to prevent redundant clones and Vec allocations per match.
@@ -3776,7 +3847,16 @@ impl Graph {
             PlanNode::Intersect { left, right } => {
                 op_name = "Intersect".to_string();
                 let mut left_res = ResultSet::new();
-                self.execute_plan(left, in_res, &mut left_res, profile, depth + 1, None, txid);
+                self.execute_plan(
+                    left,
+                    in_res,
+                    &mut left_res,
+                    profile,
+                    depth + 1,
+                    None,
+                    txid,
+                    params,
+                );
                 let mut right_res = ResultSet::new();
                 self.execute_plan(
                     right,
@@ -3786,6 +3866,7 @@ impl Graph {
                     depth + 1,
                     None,
                     txid,
+                    params,
                 );
 
                 let mut common_keys = Vec::new();
@@ -3841,11 +3922,11 @@ impl Graph {
             }
             PlanNode::Union { left, right } => {
                 op_name = "Union".to_string();
-                self.execute_plan(left, in_res, out, profile, depth + 1, limit, txid);
+                self.execute_plan(left, in_res, out, profile, depth + 1, limit, txid, params);
                 if limit.is_some_and(|l| out.rows >= l) {
                     return;
                 }
-                self.execute_plan(right, in_res, out, profile, depth + 1, limit, txid);
+                self.execute_plan(right, in_res, out, profile, depth + 1, limit, txid, params);
             }
             PlanNode::HashJoin {
                 left,
@@ -3869,6 +3950,7 @@ impl Graph {
                         depth + 1,
                         None,
                         txid,
+                        params,
                     );
 
                     let mut right_prof = if profile.is_some() {
@@ -3885,6 +3967,7 @@ impl Graph {
                         depth + 1,
                         None,
                         txid,
+                        params,
                     );
 
                     if let Some(prof) = profile {
@@ -3992,6 +4075,7 @@ impl Graph {
                         depth + 1,
                         None,
                         txid,
+                        params,
                     );
 
                     let mut right_prof = if profile.is_some() {
@@ -4008,6 +4092,7 @@ impl Graph {
                         depth + 1,
                         None,
                         txid,
+                        params,
                     );
 
                     if let Some(prof) = profile {
@@ -4061,9 +4146,10 @@ impl Graph {
         profile: &mut Option<String>,
         limit: Option<usize>,
         txid: u64,
+        params: &HashMap<String, GraphElement>,
     ) {
         let initial_rows = out.rows;
-        self.execute_plan(plan, in_res, out, profile, 0, limit, txid);
+        self.execute_plan(plan, in_res, out, profile, 0, limit, txid, params);
 
         for path in paths {
             if let Some(bound_var) = &path.bound_variable {
@@ -4575,41 +4661,42 @@ impl Graph {
         in_res: &ResultSet,
         row_idx: usize,
         txid: u64,
+        params: &HashMap<String, GraphElement>,
     ) -> bool {
         match condition {
             crate::planner::PlannedCondition::And(left, right) => {
-                self.evaluate_condition(left, in_res, row_idx, txid)
-                    && self.evaluate_condition(right, in_res, row_idx, txid)
+                self.evaluate_condition(left, in_res, row_idx, txid, params)
+                    && self.evaluate_condition(right, in_res, row_idx, txid, params)
             }
             crate::planner::PlannedCondition::Or(left, right) => {
-                self.evaluate_condition(left, in_res, row_idx, txid)
-                    || self.evaluate_condition(right, in_res, row_idx, txid)
+                self.evaluate_condition(left, in_res, row_idx, txid, params)
+                    || self.evaluate_condition(right, in_res, row_idx, txid, params)
             }
             crate::planner::PlannedCondition::Not(inner) => {
-                !self.evaluate_condition(inner, in_res, row_idx, txid)
+                !self.evaluate_condition(inner, in_res, row_idx, txid, params)
             }
             crate::planner::PlannedCondition::Compare { left, op, right } => {
                 if let CompareOp::In = op {
                     if let Expression::List(elements) = right {
-                        let l_val = self.evaluate_expression(left, in_res, row_idx);
+                        let l_val = self.evaluate_expression(left, in_res, row_idx, params);
                         return elements.iter().any(|item| {
-                            let item_val = self.evaluate_expression(item, in_res, row_idx);
+                            let item_val = self.evaluate_expression(item, in_res, row_idx, params);
                             l_val.compare(&item_val, &CompareOp::Eq)
                         });
                     }
                     return false;
                 }
 
-                let l_val = self.evaluate_expression(left, in_res, row_idx);
-                let r_val = self.evaluate_expression(right, in_res, row_idx);
+                let l_val = self.evaluate_expression(left, in_res, row_idx, params);
+                let r_val = self.evaluate_expression(right, in_res, row_idx, params);
                 l_val.compare(&r_val, op)
             }
             crate::planner::PlannedCondition::IsNull(expr) => {
-                let val = self.evaluate_expression(expr, in_res, row_idx);
+                let val = self.evaluate_expression(expr, in_res, row_idx, params);
                 matches!(val, EvalValue::Null)
             }
             crate::planner::PlannedCondition::IsNotNull(expr) => {
-                let val = self.evaluate_expression(expr, in_res, row_idx);
+                let val = self.evaluate_expression(expr, in_res, row_idx, params);
                 !matches!(val, EvalValue::Null)
             }
             crate::planner::PlannedCondition::Exists(query_plan) => {
@@ -4627,6 +4714,7 @@ impl Graph {
                     false,
                     #[cfg(not(target_arch = "wasm32"))]
                     None,
+                    params,
                 );
                 !sub_res.is_empty()
             }
@@ -4672,11 +4760,13 @@ impl Graph {
         expr: &Expression,
         in_res: &ResultSet,
         row_idx: usize,
+        params: &HashMap<String, GraphElement>,
     ) -> GraphElement {
         match expr {
             Expression::StringLiteral(s) => GraphElement::String(s.clone()),
             Expression::NumberLiteral(n) => GraphElement::Number(*n),
             Expression::BooleanLiteral(b) => GraphElement::Boolean(*b),
+            Expression::Parameter(p) => params.get(p).cloned().unwrap_or(GraphElement::Null),
             Expression::Variable(var) => in_res
                 .get(row_idx, var)
                 .cloned()
@@ -4686,7 +4776,8 @@ impl Graph {
 
                 // Intercept `labels()`
                 if func_lower == "labels" && args.len() == 1 {
-                    let arg_val = self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    let arg_val =
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx, params);
                     let node_id_opt = match arg_val {
                         GraphElement::Node(id) => Some(id),
                         GraphElement::Path(ref elements) => {
@@ -4725,7 +4816,7 @@ impl Graph {
                 // Intercept `type()`
                 if func_lower == "type" && args.len() == 1 {
                     let mut arg_val =
-                        self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx, params);
                     if let GraphElement::Path(ref elements) = arg_val {
                         if elements.len() >= 2 {
                             arg_val = elements[1].clone();
@@ -4753,7 +4844,9 @@ impl Graph {
                 if let Some(f) = self.functions.read().get(&func_lower) {
                     let eval_args: Vec<GraphElement> = args
                         .iter()
-                        .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
+                        .map(|arg| {
+                            self.evaluate_expression_to_element(arg, in_res, row_idx, params)
+                        })
                         .collect();
                     match f(&eval_args) {
                         Ok(res) => res,
@@ -4769,7 +4862,7 @@ impl Graph {
             Expression::List(elements) => {
                 let lst: Vec<GraphElement> = elements
                     .iter()
-                    .map(|e| self.evaluate_expression_to_element(e, in_res, row_idx))
+                    .map(|e| self.evaluate_expression_to_element(e, in_res, row_idx, params))
                     .collect();
                 GraphElement::List(lst)
             }
@@ -4778,14 +4871,14 @@ impl Graph {
                 for (k, v) in map {
                     result_map.insert(
                         k.clone(),
-                        self.evaluate_expression_to_element(v, in_res, row_idx),
+                        self.evaluate_expression_to_element(v, in_res, row_idx, params),
                     );
                 }
                 GraphElement::Map(result_map)
             }
             Expression::Math(left, op, right) => {
-                let left_val = self.evaluate_expression_to_element(left, in_res, row_idx);
-                let right_val = self.evaluate_expression_to_element(right, in_res, row_idx);
+                let left_val = self.evaluate_expression_to_element(left, in_res, row_idx, params);
+                let right_val = self.evaluate_expression_to_element(right, in_res, row_idx, params);
                 if let (GraphElement::Number(l), GraphElement::Number(r)) = (left_val, right_val) {
                     match op {
                         crate::parser::MathOp::Add => GraphElement::Number(l + r),
@@ -4819,11 +4912,23 @@ impl Graph {
         expr: &'a Expression,
         in_res: &'a ResultSet,
         row_idx: usize,
+        params: &'a HashMap<String, GraphElement>,
     ) -> EvalValue<'a> {
         match expr {
             Expression::StringLiteral(s) => EvalValue::String(Cow::Borrowed(s.as_str())),
             Expression::NumberLiteral(n) => EvalValue::Number(*n),
             Expression::BooleanLiteral(b) => EvalValue::Boolean(*b),
+            Expression::Parameter(p) => params
+                .get(p)
+                .map(|el| match el {
+                    GraphElement::Number(n) => EvalValue::Number(*n),
+                    GraphElement::String(s) => EvalValue::String(Cow::Owned(s.clone())),
+                    GraphElement::Boolean(b) => EvalValue::Boolean(*b),
+                    GraphElement::Date(d) => EvalValue::Date(*d),
+                    GraphElement::DateTime(dt) => EvalValue::DateTime(*dt),
+                    _ => EvalValue::Null,
+                })
+                .unwrap_or(EvalValue::Null),
             Expression::Variable(var) => {
                 if let Some(element) = in_res.get(row_idx, var) {
                     match element {
@@ -4851,7 +4956,8 @@ impl Graph {
 
                 // Intercept `labels()`
                 if func_lower == "labels" && args.len() == 1 {
-                    let arg_val = self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                    let arg_val =
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx, params);
                     let node_id_opt = match arg_val {
                         GraphElement::Node(id) => Some(id),
                         GraphElement::Path(ref elements) => {
@@ -4893,7 +4999,7 @@ impl Graph {
                 // Intercept `type()`
                 if func_lower == "type" && args.len() == 1 {
                     let mut arg_val =
-                        self.evaluate_expression_to_element(&args[0], in_res, row_idx);
+                        self.evaluate_expression_to_element(&args[0], in_res, row_idx, params);
                     if let GraphElement::Path(ref elements) = arg_val {
                         if elements.len() >= 2 {
                             arg_val = elements[1].clone();
@@ -4923,7 +5029,9 @@ impl Graph {
                 if let Some(f) = self.functions.read().get(&func_lower) {
                     let eval_args: Vec<GraphElement> = args
                         .iter()
-                        .map(|arg| self.evaluate_expression_to_element(arg, in_res, row_idx))
+                        .map(|arg| {
+                            self.evaluate_expression_to_element(arg, in_res, row_idx, params)
+                        })
                         .collect();
                     match f(&eval_args) {
                         Ok(res) => match res {
@@ -4973,8 +5081,8 @@ impl Graph {
             Expression::List(_) => EvalValue::Null,
             Expression::Map(_) => EvalValue::Null,
             Expression::Math(left, op, right) => {
-                let left_val = self.evaluate_expression(left, in_res, row_idx);
-                let right_val = self.evaluate_expression(right, in_res, row_idx);
+                let left_val = self.evaluate_expression(left, in_res, row_idx, params);
+                let right_val = self.evaluate_expression(right, in_res, row_idx, params);
                 if let (EvalValue::Number(l), EvalValue::Number(r)) = (left_val, right_val) {
                     match op {
                         crate::parser::MathOp::Add => EvalValue::Number(l + r),

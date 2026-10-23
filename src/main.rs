@@ -286,6 +286,53 @@ async fn handle_cursor_close(
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(feature = "cluster"))]
+fn parse_query_request(
+    body: &str,
+) -> (
+    String,
+    std::collections::HashMap<String, yagdb::graph::element::GraphElement>,
+) {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+        if json.is_object() && json.get("query").is_some() {
+            let query = json
+                .get("query")
+                .unwrap()
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let mut params = std::collections::HashMap::new();
+            if let Some(p) = json.get("parameters") {
+                if let Some(obj) = p.as_object() {
+                    for (k, v) in obj {
+                        let el = match v {
+                            serde_json::Value::Number(n) => {
+                                if let Some(f) = n.as_f64() {
+                                    yagdb::graph::element::GraphElement::Number(f)
+                                } else {
+                                    yagdb::graph::element::GraphElement::Null
+                                }
+                            }
+                            serde_json::Value::String(s) => {
+                                yagdb::graph::element::GraphElement::String(s.clone())
+                            }
+                            serde_json::Value::Bool(b) => {
+                                yagdb::graph::element::GraphElement::Boolean(*b)
+                            }
+                            serde_json::Value::Null => yagdb::graph::element::GraphElement::Null,
+                            _ => yagdb::graph::element::GraphElement::Null,
+                        };
+                        params.insert(k.clone(), el);
+                    }
+                }
+            }
+            return (query, params);
+        }
+    }
+    (body.to_string(), std::collections::HashMap::new())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 async fn handle_query(
     headers: axum::http::HeaderMap,
     State(graph): State<SharedGraph>,
@@ -295,12 +342,13 @@ async fn handle_query(
         return e.into_response();
     }
 
+    let (q, params) = parse_query_request(&body);
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
     let g = graph.clone();
     *g.cancel_flag.write() = cancel;
     let guard = GraphGuard { g };
-    let res = tokio::task::spawn_blocking(move || guard.g.execute(&body))
+    let res = tokio::task::spawn_blocking(move || guard.g.execute_with_params(&q, params))
         .await
         .unwrap_or_else(|_| Err("Query cancelled".to_string()));
 
@@ -389,6 +437,7 @@ async fn handle_query_stream(
         return e.into_response();
     }
 
+    let (q, params) = parse_query_request(&body);
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _guard = CancelGuard(cancel.clone());
     let g = graph.clone();
@@ -396,7 +445,9 @@ async fn handle_query_stream(
     let guard = GraphGuard { g };
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
-    let handle = tokio::task::spawn_blocking(move || guard.g.execute_stream(&body, Some(tx)));
+    let handle = tokio::task::spawn_blocking(move || {
+        guard.g.execute_stream_with_params(&q, params, Some(tx))
+    });
 
     let stream = async_stream::stream! {
         loop {
