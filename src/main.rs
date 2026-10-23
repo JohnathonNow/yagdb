@@ -331,6 +331,8 @@ fn parse_query_request(
     (body.to_string(), std::collections::HashMap::new())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
 async fn handle_query(
     headers: axum::http::HeaderMap,
     State(graph): State<SharedGraph>,
