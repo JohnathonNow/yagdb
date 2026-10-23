@@ -50,3 +50,7 @@
 ## 2026-10-14 - Refactor EXISTS subquery evaluation to avoid `get_row` map allocations
 **Learning:** Calling `get_row` allocates a new `HashMap` for the environment per iteration. Inside the hot evaluation filter loop (e.g. for `EXISTS` conditions), this caused an unnecessary heap allocation.
 **Action:** In `evaluate_condition`, when populating the localized `ResultSet` for the subquery, bypass the intermediate map allocation by replacing `sub_res.push_row(&in_res.get_row(row_idx));` with `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());`.
+
+## 2026-10-23 - Lazy Profile String Allocation in execute_plan
+**Learning:** In yagdb's query execution engine, `op_name` was unconditionally formatted or cloned into a `String` at the beginning of `execute_plan` for profiling purposes. However, `execute_plan` is highly recursive, and `profile` is often `None` in production, meaning these heap allocations were entirely wasted.
+**Action:** When working with profiling or logging blocks, ensure any expensive string formatting (`format!`, `to_string()`) is placed strictly inside the conditional block (e.g., `if let Some(prof) = profile`) to guarantee zero cost when disabled.
