@@ -50,3 +50,7 @@
 ## 2026-10-14 - Refactor EXISTS subquery evaluation to avoid `get_row` map allocations
 **Learning:** Calling `get_row` allocates a new `HashMap` for the environment per iteration. Inside the hot evaluation filter loop (e.g. for `EXISTS` conditions), this caused an unnecessary heap allocation.
 **Action:** In `evaluate_condition`, when populating the localized `ResultSet` for the subquery, bypass the intermediate map allocation by replacing `sub_res.push_row(&in_res.get_row(row_idx));` with `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());`.
+
+## $(date +%Y-%m-%d) - [Avoid repetitive vec allocations when computing DISTINCT rows]
+**Learning:** In yagdb's query execution engine (`src/graph/mod.rs`), specifically within the DISTINCT processing logic (when projecting rows), checking uniqueness via a `HashSet` created a severe performance bottleneck. A new row bindings vector was continually cloned (`seen.insert(row_bindings.clone())`), thereby unconditionally allocating memory for every evaluated row, regardless of whether it was unique.
+**Action:** Always check uniqueness first without allocating, using `!seen.contains(&buf)`. If a new entry is detected, move the current buffer into the HashSet and replace it with a pre-allocated vector `std::mem::replace(&mut buf, Vec::with_capacity(capacity))` so that continuous redundant heap allocations are avoided in duplicate-heavy paths.
