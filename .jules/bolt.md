@@ -50,3 +50,7 @@
 ## 2026-10-14 - Refactor EXISTS subquery evaluation to avoid `get_row` map allocations
 **Learning:** Calling `get_row` allocates a new `HashMap` for the environment per iteration. Inside the hot evaluation filter loop (e.g. for `EXISTS` conditions), this caused an unnecessary heap allocation.
 **Action:** In `evaluate_condition`, when populating the localized `ResultSet` for the subquery, bypass the intermediate map allocation by replacing `sub_res.push_row(&in_res.get_row(row_idx));` with `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());`.
+
+## 2026-10-15 - Lazily evaluating profiling operation names in graph match branches
+**Learning:** In yagdb's `execute_plan` match logic, `op_name` assignment and basic string formatting (e.g. `op_name = format!("NodeLabelLookup({})", label)`) occurred in every matched branch BEFORE checking if profiling was actually enabled (`if let Some(prof) = profile`). This created massive, redundant heap allocation pressure for the string operations inside query traversals that iterate thousands of times.
+**Action:** Move profiling trace string formatting or allocation strictly inside the `if let Some(prof) = profile` block. Using `std::borrow::Cow` allows borrowing static string literals (`Cow::Borrowed("FullNodeScan")`) avoiding allocations altogether when formatting is not required.
