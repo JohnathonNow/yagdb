@@ -163,9 +163,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -181,9 +183,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -195,9 +199,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => !l & r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -209,9 +215,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -227,6 +235,26 @@ impl<'a> EvalValue<'a> {
             CompareOp::EndsWith => l.ends_with(r),
             CompareOp::Contains => l.contains(r),
             CompareOp::In => false,
+            CompareOp::RegexMatch => {
+                thread_local! {
+                    static REGEX_CACHE: std::cell::RefCell<lru::LruCache<String, regex::Regex>> =
+                        std::cell::RefCell::new(lru::LruCache::new(std::num::NonZeroUsize::new(100).unwrap()));
+                }
+
+                REGEX_CACHE.with(|cache_ref| {
+                    let mut cache = cache_ref.borrow_mut();
+                    if let Some(re) = cache.get(r) {
+                        return re.is_match(l);
+                    }
+                    if let Ok(re) = regex::Regex::new(r) {
+                        let is_match = re.is_match(l);
+                        cache.put(r.to_string(), re);
+                        is_match
+                    } else {
+                        false
+                    }
+                })
+            }
         }
     }
 }

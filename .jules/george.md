@@ -1,3 +1,6 @@
+## 2024-11-20 - [Implement Cypher Regex Matching]
+**Learning:** In yagdb's query execution engine, evaluating Cypher regular expressions (`=~`) repeatedly across rows in a hot loop incurs significant O(N) regex compilation overhead. Using a `thread_local!` `lru::LruCache` securely caches and reuses `regex::Regex` instances across row iterations without lock contention, eliminating recompilation overhead while maintaining fixed memory bounds.
+**Action:** When adding operations requiring expensive string parsing or compilation during query execution, utilize a bounded `thread_local!` cache pattern rather than raw heap or lock-based concurrent caches.
 ## 2024-05-24 - [Implement HTTP Batch Query API]
 **Learning:** Adding endpoints in a clustered environment requires forwarding cluster writes to the leader securely. Because tests may not run under full async web contexts out-of-the-box (e.g. absent `axum-test` extensions for `tower::ServiceExt` like `oneshot`), keeping core logic testable without HTTP wrappers is a priority.
 **Action:** When adding HTTP APIs that modify state, always handle routing them explicitly to the cluster leader, and implement core logic testing via directly executing against `GraphGuard` sequentially or in an abstracted layer to bypass complex network mocking.
