@@ -50,3 +50,6 @@
 ## 2026-10-14 - Refactor EXISTS subquery evaluation to avoid `get_row` map allocations
 **Learning:** Calling `get_row` allocates a new `HashMap` for the environment per iteration. Inside the hot evaluation filter loop (e.g. for `EXISTS` conditions), this caused an unnecessary heap allocation.
 **Action:** In `evaluate_condition`, when populating the localized `ResultSet` for the subquery, bypass the intermediate map allocation by replacing `sub_res.push_row(&in_res.get_row(row_idx));` with `sub_res.push_row_from(in_res, row_idx, std::iter::empty::<(&str, GraphElement)>());`.
+## 2025-02-12 - Eliminate Vec cloning during HashSet insertions
+**Learning:** In yagdb's DISTINCT deduplication loops (e.g. `ExecutionStep::With`/`Return`), unconditionally cloning a `row_bindings` Vec to insert into a `HashSet` causes excessive memory allocations, acting as a performance bottleneck for queries with high duplication.
+**Action:** Replace `seen.insert(row_bindings.clone())` with a check `!seen.contains(&row_bindings)` to avoid cloning on cache hits. On misses, use `std::mem::replace(&mut row_bindings, Vec::with_capacity(...))` to transfer ownership to the collection without allocating a copy, while reusing the capacity mechanism for the next loop iteration.
