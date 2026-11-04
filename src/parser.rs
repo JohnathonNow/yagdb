@@ -112,6 +112,7 @@ pub enum CompareOp {
     EndsWith,
     Contains,
     In,
+    RegexMatch,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -513,6 +514,7 @@ fn compare_op(input: &str) -> IResult<&str, CompareOp> {
         map(tag("!="), |_| CompareOp::Neq),
         map(tag(">"), |_| CompareOp::Gt),
         map(tag("<"), |_| CompareOp::Lt),
+        map(tag("=~"), |_| CompareOp::RegexMatch),
         map(tag("="), |_| CompareOp::Eq),
         map(nom::bytes::complete::tag_no_case("STARTS WITH"), |_| {
             CompareOp::StartsWith

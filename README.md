@@ -14,8 +14,9 @@
     - Relationships: `MATCH (a)-[r:KNOWS]->(b)`
     - Variable Length Paths: `MATCH (a)-[*1..3]->(b)`
     - Bound Variables to Paths: `MATCH p = (a)-[*1..3]->(b)`
-  - **WHERE:** Filters results based on conditions. Supports AND, OR, NOT, and comparison operators (`=`, `!=`, `<`, `>`, `<=`, `>=`).
+  - **WHERE:** Filters results based on conditions. Supports AND, OR, NOT, and comparison operators (`=`, `!=`, `<`, `>`, `<=`, `>=`, `=~`).
     - Property comparison: `MATCH (n:Person) WHERE n.age > 25`
+    - Regex match: `MATCH (n:Person) WHERE n.name =~ '(?i)^a.*'`
     - Boolean logic: `MATCH (n:Person) WHERE n.age > 25 AND NOT n.name = 'Bob'`
   - **RETURN:** Specifies what to include in the query result. Supports aliasing.
     - Variables: `RETURN n, r`
