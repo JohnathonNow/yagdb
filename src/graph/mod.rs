@@ -3203,7 +3203,11 @@ impl Graph {
                                     row_bindings.push(GraphElement::Null);
                                 }
                             }
-                            if seen.insert(row_bindings.clone()) {
+                            if !seen.contains(&row_bindings) {
+                                seen.insert(std::mem::replace(
+                                    &mut row_bindings,
+                                    Vec::with_capacity(precomputed_keys.len()),
+                                ));
                                 distinct_res.push_row_from(
                                     &final_res,
                                     i,
