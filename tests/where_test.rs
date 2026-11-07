@@ -110,6 +110,32 @@ fn test_string_operators_execution() {
 }
 
 #[test]
+fn test_regex_match() {
+    let graph = Graph::new();
+    let q_create =
+        "CREATE (a:Item {name: 'Apple'}), (b:Item {name: 'Banana'}), (c:Item {name: 'Cherry'})";
+    graph.execute(q_create).unwrap();
+
+    let q_regex = "MATCH (n:Item) WHERE n.name =~ '^A.*' RETURN n.name";
+    let res_regex = graph.execute(q_regex).unwrap();
+    assert!(res_regex.contains("Apple"));
+    assert!(!res_regex.contains("Banana"));
+    assert!(!res_regex.contains("Cherry"));
+
+    let q_regex_contains = "MATCH (n:Item) WHERE n.name =~ '.*an.*' RETURN n.name";
+    let res_regex_contains = graph.execute(q_regex_contains).unwrap();
+    assert!(!res_regex_contains.contains("Apple"));
+    assert!(res_regex_contains.contains("Banana"));
+    assert!(!res_regex_contains.contains("Cherry"));
+
+    let q_regex_case = "MATCH (n:Item) WHERE n.name =~ '(?i)^a.*' RETURN n.name";
+    let res_regex_case = graph.execute(q_regex_case).unwrap();
+    assert!(res_regex_case.contains("Apple"));
+    assert!(!res_regex_case.contains("Banana"));
+    assert!(!res_regex_case.contains("Cherry"));
+}
+
+#[test]
 fn test_call_subquery() {
     let g = Graph::new();
     g.execute(
