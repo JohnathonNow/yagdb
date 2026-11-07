@@ -3429,14 +3429,10 @@ impl Graph {
             return;
         }
 
-        let indent = "  ".repeat(depth);
-        let op_name;
-
         let initial_rows = out.rows;
 
         match plan {
             PlanNode::FullNodeScan { pattern } => {
-                op_name = "FullNodeScan".to_string();
                 let precomputed_label_id = self.resolve_node_label(pattern);
                 for i in 0..in_res.rows {
                     let nodes = self.find_nodes(pattern, precomputed_label_id, in_res, i, txid);
@@ -3461,7 +3457,6 @@ impl Graph {
                 }
             }
             PlanNode::NodeLabelLookup { label, pattern } => {
-                op_name = format!("NodeLabelLookup({})", label);
                 let mut matched_nodes = Vec::new();
                 if let Some(label_id) = self.labels.read().get(label).copied() {
                     let pattern_label_id = self.resolve_node_label(pattern);
@@ -3507,7 +3502,6 @@ impl Graph {
                 value,
                 pattern,
             } => {
-                op_name = format!("NodeIndexLookup({}.{}='{:?}')", label, property, value);
                 let mut matched_nodes = Vec::new();
                 let mut candidate_ids = Vec::new();
                 if let Some(label_id) = self.labels.read().get(label) {
@@ -3563,7 +3557,6 @@ impl Graph {
                 rel_pattern,
                 target_node_pattern,
             } => {
-                op_name = "ShortestPath".to_string();
                 let mut source_res = ResultSet::new();
                 self.execute_plan(
                     source,
@@ -3720,7 +3713,6 @@ impl Graph {
                 rel_pattern,
                 target_node_pattern,
             } => {
-                op_name = "PathExpand".to_string();
                 let mut source_res = ResultSet::new();
                 self.execute_plan(
                     source,
@@ -3778,7 +3770,6 @@ impl Graph {
                 }
             }
             PlanNode::Intersect { left, right } => {
-                op_name = "Intersect".to_string();
                 let mut left_res = ResultSet::new();
                 self.execute_plan(left, in_res, &mut left_res, profile, depth + 1, None, txid);
                 let mut right_res = ResultSet::new();
@@ -3844,7 +3835,6 @@ impl Graph {
                 }
             }
             PlanNode::Union { left, right } => {
-                op_name = "Union".to_string();
                 self.execute_plan(left, in_res, out, profile, depth + 1, limit, txid);
                 if limit.is_some_and(|l| out.rows >= l) {
                     return;
@@ -3856,7 +3846,6 @@ impl Graph {
                 right,
                 join_keys,
             } => {
-                op_name = "HashJoin".to_string();
                 let mut single_res = ResultSet::new();
                 let mut left_res = ResultSet::new();
                 let mut right_res = ResultSet::new();
@@ -3975,7 +3964,6 @@ impl Graph {
                 }
             }
             PlanNode::CrossProduct { left, right } => {
-                op_name = "CrossProduct".to_string();
                 // To preserve incoming row associations correctly when cross joining independent paths
                 // evaluated on the SAME incoming row, we process each incoming row separately for cross-product.
 
@@ -4047,6 +4035,23 @@ impl Graph {
         };
 
         if let Some(prof) = profile {
+            let op_name = match plan {
+                PlanNode::FullNodeScan { .. } => "FullNodeScan".to_string(),
+                PlanNode::NodeLabelLookup { label, .. } => format!("NodeLabelLookup({})", label),
+                PlanNode::NodeIndexLookup {
+                    label,
+                    property,
+                    value,
+                    ..
+                } => format!("NodeIndexLookup({}.{}='{:?}')", label, property, value),
+                PlanNode::ShortestPath { .. } => "ShortestPath".to_string(),
+                PlanNode::PathExpand { .. } => "PathExpand".to_string(),
+                PlanNode::Intersect { .. } => "Intersect".to_string(),
+                PlanNode::Union { .. } => "Union".to_string(),
+                PlanNode::HashJoin { .. } => "HashJoin".to_string(),
+                PlanNode::CrossProduct { .. } => "CrossProduct".to_string(),
+            };
+            let indent = "  ".repeat(depth);
             prof.push_str(&format!(
                 "{}{} ({} rows)\n",
                 indent,
