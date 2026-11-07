@@ -163,7 +163,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
                 false
             }
         }
@@ -181,7 +181,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
                 false
             }
         }
@@ -195,7 +195,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => !l & r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
                 false
             }
         }
@@ -209,7 +209,7 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In => {
+            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
                 false
             }
         }
@@ -227,6 +227,32 @@ impl<'a> EvalValue<'a> {
             CompareOp::EndsWith => l.ends_with(r),
             CompareOp::Contains => l.contains(r),
             CompareOp::In => false,
+            CompareOp::RegexMatch => {
+                // ⚡ George: [Regex Match Execution]
+                // 💡 What: Evaluate `=~` using regex compilation.
+                // 🎯 Why: Recompiling a regex for every row iteration evaluates is exceptionally slow (O(n) overhead on `Regex::new`).
+                // 📊 Impact: O(1) matching time after initial compilation by reusing compiled regex objects via thread-local LRU Cache.
+                // 🔬 Measurement: Benchmarking standard query throughput before and after this optimization with `=~` in loops.
+                thread_local! {
+                    static REGEX_CACHE: std::cell::RefCell<lru::LruCache<String, regex::Regex>> =
+                        std::cell::RefCell::new(lru::LruCache::new(std::num::NonZeroUsize::new(100).unwrap()));
+                }
+                REGEX_CACHE.with(|cache| {
+                    let mut cache = cache.borrow_mut();
+                    // Fix: deref `r` correctly by providing a String instead of a reference. We use a slice here via `.as_str()`.
+                    // We can just use `r.to_string()` for lookup to bypass any double reference borrowing issues with LruCache.
+                    if let Some(re) = cache.get(r) {
+                        return re.is_match(l);
+                    }
+                    if let Ok(re) = regex::Regex::new(r) {
+                        let is_match = re.is_match(l);
+                        cache.put(r.to_string(), re);
+                        is_match
+                    } else {
+                        false
+                    }
+                })
+            }
         }
     }
 }
