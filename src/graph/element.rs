@@ -163,9 +163,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -181,9 +183,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -195,9 +199,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => !l & r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
@@ -209,9 +215,11 @@ impl<'a> EvalValue<'a> {
             CompareOp::Gte => l >= r,
             CompareOp::Lt => l < r,
             CompareOp::Lte => l <= r,
-            CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains | CompareOp::In | CompareOp::RegexMatch => {
-                false
-            }
+            CompareOp::StartsWith
+            | CompareOp::EndsWith
+            | CompareOp::Contains
+            | CompareOp::In
+            | CompareOp::RegexMatch => false,
         }
     }
 
