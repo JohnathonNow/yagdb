@@ -34,6 +34,17 @@ fn default_ast_cache() -> parking_lot::RwLock<indexmap::IndexMap<String, crate::
     parking_lot::RwLock::new(indexmap::IndexMap::new())
 }
 
+#[derive(Default)]
+pub struct Metrics {
+    pub queries_total: std::sync::atomic::AtomicU64,
+    pub queries_failed_total: std::sync::atomic::AtomicU64,
+    pub query_duration_micros_total: std::sync::atomic::AtomicU64,
+}
+
+fn default_metrics() -> std::sync::Arc<Metrics> {
+    std::sync::Arc::new(Metrics::default())
+}
+
 use crate::planner::{ExecutionStep, PlanNode, QueryPlan, QueryPlanner};
 use crate::{
     edge::Edge,
@@ -76,6 +87,8 @@ pub struct Graph {
     pub ast_cache: parking_lot::RwLock<indexmap::IndexMap<String, crate::parser::Query>>,
     #[serde(skip)]
     pub cursors: parking_lot::RwLock<HashMap<String, CursorState>>,
+    #[serde(skip, default = "default_metrics")]
+    pub metrics: std::sync::Arc<Metrics>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -628,6 +641,7 @@ impl Graph {
             functions: parking_lot::RwLock::new(HashMap::new()),
             ast_cache: parking_lot::RwLock::new(indexmap::IndexMap::new()),
             cursors: parking_lot::RwLock::new(HashMap::new()),
+            metrics: default_metrics(),
         };
         g.register_default_functions();
         g
@@ -1410,6 +1424,28 @@ impl Graph {
         query_str: &str,
         params: HashMap<String, GraphElement>,
     ) -> Result<String, String> {
+        self.metrics
+            .queries_total
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let start_time = std::time::Instant::now();
+        let res = self.execute_cursor_with_params_inner(query_str, params);
+        let duration = start_time.elapsed().as_micros() as u64;
+        self.metrics
+            .query_duration_micros_total
+            .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        if res.is_err() {
+            self.metrics
+                .queries_failed_total
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        res
+    }
+
+    fn execute_cursor_with_params_inner(
+        &self,
+        query_str: &str,
+        params: HashMap<String, GraphElement>,
+    ) -> Result<String, String> {
         let txid = self
             .next_txid
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1578,6 +1614,36 @@ impl Graph {
 
     #[cfg_attr(not(target_arch = "wasm32"), tracing::instrument(skip(self)))]
     pub fn execute_stream_with_params(
+        &self,
+        query_str: &str,
+        params: HashMap<String, GraphElement>,
+        #[cfg(not(target_arch = "wasm32"))] sender: Option<
+            tokio::sync::mpsc::Sender<serde_json::Value>,
+        >,
+    ) -> Result<String, String> {
+        self.metrics
+            .queries_total
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let start_time = std::time::Instant::now();
+        let res = self.execute_stream_with_params_inner(
+            query_str,
+            params,
+            #[cfg(not(target_arch = "wasm32"))]
+            sender,
+        );
+        let duration = start_time.elapsed().as_micros() as u64;
+        self.metrics
+            .query_duration_micros_total
+            .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        if res.is_err() {
+            self.metrics
+                .queries_failed_total
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        res
+    }
+
+    fn execute_stream_with_params_inner(
         &self,
         query_str: &str,
         params: HashMap<String, GraphElement>,

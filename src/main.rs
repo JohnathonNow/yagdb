@@ -97,6 +97,7 @@ async fn main() {
         .route("/cursor/:id", axum::routing::get(handle_cursor_fetch))
         .route("/cursor/:id", axum::routing::delete(handle_cursor_close))
         .route("/backup", axum::routing::get(handle_backup))
+        .route("/metrics", axum::routing::get(handle_metrics))
         .route(
             "/console",
             axum::routing::get_service(ServeFile::new("console.html")),
@@ -396,6 +397,58 @@ async fn handle_batch(
         Ok(results) => (axum::http::StatusCode::OK, axum::Json(results)).into_response(),
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, format!("Error: {}", e)).into_response(),
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "cluster"))]
+async fn handle_metrics(State(graph): State<SharedGraph>) -> impl IntoResponse {
+    let mut output = String::new();
+
+    output.push_str("# HELP yagdb_queries_total Total number of Cypher queries executed\n");
+    output.push_str("# TYPE yagdb_queries_total counter\n");
+    output.push_str(&format!(
+        "yagdb_queries_total {}\n",
+        graph
+            .metrics
+            .queries_total
+            .load(std::sync::atomic::Ordering::Relaxed)
+    ));
+
+    output.push_str("# HELP yagdb_queries_failed_total Total number of failed Cypher queries\n");
+    output.push_str("# TYPE yagdb_queries_failed_total counter\n");
+    output.push_str(&format!(
+        "yagdb_queries_failed_total {}\n",
+        graph
+            .metrics
+            .queries_failed_total
+            .load(std::sync::atomic::Ordering::Relaxed)
+    ));
+
+    output.push_str("# HELP yagdb_query_duration_seconds_total Total duration of all Cypher queries in seconds\n");
+    output.push_str("# TYPE yagdb_query_duration_seconds_total counter\n");
+    let micros = graph
+        .metrics
+        .query_duration_micros_total
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let seconds = (micros as f64) / 1_000_000.0;
+    output.push_str(&format!("yagdb_query_duration_seconds_total {}\n", seconds));
+
+    output.push_str("# HELP yagdb_nodes_total Total number of nodes in the graph\n");
+    output.push_str("# TYPE yagdb_nodes_total gauge\n");
+    output.push_str(&format!("yagdb_nodes_total {}\n", graph.nodes.len_items()));
+
+    output.push_str("# HELP yagdb_edges_total Total number of edges in the graph\n");
+    output.push_str("# TYPE yagdb_edges_total gauge\n");
+    output.push_str(&format!("yagdb_edges_total {}\n", graph.edges.len_items()));
+
+    (
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        output,
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
