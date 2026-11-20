@@ -30,8 +30,6 @@ parking_lot = { version = "0.12.5", features = ["serde"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 rand = "0.8.5"
-tokio = { version = "1", features = ["sync"] }
-async-stream = "0.3.6"
 regex = "1.13.1"
 lru = "0.19.0"
 
@@ -45,6 +43,7 @@ tower = { version = "0.4", features = ["util"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 axum = "0.6"
 tokio = { version = "1", features = ["full"] }
+async-stream = "0.3.6"
 tower-http = { version = "0.4.0", features = ["fs", "trace", "compression-full", "decompression-full"] }
 jsonwebtoken = "9.3.0"
 serde = { version = "1.0", features = ["derive"] }

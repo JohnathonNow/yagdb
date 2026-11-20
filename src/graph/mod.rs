@@ -63,6 +63,7 @@ pub struct CursorState {
     pub keys: Vec<String>,
     pub items_vec: Vec<crate::parser::ProjectionItem>,
     pub position: usize,
+    #[cfg(not(target_arch = "wasm32"))]
     pub created_at: std::time::Instant,
 }
 
@@ -1427,12 +1428,16 @@ impl Graph {
         self.metrics
             .queries_total
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = std::time::Instant::now();
         let res = self.execute_cursor_with_params_inner(query_str, params);
-        let duration = start_time.elapsed().as_micros() as u64;
-        self.metrics
-            .query_duration_micros_total
-            .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let duration = start_time.elapsed().as_micros() as u64;
+            self.metrics
+                .query_duration_micros_total
+                .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        }
         if res.is_err() {
             self.metrics
                 .queries_failed_total
@@ -1501,15 +1506,19 @@ impl Graph {
                 keys,
                 items_vec,
                 position: 0,
+                #[cfg(not(target_arch = "wasm32"))]
                 created_at: std::time::Instant::now(),
             };
 
             let mut cursors = self.cursors.write();
 
             // Cleanup stale cursors (older than 10 minutes)
-            let now = std::time::Instant::now();
-            let max_age = std::time::Duration::from_secs(600);
-            cursors.retain(|_, c| now.duration_since(c.created_at) < max_age);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let now = std::time::Instant::now();
+                let max_age = std::time::Duration::from_secs(600);
+                cursors.retain(|_, c| now.duration_since(c.created_at) < max_age);
+            }
 
             // Limit total cursors to prevent memory leaks
             if cursors.len() > 1000 {
@@ -1624,6 +1633,7 @@ impl Graph {
         self.metrics
             .queries_total
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = std::time::Instant::now();
         let res = self.execute_stream_with_params_inner(
             query_str,
@@ -1631,10 +1641,13 @@ impl Graph {
             #[cfg(not(target_arch = "wasm32"))]
             sender,
         );
-        let duration = start_time.elapsed().as_micros() as u64;
-        self.metrics
-            .query_duration_micros_total
-            .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let duration = start_time.elapsed().as_micros() as u64;
+            self.metrics
+                .query_duration_micros_total
+                .fetch_add(duration, std::sync::atomic::Ordering::Relaxed);
+        }
         if res.is_err() {
             self.metrics
                 .queries_failed_total

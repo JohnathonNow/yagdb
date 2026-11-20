@@ -15,7 +15,6 @@ pub mod raft;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {
     use crate::graph::Graph;
-    use std::sync::Mutex;
     use wasm_bindgen::prelude::*;
 
     static GRAPH: once_cell::sync::Lazy<Graph> = once_cell::sync::Lazy::new(|| Graph::new());
